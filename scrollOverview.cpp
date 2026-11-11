@@ -80,6 +80,8 @@
 static PHLWINDOW getOverviewFullscreenVisibilityWindow(const PHLWORKSPACE& workspace, const PHLWINDOW& fallback = {});
 static constexpr const char* OVERVIEW_SUBMAP = "scrolloverview";
 static constexpr auto        POST_DROP_PSEUDO_FOCUS_DURATION = std::chrono::milliseconds(100);
+// grid fit mode ("Komplettansicht"), remembered across overview openings for the lifetime of the plugin
+static bool                  g_gridFitMode = false;
 static CScrollOverview*             g_pointerGrabOverview = nullptr;
 static bool                         g_finishingAdoptedNativeDrag    = false;
 static std::unordered_set<uint32_t> g_topLayerPointerButtons;
@@ -1164,7 +1166,7 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
     workspaceInsertFadeProgress->setUpdateCallback([this](auto) { damage(); });
 
     if (!swipe)
-        *scale = ScrollOverview::Config::getScale(pMonitor.lock());
+        *scale = targetOverviewScale();
 
     const auto initialFullscreenWindow =
         PMONITOR && PMONITOR->m_activeWorkspace ? getOverviewWindowToShow(Fullscreen::controller()->getFullscreenWindow(PMONITOR->m_activeWorkspace)) : PHLWINDOW{};
@@ -1456,11 +1458,22 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
             lastMousePosLocal = getOverviewMousePosLocal(pMonitor.lock());
 
             if (event.state == WL_POINTER_BUTTON_STATE_PRESSED) {
+                if (const auto BUTTON = gridModeButtonAt(lastMousePosLocal)) {
+                    gridModeButtonPressed = true;
+                    setGridFitMode(*BUTTON == 1);
+                    return;
+                }
+
                 if (beginSubmapMouseClickPending(event.button))
                     return;
 
                 dragPendingPrimary  = true;
                 dragStartMouseLocal = lastMousePosLocal;
+                return;
+            }
+
+            if (gridModeButtonPressed) {
+                gridModeButtonPressed = false;
                 return;
             }
 
@@ -2368,6 +2381,10 @@ void CScrollOverview::rebuildWorkspaceImages() {
     }
 
     closeOnWindow = selectedWindow;
+
+    // the grid may have grown or shrunk (placeholders, moved windows): refit
+    if (g_gridFitMode && !gridPanActive)
+        applyGridFit();
 }
 
 void CScrollOverview::seedRememberedSelections() {
@@ -3316,7 +3333,7 @@ void CScrollOverview::updateDragEdgeScroll() {
     const auto MONITOR = pMonitor.lock();
     int        col = 0, row = 0;
 
-    if (grid && !closing && dragActiveWindow && MONITOR && isOverviewPointerOnMonitor(MONITOR)) {
+    if (grid && !g_gridFitMode && !closing && dragActiveWindow && MONITOR && isOverviewPointerOnMonitor(MONITOR)) {
         const auto SIZE   = MONITOR->m_size * MONITOR->m_scale;
         const auto MOUSE  = getOverviewMousePosLocal(MONITOR);
         const auto MARGIN = std::min(SIZE.x, SIZE.y) * 0.04;
@@ -3961,6 +3978,158 @@ void CScrollOverview::moveViewportWorkspace(bool up) {
     moveViewportToWorkspace(up ? viewportCurrentWorkspace + 1 : viewportCurrentWorkspace - 1);
 }
 
+static constexpr float GRID_FIT_MARGIN      = 40.F; // layout px around the fitted grid
+static constexpr float GRID_BUTTON_W        = 56.F;
+static constexpr float GRID_BUTTON_H        = 32.F;
+static constexpr float GRID_BUTTON_GAP      = 8.F;
+static constexpr float GRID_BUTTON_TOP      = 12.F; // below the work area's top edge (i.e. below the bar)
+static constexpr float GRID_BUTTON_BAND     = GRID_BUTTON_TOP + GRID_BUTTON_H + 12.F;
+
+static float gridWorkAreaTop(PHLMONITOR monitor) {
+    const auto WORKSPACE = monitor ? monitor->m_activeWorkspace : PHLWORKSPACE{};
+    if (!WORKSPACE || !WORKSPACE->space())
+        return 0.F;
+    return sc<float>(WORKSPACE->space()->workArea().y - monitor->m_position.y);
+}
+
+float CScrollOverview::targetOverviewScale() const {
+    const auto MONITOR = pMonitor.lock();
+    const auto CONFIGSCALE = ScrollOverview::Config::getScale(MONITOR);
+    if (!grid || !g_gridFitMode || !MONITOR || images.empty())
+        return CONFIGSCALE;
+
+    Vector2D minCell{1e9, 1e9}, maxCell{-1e9, -1e9};
+    for (size_t i = 0; i < images.size(); ++i) {
+        const auto CELL = workspaceGridCell(i);
+        minCell = Vector2D{std::min(minCell.x, CELL.x), std::min(minCell.y, CELL.y)};
+        maxCell = Vector2D{std::max(maxCell.x, CELL.x), std::max(maxCell.y, CELL.y)};
+    }
+
+    const auto  COUNT = maxCell - minCell + Vector2D{1, 1};
+    const auto  GAP   = sc<float>(ScrollOverview::Config::getWorkspaceGap(MONITOR));
+    const auto  SIZE  = MONITOR->m_size;
+    const float TOP   = gridWorkAreaTop(MONITOR) + GRID_BUTTON_BAND;
+    const float AVAILW = SIZE.x - 2.F * GRID_FIT_MARGIN;
+    const float AVAILH = SIZE.y - TOP - GRID_FIT_MARGIN;
+
+    const float FIT = std::min((AVAILW - (COUNT.x - 1) * GAP) / (COUNT.x * SIZE.x), (AVAILH - (COUNT.y - 1) * GAP) / (COUNT.y * SIZE.y));
+    return std::clamp(FIT, 0.05F, CONFIGSCALE);
+}
+
+Vector2D CScrollOverview::restingViewOffset() const {
+    const auto MONITOR = pMonitor.lock();
+    if (!grid || !g_gridFitMode || !MONITOR || images.empty())
+        return {};
+
+    Vector2D minCell{1e9, 1e9}, maxCell{-1e9, -1e9};
+    for (size_t i = 0; i < images.size(); ++i) {
+        const auto CELL = workspaceGridCell(i);
+        minCell = Vector2D{std::min(minCell.x, CELL.x), std::min(minCell.y, CELL.y)};
+        maxCell = Vector2D{std::max(maxCell.x, CELL.x), std::max(maxCell.y, CELL.y)};
+    }
+
+    const float SCALE = std::max(targetOverviewScale(), 0.01F);
+    const auto  GAP   = sc<float>(ScrollOverview::Config::getWorkspaceGap(MONITOR)) / SCALE;
+    const auto  PITCH = MONITOR->m_size + Vector2D{GAP, GAP};
+    const auto  DELTA = (minCell + maxCell) / 2.0 - workspaceGridCell(activeWorkspaceIndex());
+
+    // centre the grid in the space below the buttons: shift it down by half of that band (screen px / scale)
+    const float TOP = gridWorkAreaTop(MONITOR) + GRID_BUTTON_BAND - GRID_FIT_MARGIN;
+    return Vector2D{DELTA.x * PITCH.x, DELTA.y * PITCH.y - TOP / 2.F / SCALE};
+}
+
+void CScrollOverview::applyGridFit() {
+    if (!grid || closing)
+        return;
+
+    *scale      = targetOverviewScale();
+    *viewOffset = restingViewOffset();
+    damage();
+}
+
+void CScrollOverview::setGridFitMode(bool fit) {
+    setGridViewMode(fit ? "fit" : "center");
+}
+
+void CScrollOverview::setGridViewMode(const std::string& mode) {
+    const bool FIT = mode == "fit" ? true : mode == "center" ? false : !g_gridFitMode;
+    if (FIT == g_gridFitMode)
+        return;
+
+    g_gridFitMode = FIT;
+    for (const auto& overview : scrollOverviews()) {
+        if (auto* const SCROLLOVERVIEW = dynamic_cast<CScrollOverview*>(overview.get()))
+            SCROLLOVERVIEW->applyGridFit();
+    }
+}
+
+CBox CScrollOverview::gridModeButtonBox(int button) const {
+    const auto MONITOR = pMonitor.lock();
+    if (!MONITOR)
+        return {};
+
+    const float TOTAL = 2.F * GRID_BUTTON_W + GRID_BUTTON_GAP;
+    const float X     = (MONITOR->m_size.x - TOTAL) / 2.F + button * (GRID_BUTTON_W + GRID_BUTTON_GAP);
+    const float Y     = gridWorkAreaTop(MONITOR) + GRID_BUTTON_TOP;
+    return CBox{X, Y, GRID_BUTTON_W, GRID_BUTTON_H}.scale(MONITOR->m_scale).round();
+}
+
+std::optional<int> CScrollOverview::gridModeButtonAt(const Vector2D& pointLocal) const {
+    if (!grid || closing || !ScrollOverview::Config::getGridButtons(pMonitor.lock()))
+        return std::nullopt;
+
+    for (int button = 0; button < 2; ++button) {
+        if (gridModeButtonBox(button).containsPoint(pointLocal))
+            return button;
+    }
+    return std::nullopt;
+}
+
+void CScrollOverview::renderGridModeButtons(PHLMONITOR monitor) {
+    if (!grid || !monitor || !ScrollOverview::Config::getGridButtons(monitor))
+        return;
+
+    const float PROGRESS = std::clamp((1.F - scale->value()) / (1.F - ScrollOverview::Config::getScale(monitor)), 0.F, 1.F);
+    const float ALPHA    = closing ? 0.F : PROGRESS * PROGRESS * (3.F - 2.F * PROGRESS);
+    if (ALPHA <= 0.001F)
+        return;
+
+    auto* const ACTIVEBORDER = sc<Config::CGradientValueData*>(ScrollOverview::Config::valueRef<Config::IComplexConfigValue>("general:col.active_border").ptr());
+    const auto  ACCENT       = ACTIVEBORDER && !ACTIVEBORDER->m_colors.empty() ? ACTIVEBORDER->m_colors[0] : CHyprColor{1.F, 1.F, 1.F, 1.F};
+    const auto  UNIT         = monitor->m_scale;
+
+    const auto rect = [&](const CBox& box, CHyprColor color, int round) {
+        CRectPassElement::SRectData data;
+        data.box   = box.copy().round();
+        data.color = color;
+        data.round = round;
+        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(data));
+    };
+
+    for (int button = 0; button < 2; ++button) {
+        const auto BOX    = gridModeButtonBox(button);
+        const bool ACTIVE = (button == 1) == g_gridFitMode;
+        const auto MID    = BOX.middle();
+
+        rect(BOX, ACTIVE ? ACCENT.modifyA(0.55F * ALPHA) : CHyprColor{0.F, 0.F, 0.F, 0.45F * ALPHA}, sc<int>(BOX.height / 2.0));
+
+        const CHyprColor ICON{1.F, 1.F, 1.F, (ACTIVE ? 0.95F : 0.7F) * ALPHA};
+        const CHyprColor ICONDIM{1.F, 1.F, 1.F, (ACTIVE ? 0.45F : 0.3F) * ALPHA};
+        if (button == 0) {
+            // centred view: one card with the neighbours peeking in
+            rect(CBox{MID.x - 8 * UNIT, MID.y - 6 * UNIT, 16 * UNIT, 12 * UNIT}, ICON, sc<int>(2 * UNIT));
+            rect(CBox{MID.x - 15 * UNIT, MID.y - 4 * UNIT, 4 * UNIT, 8 * UNIT}, ICONDIM, sc<int>(1 * UNIT));
+            rect(CBox{MID.x + 11 * UNIT, MID.y - 4 * UNIT, 4 * UNIT, 8 * UNIT}, ICONDIM, sc<int>(1 * UNIT));
+        } else {
+            // whole grid: 3 x 2 cards
+            for (int row = 0; row < 2; ++row) {
+                for (int col = 0; col < 3; ++col)
+                    rect(CBox{MID.x - 13 * UNIT + col * 9 * UNIT, MID.y - 7 * UNIT + row * 8 * UNIT, 8 * UNIT, 6 * UNIT}, ICON, sc<int>(1 * UNIT));
+            }
+        }
+    }
+}
+
 void CScrollOverview::moveGridViewport(int dCol, int dRow) {
     if (const auto TARGET = gridNeighbourWorkspace(viewportCurrentWorkspace, dCol, dRow))
         moveViewportToWorkspace(*TARGET);
@@ -3990,6 +4159,12 @@ void CScrollOverview::endGridPan() {
     const auto MONITOR = pMonitor.lock();
     if (!MONITOR || images.empty())
         return;
+
+    // the whole grid is visible in fit mode: just spring back
+    if (g_gridFitMode) {
+        *viewOffset = restingViewOffset();
+        return;
+    }
 
     const float  SCALE         = std::max<float>(scale->value(), 0.01F);
     const float  RENDEREDPITCH = getWorkspaceRenderedPitch(MONITOR, SCALE, layout);
@@ -4892,6 +5067,25 @@ void CScrollOverview::renderWorkspaceBackground(PHLMONITOR monitor, size_t works
         renderWidgetLayers(monitor, WORKSPACEBOX, renderScale, now);
 }
 
+// The highlight is centred on the work area (not the full card, which includes the hidden bar's reserved
+// strip) and reaches highlight_padding past it, keeping the monitor's aspect ratio so the wallpaper is not
+// distorted. It blends from the plain card at desktop scale, so opening/closing does not jump.
+CBox CScrollOverview::highlightBoxFor(size_t workspaceIdx, size_t activeIdx, float workspacePitch, float renderScale, PHLMONITOR monitor) const {
+    const auto OFFSET = workspaceOverviewOffset(workspaceIdx, activeIdx, workspacePitch);
+    const auto CARD   = getOverviewWorkspaceBox(monitor, renderScale, viewOffset->value(), OFFSET, layout);
+    if (workspaceIdx >= images.size() || !images[workspaceIdx] || CARD.width <= 0 || CARD.height <= 0)
+        return CARD;
+
+    const auto PROGRESS = std::clamp((1.F - renderScale) / (1.F - ScrollOverview::Config::getScale(monitor)), 0.F, 1.F);
+    const auto PADDING  = ScrollOverview::Config::getHighlightPadding(monitor) * renderScale * monitor->m_scale * PROGRESS;
+    const auto USABLE   = getOverviewWorkspaceUsableBox(images[workspaceIdx]->pWorkspace, monitor, renderScale, viewOffset->value(), OFFSET, layout).expand(PADDING);
+
+    const CBox TARGET{CARD.pos() + (USABLE.pos() - CARD.pos()) * PROGRESS, CARD.size() + (USABLE.size() - CARD.size()) * PROGRESS};
+    const auto FIT = std::max(TARGET.width / CARD.width, TARGET.height / CARD.height);
+    const auto SIZE = CARD.size() * FIT;
+    return CBox{TARGET.middle() - SIZE / 2.0, SIZE};
+}
+
 void CScrollOverview::renderSelectedHighlight(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale, int wallpaperMode,
                                               const Time::steady_tp& now) {
     if (!ScrollOverview::Config::getHighlightSelected(monitor) || viewportCurrentWorkspace >= images.size() || !images[viewportCurrentWorkspace])
@@ -4911,7 +5105,7 @@ void CScrollOverview::renderSelectedHighlight(PHLMONITOR monitor, size_t activeI
     const auto boxFor = [&](const PHLWORKSPACE& workspace) -> std::optional<CBox> {
         for (size_t i = 0; i < images.size(); ++i) {
             if (images[i] && images[i]->pWorkspace == workspace)
-                return getOverviewWorkspaceBox(monitor, renderScale, viewOffset->value(), workspaceOverviewOffset(i, activeIdx, workspacePitch), layout);
+                return highlightBoxFor(i, activeIdx, workspacePitch, renderScale, monitor);
         }
         return std::nullopt;
     };
@@ -4943,11 +5137,14 @@ void CScrollOverview::renderSelectedHighlight(PHLMONITOR monitor, size_t activeI
     if (ScrollOverview::Config::getBlur(monitor) && wallpaperMode != 1)
         OverviewRender::queueBlur(g_pHyprRenderer->context(), box, 0, 2.F, ALPHA, false);
 
+    // the wallpaper layers are drawn at the card's scale; stretch them uniformly to the (larger) highlight box
+    const float WALLPAPERSCALE = sc<float>(box.width / std::max(1.0, sc<double>(monitor->m_size.x * monitor->m_scale)));
+
     if (wallpaperMode != 0)
-        renderWallpaperLayers(monitor, box, renderScale, now, ALPHA);
+        renderWallpaperLayers(monitor, box, WALLPAPERSCALE, now, ALPHA);
 
     if (ALPHA >= 0.999F)
-        renderWidgetLayers(monitor, box, renderScale, now);
+        renderWidgetLayers(monitor, box, WALLPAPERSCALE, now);
 }
 
 void CScrollOverview::renderWorkspaceLive(PHLMONITOR monitor, size_t workspaceIdx, size_t activeIdx, float workspacePitch, float renderScale, int wallpaperMode, const Time::steady_tp& now) {
@@ -5946,7 +6143,7 @@ void CScrollOverview::reopen() {
         keyboardKeyHook.reset();
     activateSubmapIfConfigured();
     emitFullscreenVisibilityState(Desktop::focusState()->window(), true);
-    *scale = ScrollOverview::Config::getScale(pMonitor.lock());
+    *scale = targetOverviewScale();
     damage();
 }
 
@@ -6054,8 +6251,8 @@ void CScrollOverview::onWorkspaceChange() {
         workspaceInsertFadeProgress->setValueAndWarp(0.F);
         *workspaceInsertProgress = 1.F;
         *workspaceInsertFadeProgress = 1.F;
-        viewOffset->setValueAndWarp(Vector2D{});
-        *viewOffset = Vector2D{};
+        viewOffset->setValueAndWarp(restingViewOffset());
+        *viewOffset = restingViewOffset();
     } else {
         workspaceInsertTransition.active                 = false;
         workspaceInsertTransition.transitionWorkspaceKey.clear();
@@ -6072,8 +6269,10 @@ void CScrollOverview::onWorkspaceChange() {
             viewOffset->setValueAndWarp(axisOffsetVector(sc<float>(GESTURESETTLEOFFSET), layout));
         else
             viewOffset->setValueAndWarp(
-            axisOffsetVector(workspaceOverviewLogicalOffset(previousActiveIdx, viewportCurrentWorkspace, getWorkspaceLogicalPitch(pMonitor.lock(), scale->value(), layout)), layout));
-        *viewOffset = Vector2D{};
+            axisOffsetVector(workspaceOverviewLogicalOffset(previousActiveIdx, viewportCurrentWorkspace, getWorkspaceLogicalPitch(pMonitor.lock(), scale->value(), layout)), layout) +
+            // fit mode rests away from the active workspace; keep the grid where it is while the active one changes
+            (grid && g_gridFitMode ? viewOffset->value() : Vector2D{}));
+        *viewOffset = restingViewOffset();
     }
 
     syncSelectionToViewport();
@@ -6156,6 +6355,7 @@ void CScrollOverview::render() {
 
     renderDraggedWindow(MONITOR, ACTIVEIDX, PITCH, SCALE, NOW);
     renderPinnedFloatingWindows(MONITOR, SCALE, NOW);
+    renderGridModeButtons(MONITOR);
 
     for (const auto LAYER : {ZWLR_LAYER_SHELL_V1_LAYER_TOP, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY}) {
         for (auto const& ls : MONITOR->m_layerSurfaceLayers[LAYER]) {
@@ -6287,7 +6487,7 @@ void CScrollOverview::resetSwipe() {
         return;
     }
 
-    (*scale)    = ScrollOverview::Config::getScale(pMonitor.lock());
+    (*scale)    = targetOverviewScale();
     m_isSwiping = false;
 }
 
@@ -6298,7 +6498,7 @@ void CScrollOverview::onSwipeUpdate(double delta) {
 
     const float PERC = closing ? 1.0 - std::clamp(delta / sc<double>(DISTANCE), 0.0, 1.0) : std::clamp(delta / sc<double>(DISTANCE), 0.0, 1.0);
 
-    scale->setValueAndWarp(hyprlerp(1.F, ScrollOverview::Config::getScale(pMonitor.lock()), PERC));
+    scale->setValueAndWarp(hyprlerp(1.F, targetOverviewScale(), PERC));
 }
 
 void CScrollOverview::onSwipeEnd() {
@@ -6307,6 +6507,6 @@ void CScrollOverview::onSwipeEnd() {
         return;
     }
 
-    (*scale)    = ScrollOverview::Config::getScale(pMonitor.lock());
+    (*scale)    = targetOverviewScale();
     m_isSwiping = false;
 }

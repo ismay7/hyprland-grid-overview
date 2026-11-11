@@ -53,6 +53,8 @@ class CScrollOverview : public IOverview {
     bool         isClosing() const override;
     void         reopen() override;
     void         selectHoveredWorkspace() override;
+    // grid mode: "fit" (whole grid), "center" (selected workspace centred) or "togglefit"; also affects the next opening
+    static void  setGridViewMode(const std::string& mode);
     bool         moveSelection(const std::string& direction) override;
     bool         windowDispatcherAction(const std::string& action) override;
 
@@ -121,6 +123,15 @@ class CScrollOverview : public IOverview {
     void       updateGridPan();
     void       endGridPan();
     void       updateDragEdgeScroll();
+    // grid fit mode: zoom out and centre so the whole grid is visible ("Komplettansicht")
+    float      targetOverviewScale() const;
+    Vector2D   restingViewOffset() const;
+    void       applyGridFit();
+    void       setGridFitMode(bool fit);
+    CBox       gridModeButtonBox(int button) const;
+    std::optional<int> gridModeButtonAt(const Vector2D& pointLocal) const;
+    void       renderGridModeButtons(PHLMONITOR monitor);
+    CBox       highlightBoxFor(size_t workspaceIdx, size_t activeIdx, float workspacePitch, float renderScale, PHLMONITOR monitor) const;
     float      workspaceOverviewAlpha(size_t workspaceIdx) const;
     PHLWINDOW windowAtOverviewPoint(const Vector2D& point, size_t* workspaceIdx = nullptr) const;
     PHLWINDOW windowAtOverviewCursor(size_t* workspaceIdx = nullptr);
@@ -358,6 +369,7 @@ class CScrollOverview : public IOverview {
     // grid mode: holding a dragged window at a screen edge steps the viewport to the neighbouring workspace
     SP<CEventLoopTimer>              dragEdgeTimer;
     int                              dragEdgeCol = 0, dragEdgeRow = 0;
+    bool                             gridModeButtonPressed = false;
 
     friend class CScrollOverviewPassElement;
     friend void removeOverview(IOverview* overview);

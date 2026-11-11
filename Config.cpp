@@ -58,7 +58,7 @@ SDispatcher* findDispatcher(const std::string_view name) {
     static SDispatcher registrations[] = {
         {
             .name            = "overview",
-            .argPattern      = std::regex{R"(^(select|(toggle|on|open|enable|off|close|disable)([ \t]+(all|[^ \t"\\]+))?)$)"},
+            .argPattern      = std::regex{R"(^(select|fit|center|togglefit|(toggle|on|open|enable|off|close|disable)([ \t]+(all|[^ \t"\\]+))?)$)"},
             .defaultArg      = "toggle",
             .typeArgError    = "expected an optional string argument; did you forget quotes around it?",
             .invalidArgError = "expected select or toggle/open/close [monitor|all] (aliases: on, enable, off, disable)",
@@ -435,6 +435,9 @@ static void defineConfigValues() {
     addValue(makeShared<CBoolValue>("plugin:scrolloverview:highlight_selected",
                                     "only the selected workspace gets wallpaper and shadow; others show just their windows, empty ones an outline with a plus", false));
     addValue(makeShared<CGradientValue>("plugin:scrolloverview:empty_color", "outline and plus color of empty workspaces (highlight_selected)", -1));
+    addValue(makeShared<CIntValue>("plugin:scrolloverview:highlight_padding",
+                                   "highlight_selected: how far (layout px) the wallpaper reaches past the workspace's work area", 0, SIntValueOptions{.min = 0}));
+    addValue(makeShared<CBoolValue>("plugin:scrolloverview:grid_buttons", "grid mode: buttons to switch between centred and whole-grid view", true));
     addValue(makeShared<CStringValue>("plugin:scrolloverview:empty_marker",
                                       "when empty workspaces show their outline: always, drag (while any window is dragged) or hover (only under a dragged window)",
                                       Hyprlang::STRING{"always"}));
@@ -582,6 +585,14 @@ int getShadowRenderPower(PHLMONITOR monitor) {
 
 bool getHighlightSelected(PHLMONITOR monitor) {
     return getValue<bool>("plugin:scrolloverview:highlight_selected", monitor);
+}
+
+int getHighlightPadding(PHLMONITOR monitor) {
+    return std::max<int>(0, getValue<int>("plugin:scrolloverview:highlight_padding", monitor));
+}
+
+bool getGridButtons(PHLMONITOR monitor) {
+    return getValue<bool>("plugin:scrolloverview:grid_buttons", monitor);
 }
 
 EEmptyMarker getEmptyMarker(PHLMONITOR monitor) {

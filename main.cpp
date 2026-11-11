@@ -332,6 +332,11 @@ SOverviewOpenResult openOverview(PHLMONITOR monitor, bool swipe) {
 static SDispatchResult onOverviewDispatcher(std::string arg) {
     const auto [ACTION, TARGET] = splitOverviewArg(arg);
 
+    if (ACTION == "fit" || ACTION == "center" || ACTION == "togglefit") {
+        CScrollOverview::setGridViewMode(ACTION);
+        return {};
+    }
+
     if (ACTION == "select") {
         const auto OVERVIEW = scrollOverviewAt(g_pInputManager->getMouseCoordsInternal());
         if (OVERVIEW && OVERVIEW->m_isSwiping)
