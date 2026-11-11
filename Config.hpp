@@ -29,6 +29,12 @@ enum class EScrollAction {
     COLUMN,
 };
 
+enum class EEmptyMarker {
+    ALWAYS,
+    DRAG,
+    HOVER,
+};
+
 enum class EWallpaperLayer {
     AUTO,
     BACKGROUND,
@@ -129,5 +135,6 @@ std::optional<::Config::CGradientValueData> getShadowColor(PHLMONITOR monitor);
 std::optional<::Config::CGradientValueData> getShadowActiveColor(PHLMONITOR monitor);
 bool          getHighlightSelected(PHLMONITOR monitor);
 CHyprColor    getEmptyColor(PHLMONITOR monitor);
+EEmptyMarker  getEmptyMarker(PHLMONITOR monitor);
 
 }

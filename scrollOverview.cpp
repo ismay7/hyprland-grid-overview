@@ -1155,7 +1155,9 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
     Animation::mgr()->createAnimation({}, viewOffset, WINDOWSMOVECONFIG, AVARDAMAGE_NONE);
     Animation::mgr()->createAnimation(1.F, workspaceInsertProgress, WINDOWSMOVECONFIG, AVARDAMAGE_NONE);
     Animation::mgr()->createAnimation(1.F, workspaceInsertFadeProgress, workspaceInsertFadeConfig, AVARDAMAGE_NONE);
+    Animation::mgr()->createAnimation(1.F, highlightProgress, WINDOWSMOVECONFIG, AVARDAMAGE_NONE);
 
+    highlightProgress->setUpdateCallback([this](auto) { damage(); });
     scale->setUpdateCallback([this](auto) { damage(); });
     viewOffset->setUpdateCallback([this](auto) { damage(); });
     workspaceInsertProgress->setUpdateCallback([this](auto) { damage(); });
@@ -4857,13 +4859,24 @@ void CScrollOverview::renderWorkspaceBackground(PHLMONITOR monitor, size_t works
         workspace->m_forceRendering = WASFORCERENDERING;
     });
 
-    // highlight_selected: empty workspaces stay outline + plus even when selected (drawn brighter then);
-    // they get wallpaper and shadow only once a window lands on them
-    const bool SELECTED = workspaceIdx == viewportCurrentWorkspace;
-    const bool EMPTY    = workspace->getWindowCount() == 0;
-    if (ScrollOverview::Config::getHighlightSelected(monitor) && (!SELECTED || EMPTY)) {
-        if (EMPTY)
-            renderEmptyWorkspaceMarker(monitor, WORKSPACEBOX, renderScale, WORKSPACEALPHA, SELECTED);
+    // highlight_selected: wallpaper + shadow come from renderSelectedHighlight(); empty workspaces get an
+    // outline + plus (brighter when selected or under a dragged window), depending on empty_marker
+    if (ScrollOverview::Config::getHighlightSelected(monitor)) {
+        if (workspace->getWindowCount() > 0)
+            return;
+
+        auto*      dragContext = g_pointerGrabOverview && g_pointerGrabOverview->dragActiveWindow ? g_pointerGrabOverview : this;
+        const auto DRAGGED     = getOverviewWindowToShow(dragContext->dragActiveWindow.lock());
+        bool       hovered     = false;
+        if (DRAGGED && isOverviewPointerOnMonitor(monitor)) {
+            size_t dropIdx = 0;
+            hovered        = workspaceAtOverviewDropPoint(lastMousePosLocal, &dropIdx, DRAGGED) == workspace && dropIdx == workspaceIdx;
+        }
+
+        const bool SELECTED = workspaceIdx == viewportCurrentWorkspace;
+        const auto MODE     = ScrollOverview::Config::getEmptyMarker(monitor);
+        if (MODE == ScrollOverview::Config::EEmptyMarker::ALWAYS || SELECTED || hovered || (MODE == ScrollOverview::Config::EEmptyMarker::DRAG && DRAGGED))
+            renderEmptyWorkspaceMarker(monitor, WORKSPACEBOX, renderScale, WORKSPACEALPHA, SELECTED || hovered);
         return;
     }
 
@@ -4877,6 +4890,64 @@ void CScrollOverview::renderWorkspaceBackground(PHLMONITOR monitor, size_t works
 
     if (WORKSPACEALPHA >= 0.999F)
         renderWidgetLayers(monitor, WORKSPACEBOX, renderScale, now);
+}
+
+void CScrollOverview::renderSelectedHighlight(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale, int wallpaperMode,
+                                              const Time::steady_tp& now) {
+    if (!ScrollOverview::Config::getHighlightSelected(monitor) || viewportCurrentWorkspace >= images.size() || !images[viewportCurrentWorkspace])
+        return;
+
+    const auto SELECTED = images[viewportCurrentWorkspace]->pWorkspace;
+    if (!SELECTED)
+        return;
+
+    if (SELECTED != highlightTo.lock()) {
+        highlightFrom = highlightTo;
+        highlightTo   = SELECTED;
+        highlightProgress->setValueAndWarp(highlightFrom ? 0.F : 1.F);
+        *highlightProgress = 1.F;
+    }
+
+    const auto boxFor = [&](const PHLWORKSPACE& workspace) -> std::optional<CBox> {
+        for (size_t i = 0; i < images.size(); ++i) {
+            if (images[i] && images[i]->pWorkspace == workspace)
+                return getOverviewWorkspaceBox(monitor, renderScale, viewOffset->value(), workspaceOverviewOffset(i, activeIdx, workspacePitch), layout);
+        }
+        return std::nullopt;
+    };
+
+    const auto FROM    = highlightFrom.lock();
+    const auto TOBOX   = boxFor(SELECTED);
+    const auto FROMBOX = FROM && highlightProgress->isBeingAnimated() ? boxFor(FROM) : std::nullopt;
+    if (!TOBOX)
+        return;
+
+    // empty workspaces never get the wallpaper: fade it in/out when the highlight leaves/enters one
+    const float T     = std::clamp(highlightProgress->value(), 0.F, 1.F);
+    const bool  TOEMPTY   = SELECTED->getWindowCount() == 0;
+    const bool  FROMEMPTY = FROMBOX && FROM->getWindowCount() == 0;
+    const float ALPHA     = (FROMBOX && FROMEMPTY ? T : 1.F) * (TOEMPTY ? (FROMBOX ? 1.F - T : 0.F) : 1.F);
+    if (ALPHA <= 0.001F)
+        return;
+
+    auto box = *TOBOX;
+    if (FROMBOX) {
+        const auto POS = FROMBOX->pos() + (TOBOX->pos() - FROMBOX->pos()) * highlightProgress->value();
+        box            = CBox{POS, TOBOX->size()};
+    }
+    if (!overviewBoxIntersectsMonitor(box, monitor))
+        return;
+
+    renderOverviewWorkspaceShadow(monitor, box, renderScale, ALPHA, true);
+
+    if (ScrollOverview::Config::getBlur(monitor) && wallpaperMode != 1)
+        OverviewRender::queueBlur(g_pHyprRenderer->context(), box, 0, 2.F, ALPHA, false);
+
+    if (wallpaperMode != 0)
+        renderWallpaperLayers(monitor, box, renderScale, now, ALPHA);
+
+    if (ALPHA >= 0.999F)
+        renderWidgetLayers(monitor, box, renderScale, now);
 }
 
 void CScrollOverview::renderWorkspaceLive(PHLMONITOR monitor, size_t workspaceIdx, size_t activeIdx, float workspacePitch, float renderScale, int wallpaperMode, const Time::steady_tp& now) {
@@ -6053,6 +6124,7 @@ void CScrollOverview::render() {
     for (size_t workspaceIdx = 0; workspaceIdx < images.size(); ++workspaceIdx) {
         renderWorkspaceBackground(MONITOR, workspaceIdx, ACTIVEIDX, PITCH, SCALE, WALLPAPERMODE, NOW);
     }
+    renderSelectedHighlight(MONITOR, ACTIVEIDX, PITCH, SCALE, WALLPAPERMODE, NOW);
 
     if (workspaceInsertTransition.active && !workspaceInsertTransition.transitionFadeIn) {
         const auto GHOSTALPHA   = 1.F - std::clamp(workspaceInsertFadeProgress->value(), 0.F, 1.F);

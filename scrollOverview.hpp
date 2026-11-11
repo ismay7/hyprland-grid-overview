@@ -88,6 +88,7 @@ class CScrollOverview : public IOverview {
     void   updateBackdropBlurCache(PHLMONITOR monitor, int wallpaperMode, const Time::steady_tp& now);
     void   renderBackdropBlurCache(PHLMONITOR monitor);
     void   renderWorkspaceBackground(PHLMONITOR monitor, size_t workspaceIdx, size_t activeIdx, float workspacePitch, float renderScale, int wallpaperMode, const Time::steady_tp& now);
+    void   renderSelectedHighlight(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale, int wallpaperMode, const Time::steady_tp& now);
     void   renderWorkspaceLive(PHLMONITOR monitor, size_t workspaceIdx, size_t activeIdx, float workspacePitch, float renderScale, int wallpaperMode, const Time::steady_tp& now);
     bool   hasVisiblePrecomputedBlurWindow(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale) const;
     void   renderWindowLive(PHLMONITOR monitor, PHLWINDOW window, const CBox& windowBox, float renderScale, const Time::steady_tp& now, const CBox* workspaceBox = nullptr,
@@ -310,6 +311,9 @@ class CScrollOverview : public IOverview {
     PHLANIMVAR<Vector2D>             viewOffset;
     PHLANIMVAR<float>                workspaceInsertProgress;
     PHLANIMVAR<float>                workspaceInsertFadeProgress;
+    // highlight_selected: wallpaper + shadow slide from the previously selected card to the selected one
+    PHLANIMVAR<float>                highlightProgress;
+    PHLWORKSPACEREF                  highlightFrom, highlightTo;
     SP<Hyprutils::Animation::SAnimationPropertyConfig> workspaceInsertFadeConfig;
     SP<Hyprutils::Animation::SAnimationPropertyConfig> workspaceRemoveFadeConfig;
     Time::steady_tp                  lastRealtimePreviewFrame = {};

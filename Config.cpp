@@ -435,6 +435,9 @@ static void defineConfigValues() {
     addValue(makeShared<CBoolValue>("plugin:scrolloverview:highlight_selected",
                                     "only the selected workspace gets wallpaper and shadow; others show just their windows, empty ones an outline with a plus", false));
     addValue(makeShared<CGradientValue>("plugin:scrolloverview:empty_color", "outline and plus color of empty workspaces (highlight_selected)", -1));
+    addValue(makeShared<CStringValue>("plugin:scrolloverview:empty_marker",
+                                      "when empty workspaces show their outline: always, drag (while any window is dragged) or hover (only under a dragged window)",
+                                      Hyprlang::STRING{"always"}));
 }
 
 static void initializeMonitorConfig() {
@@ -579,6 +582,15 @@ int getShadowRenderPower(PHLMONITOR monitor) {
 
 bool getHighlightSelected(PHLMONITOR monitor) {
     return getValue<bool>("plugin:scrolloverview:highlight_selected", monitor);
+}
+
+EEmptyMarker getEmptyMarker(PHLMONITOR monitor) {
+    const auto MODE = getValue<std::string>("plugin:scrolloverview:empty_marker", monitor);
+    if (MODE == "drag")
+        return EEmptyMarker::DRAG;
+    if (MODE == "hover")
+        return EEmptyMarker::HOVER;
+    return EEmptyMarker::ALWAYS;
 }
 
 CHyprColor getEmptyColor(PHLMONITOR monitor) {
