@@ -30,6 +30,7 @@
 #include <hyprland/src/managers/input/InputManager.hpp>
 #include <hyprland/src/keybinds/Manager.hpp>
 #include <hyprland/src/managers/SeatManager.hpp>
+#include <hyprland/src/managers/eventLoop/EventLoopManager.hpp>
 #include <hyprland/src/layout/LayoutManager.hpp>
 #include <hyprland/src/layout/algorithm/Algorithm.hpp>
 #include <hyprland/src/layout/space/Space.hpp>
@@ -1068,6 +1069,9 @@ static void moveOverviewTargetNextToWindow(const SP<Layout::ITarget>& target, co
 CScrollOverview::~CScrollOverview() {
     if (closeRemovalIdle)
         wl_event_source_remove(closeRemovalIdle);
+    if (dragEdgeTimer && g_pEventLoopManager)
+        g_pEventLoopManager->removeTimer(dragEdgeTimer);
+    dragEdgeTimer.reset();
     for (const auto& workspace : gridPlaceholders) {
         if (const auto REGULAR = dynamicPointerCast<::Workspace::CRegularWorkspace>(workspace))
             REGULAR->setPersistent(false);
@@ -3292,6 +3296,7 @@ void CScrollOverview::updateWindowDrag() {
     }
 
     ensureDragDestinationOverview();
+    updateDragEdgeScroll();
 
     for (const auto& overview : scrollOverviews()) {
         if (!overview)
@@ -3300,6 +3305,52 @@ void CScrollOverview::updateWindowDrag() {
         overview->requestInputFrame();
         overview->damage();
     }
+}
+
+void CScrollOverview::updateDragEdgeScroll() {
+    static constexpr auto FIRST_STEP_DELAY  = std::chrono::milliseconds(350);
+    static constexpr auto REPEAT_STEP_DELAY = std::chrono::milliseconds(650);
+
+    const auto MONITOR = pMonitor.lock();
+    int        col = 0, row = 0;
+
+    if (grid && !closing && dragActiveWindow && MONITOR && isOverviewPointerOnMonitor(MONITOR)) {
+        const auto SIZE   = MONITOR->m_size * MONITOR->m_scale;
+        const auto MOUSE  = getOverviewMousePosLocal(MONITOR);
+        const auto MARGIN = std::min(SIZE.x, SIZE.y) * 0.04;
+
+        col = MOUSE.x < MARGIN ? -1 : MOUSE.x > SIZE.x - MARGIN ? 1 : 0;
+        row = MOUSE.y < MARGIN ? -1 : MOUSE.y > SIZE.y - MARGIN ? 1 : 0;
+    }
+
+    if (col == dragEdgeCol && row == dragEdgeRow)
+        return;
+
+    dragEdgeCol = col;
+    dragEdgeRow = row;
+
+    if (!dragEdgeTimer) {
+        dragEdgeTimer = makeShared<CEventLoopTimer>(
+            std::nullopt,
+            [this](SP<CEventLoopTimer> self, void*) {
+                if (closing || !dragActiveWindow || (dragEdgeCol == 0 && dragEdgeRow == 0)) {
+                    dragEdgeCol = dragEdgeRow = 0;
+                    return;
+                }
+
+                if (dragEdgeCol != 0)
+                    moveGridViewport(dragEdgeCol, 0);
+                if (dragEdgeRow != 0)
+                    moveGridViewport(0, dragEdgeRow);
+
+                updateWindowDrag();
+                self->updateTimeout(REPEAT_STEP_DELAY);
+            },
+            nullptr);
+        g_pEventLoopManager->addTimer(dragEdgeTimer);
+    }
+
+    dragEdgeTimer->updateTimeout(col != 0 || row != 0 ? std::optional<Time::steady_dur>{FIRST_STEP_DELAY} : std::nullopt);
 }
 
 void CScrollOverview::updateWindowResize() {

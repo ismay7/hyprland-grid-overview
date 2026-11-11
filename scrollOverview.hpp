@@ -11,6 +11,7 @@
 #include <hyprland/src/layout/LayoutManager.hpp>
 #include <hyprland/src/render/Framebuffer.hpp>
 #include <hyprland/src/render/types.hpp>
+#include <hyprland/src/managers/eventLoop/EventLoopTimer.hpp>
 #include <chrono>
 #include <string>
 #include <unordered_map>
@@ -118,6 +119,7 @@ class CScrollOverview : public IOverview {
     void       beginGridPan();
     void       updateGridPan();
     void       endGridPan();
+    void       updateDragEdgeScroll();
     float      workspaceOverviewAlpha(size_t workspaceIdx) const;
     PHLWINDOW windowAtOverviewPoint(const Vector2D& point, size_t* workspaceIdx = nullptr) const;
     PHLWINDOW windowAtOverviewCursor(size_t* workspaceIdx = nullptr);
@@ -349,6 +351,9 @@ class CScrollOverview : public IOverview {
     Vector2D                         gridPanStartOffset;
     bool                             gridPanSettlePending = false;
     Vector2D                         gridPanSettleOffset;
+    // grid mode: holding a dragged window at a screen edge steps the viewport to the neighbouring workspace
+    SP<CEventLoopTimer>              dragEdgeTimer;
+    int                              dragEdgeCol = 0, dragEdgeRow = 0;
 
     friend class CScrollOverviewPassElement;
     friend void removeOverview(IOverview* overview);
