@@ -2270,6 +2270,24 @@ void CScrollOverview::ensureGridPlaceholders() {
         lastOccupiedRow      = std::max(lastOccupiedRow, ROW);
     }
 
+    const auto isNeeded = [&](::Workspace::WorkspaceIDContainer id) {
+        const int ROW = sc<int>(id / 10), COL = sc<int>(id % 10);
+        return ROW >= 1 && ROW <= std::min(lastOccupiedRow + 1, MAXROWS) && COL >= 1 && COL <= std::min(lastOccupiedCol[ROW] + 1, MAXCOLS);
+    };
+
+    // Rearranging can leave placeholders behind that are no longer at the end of a row or below the last
+    // row; drop them right away (the selected and the monitor's active workspace stay until left)
+    const auto SELECTED = viewportCurrentWorkspace < images.size() && images[viewportCurrentWorkspace] ? images[viewportCurrentWorkspace]->pWorkspace : PHLWORKSPACE{};
+    std::erase_if(gridPlaceholders, [&](const PHLWORKSPACE& workspace) {
+        const auto ID = workspace ? workspace->numberedID() : std::nullopt;
+        if (!ID || isNeeded(*ID) || workspace->getWindowCount() > 0 || workspace == MONITOR->m_activeWorkspace || workspace == SELECTED)
+            return false;
+
+        if (const auto REGULAR = dynamicPointerCast<::Workspace::CRegularWorkspace>(workspace))
+            REGULAR->setPersistent(false);
+        return true;
+    });
+
     for (int row = 1; row <= std::min(lastOccupiedRow + 1, MAXROWS); ++row) {
         for (int col = 1; col <= std::min(lastOccupiedCol[row] + 1, MAXCOLS); ++col) {
             const auto ID = ::Workspace::SWorkspaceNumberedID{sc<::Workspace::WorkspaceIDContainer>(row * 10 + col)};
