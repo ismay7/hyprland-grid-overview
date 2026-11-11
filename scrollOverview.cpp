@@ -6239,7 +6239,9 @@ void CScrollOverview::onWorkspaceChange() {
     const auto NEWWORKSPACE      = pMonitor->m_activeWorkspace;
     const bool INSERTEDWORKSPACE         = std::find(previousWorkspaceKeys.begin(), previousWorkspaceKeys.end(), Workspace::selector(*NEWWORKSPACE)) == previousWorkspaceKeys.end();
     const auto REQUESTEDREMOVEDWORKSPACE = pendingRemovedWorkspace.lock();
-    const bool SHOULDREMOVEPREVIOUSWORKSPACE = previousStartedOn && previousStartedOn != NEWWORKSPACE && previousStartedOn->type() == Workspace::eWorkspaceType::NORMAL &&
+    // grid mode: empty placeholders are managed by ensureGridPlaceholders(); Hyprland may drop their persistent flag
+    // whenever config props are refreshed, so leaving one must not remove it from the grid
+    const bool SHOULDREMOVEPREVIOUSWORKSPACE = !grid && previousStartedOn && previousStartedOn != NEWWORKSPACE && previousStartedOn->type() == Workspace::eWorkspaceType::NORMAL &&
         !sc<Workspace::CRegularWorkspace*>(previousStartedOn.get())->isPersistent() && previousStartedOn->getWindowCount() == 0;
     const auto REMOVEDWORKSPACE = REQUESTEDREMOVEDWORKSPACE ? REQUESTEDREMOVEDWORKSPACE : SHOULDREMOVEPREVIOUSWORKSPACE ? previousStartedOn : PHLWORKSPACE{};
 
