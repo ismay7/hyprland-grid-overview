@@ -108,8 +108,11 @@ class CScrollOverview : public IOverview {
     size_t dragWorkspaceIndex(PHLWINDOW window) const;
     void   updateWorkspaceOverflow();
     CBox   workspaceOverviewVisibleBox(size_t workspaceIdx, const CBox& workspaceBox, float renderScale, PHLMONITOR monitor) const;
-    float      workspaceOverviewOffset(size_t workspaceIdx, size_t activeIdx, float workspacePitch) const;
-    float      workspaceOverviewLogicalOffset(size_t workspaceIdx, size_t activeIdx, float workspacePitch) const;
+    Vector2D   workspaceOverviewOffset(size_t workspaceIdx, size_t activeIdx, float workspacePitch) const;
+    Vector2D   workspaceOverviewLogicalOffset(size_t workspaceIdx, size_t activeIdx, float workspacePitch) const;
+    Vector2D   workspaceGridCell(size_t workspaceIdx) const;
+    std::optional<size_t> gridNeighbourWorkspace(size_t workspaceIdx, int dCol, int dRow) const;
+    void       moveViewportToWorkspace(size_t workspaceIdx);
     float      workspaceOverviewAlpha(size_t workspaceIdx) const;
     PHLWINDOW windowAtOverviewPoint(const Vector2D& point, size_t* workspaceIdx = nullptr) const;
     PHLWINDOW windowAtOverviewCursor(size_t* workspaceIdx = nullptr);
@@ -263,6 +266,7 @@ class CScrollOverview : public IOverview {
     SWorkspaceInsertTransition       workspaceInsertTransition;
     PHLWORKSPACEREF                  pendingRemovedWorkspace;
     ScrollOverview::Config::ELayout  layout = ScrollOverview::Config::ELayout::VERTICAL;
+    bool                             grid   = false;
 
     struct SForcedSurfaceVisibility {
         WP<CWLSurfaceResource> surface;

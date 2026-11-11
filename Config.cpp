@@ -407,6 +407,7 @@ static void defineConfigValues() {
     addValue(makeShared<CFloatValue>("plugin:scrolloverview:scale", "overview scale", 0.5F, SFloatValueOptions{.min = 0.1F, .max = 0.9F}));
     addValue(makeShared<CIntValue>("plugin:scrolloverview:workspace_gap", "gap between overview workspaces", 0, SIntValueOptions{.min = 0}));
     addValue(makeShared<CStringValue>("plugin:scrolloverview:layout", "overview layout", Hyprlang::STRING{"vertical"}));
+    addValue(makeShared<CBoolValue>("plugin:scrolloverview:grid", "place workspace N*10+M in row N, column M", false));
     addValue(makeShared<CBoolValue>("plugin:scrolloverview:cross_monitor_drag", "enable cross-monitor window dragging", false));
     addValue(makeShared<CIntValue>("plugin:scrolloverview:input:scroll_event_delay", "minimum delay (ms) between discrete scroll steps (wheel workspace nav and trackpad focus stepping)", 200, SIntValueOptions{.min = 0}));
     addValue(makeShared<CFloatValue>("plugin:scrolloverview:input:touchpad_scroll_factor", "overview touchpad scroll factor", 1.F,
@@ -461,6 +462,10 @@ ELayout getLayout(PHLMONITOR monitor) {
         return ELayout::AUTO;
 
     return LAYOUT == "horizontal" ? ELayout::HORIZONTAL : ELayout::VERTICAL;
+}
+
+bool getGrid(PHLMONITOR monitor) {
+    return getValue<bool>("plugin:scrolloverview:grid", monitor);
 }
 
 bool getCrossMonitorDrag(PHLMONITOR monitor) {
