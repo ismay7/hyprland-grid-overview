@@ -408,6 +408,10 @@ static void defineConfigValues() {
     addValue(makeShared<CIntValue>("plugin:scrolloverview:workspace_gap", "gap between overview workspaces", 0, SIntValueOptions{.min = 0}));
     addValue(makeShared<CStringValue>("plugin:scrolloverview:layout", "overview layout", Hyprlang::STRING{"vertical"}));
     addValue(makeShared<CBoolValue>("plugin:scrolloverview:grid", "place workspace N*10+M in row N, column M", false));
+    addValue(makeShared<CIntValue>("plugin:scrolloverview:grid_rows", "grid mode: highest row that gets an empty placeholder workspace", 9,
+                                   SIntValueOptions{.min = 1, .max = 9}));
+    addValue(makeShared<CIntValue>("plugin:scrolloverview:grid_columns", "grid mode: highest column that gets an empty placeholder workspace", 9,
+                                   SIntValueOptions{.min = 1, .max = 9}));
     addValue(makeShared<CBoolValue>("plugin:scrolloverview:cross_monitor_drag", "enable cross-monitor window dragging", false));
     addValue(makeShared<CIntValue>("plugin:scrolloverview:input:scroll_event_delay", "minimum delay (ms) between discrete scroll steps (wheel workspace nav and trackpad focus stepping)", 200, SIntValueOptions{.min = 0}));
     addValue(makeShared<CFloatValue>("plugin:scrolloverview:input:touchpad_scroll_factor", "overview touchpad scroll factor", 1.F,
@@ -466,6 +470,14 @@ ELayout getLayout(PHLMONITOR monitor) {
 
 bool getGrid(PHLMONITOR monitor) {
     return getValue<bool>("plugin:scrolloverview:grid", monitor);
+}
+
+int getGridRows(PHLMONITOR monitor) {
+    return std::clamp<int>(getValue<int>("plugin:scrolloverview:grid_rows", monitor), 1, 9);
+}
+
+int getGridColumns(PHLMONITOR monitor) {
+    return std::clamp<int>(getValue<int>("plugin:scrolloverview:grid_columns", monitor), 1, 9);
 }
 
 bool getCrossMonitorDrag(PHLMONITOR monitor) {

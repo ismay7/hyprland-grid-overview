@@ -1031,6 +1031,11 @@ static void moveOverviewTargetNextToWindow(const SP<Layout::ITarget>& target, co
 CScrollOverview::~CScrollOverview() {
     if (closeRemovalIdle)
         wl_event_source_remove(closeRemovalIdle);
+    for (const auto& workspace : gridPlaceholders) {
+        if (const auto REGULAR = dynamicPointerCast<::Workspace::CRegularWorkspace>(workspace))
+            REGULAR->setPersistent(false);
+    }
+    gridPlaceholders.clear();
     cancelWindowDrag();
     if (g_pointerGrabOverview == this)
         g_pointerGrabOverview = nullptr;
@@ -2181,7 +2186,55 @@ float CScrollOverview::workspaceOverviewAlpha(size_t workspaceIdx) const {
     return std::clamp(workspaceInsertFadeProgress->value(), 0.F, 1.F);
 }
 
+// Grid mode: keep every row filled up to one empty workspace past its last occupied column, plus one
+// empty row below the last occupied row, so windows can be dropped there. They are persistent only while
+// the overview exists; unused ones disappear afterwards like any other empty workspace.
+void CScrollOverview::ensureGridPlaceholders() {
+    const auto MONITOR = pMonitor.lock();
+    if (!grid || closing || !MONITOR)
+        return;
+
+    const int MAXROWS = ScrollOverview::Config::getGridRows(MONITOR);
+    const int MAXCOLS = ScrollOverview::Config::getGridColumns(MONITOR);
+
+    std::array<int, 10> lastOccupiedCol{};
+    int                 lastOccupiedRow = 0;
+
+    for (const auto& windowRef : Desktop::windowState()->windows()) {
+        const auto WINDOW = getOverviewWindowToShow(windowRef);
+        if (!shouldShowOverviewWindow(WINDOW) || !WINDOW->m_workspace || WINDOW->m_workspace->m_monitor != MONITOR)
+            continue;
+
+        const auto ID = WINDOW->m_workspace->numberedID();
+        if (!ID || *ID < 11 || *ID > 99 || *ID % 10 == 0)
+            continue;
+
+        const int ROW        = sc<int>(*ID / 10);
+        lastOccupiedCol[ROW] = std::max(lastOccupiedCol[ROW], sc<int>(*ID % 10));
+        lastOccupiedRow      = std::max(lastOccupiedRow, ROW);
+    }
+
+    for (int row = 1; row <= std::min(lastOccupiedRow + 1, MAXROWS); ++row) {
+        for (int col = 1; col <= std::min(lastOccupiedCol[row] + 1, MAXCOLS); ++col) {
+            const auto ID = ::Workspace::SWorkspaceNumberedID{sc<::Workspace::WorkspaceIDContainer>(row * 10 + col)};
+            if (State::workspaceState()->query().numbered(ID).run())
+                continue;
+
+            const auto WORKSPACE = State::workspaceState()->createNumbered(ID, MONITOR);
+            const auto REGULAR   = dynamicPointerCast<::Workspace::CRegularWorkspace>(WORKSPACE);
+            if (!REGULAR)
+                continue;
+
+            REGULAR->setPersistent(true);
+            gridPlaceholders.emplace_back(WORKSPACE);
+            WORKSPACE->ready();
+        }
+    }
+}
+
 void CScrollOverview::rebuildWorkspaceImages() {
+    ensureGridPlaceholders();
+
     const auto selectedWorkspace = closeOnWindow ? closeOnWindow->m_workspace : startedOn;
     const auto selectedWindow    = closeOnWindow;
     const auto viewportWorkspace = viewportCurrentWorkspace < images.size() ? images[viewportCurrentWorkspace]->pWorkspace : startedOn;

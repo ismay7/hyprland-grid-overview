@@ -113,6 +113,7 @@ class CScrollOverview : public IOverview {
     Vector2D   workspaceGridCell(size_t workspaceIdx) const;
     std::optional<size_t> gridNeighbourWorkspace(size_t workspaceIdx, int dCol, int dRow) const;
     void       moveViewportToWorkspace(size_t workspaceIdx);
+    void       ensureGridPlaceholders();
     float      workspaceOverviewAlpha(size_t workspaceIdx) const;
     PHLWINDOW windowAtOverviewPoint(const Vector2D& point, size_t* workspaceIdx = nullptr) const;
     PHLWINDOW windowAtOverviewCursor(size_t* workspaceIdx = nullptr);
@@ -267,6 +268,8 @@ class CScrollOverview : public IOverview {
     PHLWORKSPACEREF                  pendingRemovedWorkspace;
     ScrollOverview::Config::ELayout  layout = ScrollOverview::Config::ELayout::VERTICAL;
     bool                             grid   = false;
+    // empty workspaces created for grid mode; persistent while the overview is open
+    std::vector<PHLWORKSPACE>        gridPlaceholders;
 
     struct SForcedSurfaceVisibility {
         WP<CWLSurfaceResource> surface;

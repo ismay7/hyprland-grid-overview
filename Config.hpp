@@ -108,6 +108,8 @@ float         getScale(PHLMONITOR monitor);
 int           getWorkspaceGap(PHLMONITOR monitor);
 ELayout       getLayout(PHLMONITOR monitor);
 bool          getGrid(PHLMONITOR monitor);
+int           getGridRows(PHLMONITOR monitor);
+int           getGridColumns(PHLMONITOR monitor);
 bool          getCrossMonitorDrag(PHLMONITOR monitor);
 int           getScrollEventDelay(PHLMONITOR monitor);
 bool          getLeftHanded(PHLMONITOR monitor);
