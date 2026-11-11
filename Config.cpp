@@ -427,6 +427,7 @@ static void defineConfigValues() {
     addValue(makeShared<CIntValue>("plugin:scrolloverview:wallpaper", "wallpaper mode", 0, SIntValueOptions{.min = 0, .max = 2}));
     addValue(makeShared<CStringValue>("plugin:scrolloverview:wallpaper_layer", "wallpaper layer detection: auto, background, or bottom", Hyprlang::STRING{"auto"}));
     addValue(makeShared<CBoolValue>("plugin:scrolloverview:blur", "blur the overview wallpaper", false));
+    addValue(makeShared<CBoolValue>("plugin:scrolloverview:wallpaper_active_only", "draw the per-workspace wallpaper only on the selected workspace", false));
     addValue(makeShared<CBoolValue>("plugin:scrolloverview:shadow:enabled", "draw a shadow around each workspace card", false));
     addValue(makeShared<CIntValue>("plugin:scrolloverview:shadow:range", "workspace card shadow range", -1));
     addValue(makeShared<CIntValue>("plugin:scrolloverview:shadow:render_power", "workspace card shadow render power", -1));
@@ -529,6 +530,10 @@ EScrollAction getHorizontalScrollAction(ELayout layout, PHLMONITOR monitor) {
 
 int getScrollEventDelay(PHLMONITOR monitor) {
     return std::max<int>(0, getValue<int>("plugin:scrolloverview:input:scroll_event_delay", monitor));
+}
+
+bool getWallpaperActiveOnly(PHLMONITOR monitor) {
+    return getValue<bool>("plugin:scrolloverview:wallpaper_active_only", monitor);
 }
 
 int getWallpaperMode(PHLMONITOR monitor) {

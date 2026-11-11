@@ -1207,7 +1207,8 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
             return true;
         };
 
-        if (!dragPendingPrimary && !resizePointerDown && !scrollingPanPointerDown && !dragActiveWindow && !resizeActiveWindow && isPointerOnTopLayer(pMonitor.lock())) {
+        if (!dragPendingPrimary && !resizePointerDown && !scrollingPanPointerDown && !gridPanActive && !dragActiveWindow && !resizeActiveWindow &&
+            isPointerOnTopLayer(pMonitor.lock())) {
             submapMouseClickPending = false;
             submapMouseClickButton  = 0;
             return;
@@ -1265,6 +1266,9 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
 
         if (scrollingPanPointerDown)
             updateScrollingPan();
+
+        if (gridPanActive)
+            updateGridPan();
 
         //  highlightHoverDebug();
     };
@@ -1469,10 +1473,17 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
 
                 if (!isWorkspaceScrolling(WORKSPACE)) {
                     scrollingPanPointerDown = false;
+                    if (grid)
+                        beginGridPan();
                     return;
                 }
 
                 beginScrollingPan(WORKSPACE);
+                return;
+            }
+
+            if (gridPanActive) {
+                endGridPan();
                 return;
             }
 
@@ -1595,6 +1606,14 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
             trackpadTapeFollowing      = false;
             if (!scrollStepAllowed(e.timeMs))
                 return;
+
+            // grid: wheel = contexts (rows), SHIFT + wheel or horizontal wheel = workspaces within the row
+            if (grid) {
+                const bool COLUMNS = e.axis == WL_POINTER_AXIS_HORIZONTAL_SCROLL || (g_pInputManager->getModsFromAllKBs() & Input::HL_MODIFIER_SHIFT);
+                const int  STEP    = e.delta > 0 ? 1 : -1;
+                moveGridViewport(COLUMNS ? STEP : 0, COLUMNS ? 0 : STEP);
+                return;
+            }
 
             if (ACTION == ScrollOverview::Config::EScrollAction::WORKSPACE)
                 moveViewportWorkspace(e.delta > 0);
@@ -3867,6 +3886,73 @@ void CScrollOverview::moveViewportWorkspace(bool up) {
     moveViewportToWorkspace(up ? viewportCurrentWorkspace + 1 : viewportCurrentWorkspace - 1);
 }
 
+void CScrollOverview::moveGridViewport(int dCol, int dRow) {
+    if (const auto TARGET = gridNeighbourWorkspace(viewportCurrentWorkspace, dCol, dRow))
+        moveViewportToWorkspace(*TARGET);
+}
+
+void CScrollOverview::beginGridPan() {
+    gridPanActive      = true;
+    gridPanStartMouse  = lastMousePosLocal;
+    gridPanStartOffset = viewOffset->value();
+}
+
+void CScrollOverview::updateGridPan() {
+    const auto MONITOR = pMonitor.lock();
+    if (!gridPanActive || !MONITOR)
+        return;
+
+    const float UNIT = std::max(scale->value(), 0.01F) * std::max(MONITOR->m_scale, 0.01F);
+    viewOffset->setValueAndWarp(gridPanStartOffset - (lastMousePosLocal - gridPanStartMouse) / UNIT);
+    damage();
+}
+
+void CScrollOverview::endGridPan() {
+    if (!gridPanActive)
+        return;
+
+    gridPanActive      = false;
+    const auto MONITOR = pMonitor.lock();
+    if (!MONITOR || images.empty())
+        return;
+
+    const float  SCALE         = std::max<float>(scale->value(), 0.01F);
+    const float  RENDEREDPITCH = getWorkspaceRenderedPitch(MONITOR, SCALE, layout);
+    const float  LOGICALPITCH  = getWorkspaceLogicalPitch(MONITOR, SCALE, layout);
+    const size_t ACTIVEIDX     = activeWorkspaceIndex();
+    const auto   CENTER        = MONITOR->m_size * MONITOR->m_scale / 2.0;
+
+    size_t targetIdx    = viewportCurrentWorkspace;
+    double bestDistance = std::numeric_limits<double>::max();
+    for (size_t i = 0; i < images.size(); ++i) {
+        if (!images[i] || !images[i]->pWorkspace)
+            continue;
+
+        const auto BOX      = getOverviewWorkspaceBox(MONITOR, SCALE, viewOffset->value(), workspaceOverviewOffset(i, ACTIVEIDX, RENDEREDPITCH), layout);
+        const auto DISTANCE = BOX.middle().distanceSq(CENTER);
+        if (DISTANCE < bestDistance) {
+            bestDistance = DISTANCE;
+            targetIdx    = i;
+        }
+    }
+
+    if (targetIdx == ACTIVEIDX) {
+        *viewOffset = Vector2D{};
+        if (targetIdx != viewportCurrentWorkspace)
+            moveViewportToWorkspace(targetIdx);
+        return;
+    }
+
+    // onWorkspaceChange re-centres on the new workspace; start that animation from where the pan left off
+    gridPanSettleOffset  = viewOffset->value() - workspaceOverviewLogicalOffset(targetIdx, ACTIVEIDX, LOGICALPITCH);
+    gridPanSettlePending = true;
+    moveViewportToWorkspace(targetIdx);
+    if (viewportCurrentWorkspace != targetIdx) {
+        gridPanSettlePending = false;
+        *viewOffset          = Vector2D{};
+    }
+}
+
 void CScrollOverview::moveViewportToWorkspace(size_t workspaceIdx) {
     if (workspaceIdx >= images.size())
         return;
@@ -4665,7 +4751,8 @@ void CScrollOverview::renderWorkspaceBackground(PHLMONITOR monitor, size_t works
     if (ScrollOverview::Config::getBlur(pMonitor.lock()) && wallpaperMode != 1 && WORKSPACEALPHA > 0.001F)
         OverviewRender::queueBlur(g_pHyprRenderer->context(), WORKSPACEBOX, 0, 2.F, WORKSPACEALPHA, false);
 
-    if (wallpaperMode != 0 && WORKSPACEALPHA > 0.001F)
+    const bool WALLPAPERHIDDEN = ScrollOverview::Config::getWallpaperActiveOnly(monitor) && workspaceIdx != viewportCurrentWorkspace;
+    if (wallpaperMode != 0 && WORKSPACEALPHA > 0.001F && !WALLPAPERHIDDEN)
         renderWallpaperLayers(monitor, WORKSPACEBOX, renderScale, now, WORKSPACEALPHA);
 
     if (WORKSPACEALPHA >= 0.999F)
@@ -5714,6 +5801,8 @@ void CScrollOverview::onWorkspaceChange() {
     const bool   GESTURESETTLE       = trackpadGestureSettlePending;
     const double GESTURESETTLEOFFSET = trackpadGestureSettleOffset;
     trackpadGestureSettlePending     = false;
+    const bool GRIDPANSETTLE         = gridPanSettlePending;
+    gridPanSettlePending             = false;
 
     std::vector<std::string> previousWorkspaceKeys;
     previousWorkspaceKeys.reserve(images.size());
@@ -5786,7 +5875,9 @@ void CScrollOverview::onWorkspaceChange() {
         workspaceInsertTransition.transitionOldRelativeOffset = 0.F;
         workspaceInsertProgress->setValueAndWarp(1.F);
         workspaceInsertFadeProgress->setValueAndWarp(1.F);
-        if (GESTURESETTLE) // a trackpad follow committed this change: settle from the drag position, not a full pitch
+        if (GRIDPANSETTLE)
+            viewOffset->setValueAndWarp(gridPanSettleOffset);
+        else if (GESTURESETTLE) // a trackpad follow committed this change: settle from the drag position, not a full pitch
             viewOffset->setValueAndWarp(axisOffsetVector(sc<float>(GESTURESETTLEOFFSET), layout));
         else
             viewOffset->setValueAndWarp(

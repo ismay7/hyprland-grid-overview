@@ -119,6 +119,7 @@ float         getTouchpadScrollFactor(PHLMONITOR monitor);
 EScrollAction getVerticalScrollAction(ELayout layout, PHLMONITOR monitor);
 EScrollAction getHorizontalScrollAction(ELayout layout, PHLMONITOR monitor);
 int           getWallpaperMode(PHLMONITOR monitor);
+bool          getWallpaperActiveOnly(PHLMONITOR monitor);
 EWallpaperLayer getWallpaperLayer(PHLMONITOR monitor);
 bool          getBlur(PHLMONITOR monitor);
 ::Config::CCssGapData getCssGapData(const std::string& name);

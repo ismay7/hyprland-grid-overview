@@ -114,6 +114,10 @@ class CScrollOverview : public IOverview {
     std::optional<size_t> gridNeighbourWorkspace(size_t workspaceIdx, int dCol, int dRow) const;
     void       moveViewportToWorkspace(size_t workspaceIdx);
     void       ensureGridPlaceholders();
+    void       moveGridViewport(int dCol, int dRow);
+    void       beginGridPan();
+    void       updateGridPan();
+    void       endGridPan();
     float      workspaceOverviewAlpha(size_t workspaceIdx) const;
     PHLWINDOW windowAtOverviewPoint(const Vector2D& point, size_t* workspaceIdx = nullptr) const;
     PHLWINDOW windowAtOverviewCursor(size_t* workspaceIdx = nullptr);
@@ -339,6 +343,12 @@ class CScrollOverview : public IOverview {
     bool                             trackpadTapeFollowing        = false;
     bool                             trackpadGestureSettlePending = false;
     double                           trackpadGestureSettleOffset  = 0.0;
+    // grid mode: free 2D panning with the middle mouse button, snapping to the nearest workspace on release
+    bool                             gridPanActive        = false;
+    Vector2D                         gridPanStartMouse;
+    Vector2D                         gridPanStartOffset;
+    bool                             gridPanSettlePending = false;
+    Vector2D                         gridPanSettleOffset;
 
     friend class CScrollOverviewPassElement;
     friend void removeOverview(IOverview* overview);
