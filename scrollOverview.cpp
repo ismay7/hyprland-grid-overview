@@ -2340,6 +2340,11 @@ void CScrollOverview::ensureGridPlaceholders() {
             REGULAR->setPersistent(true);
             gridPlaceholders.emplace_back(WORKSPACE);
             WORKSPACE->ready();
+
+            // new workspaces start fully transparent; forceWorkspaceAlphaVisible() only covered the ones that
+            // existed when the overview opened, so windows dropped here would render invisible (shadow only)
+            WORKSPACE->m_alpha->setValueAndWarp(1.F);
+            *WORKSPACE->m_alpha = 1.F;
         }
     }
 }
