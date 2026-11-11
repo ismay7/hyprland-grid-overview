@@ -5148,11 +5148,14 @@ void CScrollOverview::renderSelectedHighlight(PHLMONITOR monitor, size_t activeI
     if (!TOBOX)
         return;
 
-    // empty workspaces never get the wallpaper: fade it in/out when the highlight leaves/enters one
-    const float T     = std::clamp(highlightProgress->value(), 0.F, 1.F);
+    // empty workspaces get no wallpaper inside the overview: fade it in/out when the highlight leaves/enters one,
+    // and with the zoom while opening/closing on an empty workspace, so it blends into the sharp desktop
+    const float T         = std::clamp(highlightProgress->value(), 0.F, 1.F);
+    const float ZOOM      = std::clamp((1.F - renderScale) / (1.F - ScrollOverview::Config::getScale(monitor)), 0.F, 1.F);
+    const float DESKTOP   = 1.F - ZOOM * ZOOM * (3.F - 2.F * ZOOM);
     const bool  TOEMPTY   = SELECTED->getWindowCount() == 0;
     const bool  FROMEMPTY = FROMBOX && FROM->getWindowCount() == 0;
-    const float ALPHA     = (FROMBOX && FROMEMPTY ? T : 1.F) * (TOEMPTY ? (FROMBOX ? 1.F - T : 0.F) : 1.F);
+    const float ALPHA     = (FROMBOX && FROMEMPTY ? std::max(T, DESKTOP) : 1.F) * (TOEMPTY ? std::max(FROMBOX ? 1.F - T : 0.F, DESKTOP) : 1.F);
     if (ALPHA <= 0.001F)
         return;
 
