@@ -119,7 +119,6 @@ float         getTouchpadScrollFactor(PHLMONITOR monitor);
 EScrollAction getVerticalScrollAction(ELayout layout, PHLMONITOR monitor);
 EScrollAction getHorizontalScrollAction(ELayout layout, PHLMONITOR monitor);
 int           getWallpaperMode(PHLMONITOR monitor);
-bool          getWallpaperActiveOnly(PHLMONITOR monitor);
 EWallpaperLayer getWallpaperLayer(PHLMONITOR monitor);
 bool          getBlur(PHLMONITOR monitor);
 ::Config::CCssGapData getCssGapData(const std::string& name);
@@ -127,5 +126,6 @@ int          getShadowEnabled(PHLMONITOR monitor);
 int          getShadowRange(PHLMONITOR monitor);
 int          getShadowRenderPower(PHLMONITOR monitor);
 std::optional<::Config::CGradientValueData> getShadowColor(PHLMONITOR monitor);
+std::optional<::Config::CGradientValueData> getShadowActiveColor(PHLMONITOR monitor);
 
 }

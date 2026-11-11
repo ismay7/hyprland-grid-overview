@@ -738,7 +738,7 @@ static SOverviewShadowConfig getOverviewShadowConfig(PHLMONITOR monitor) {
     };
 }
 
-static void renderOverviewWorkspaceShadow(PHLMONITOR monitor, const CBox& workspaceBox, float overviewScale, float alpha = 1.F) {
+static void renderOverviewWorkspaceShadow(PHLMONITOR monitor, const CBox& workspaceBox, float overviewScale, float alpha = 1.F, bool selected = false) {
     if (!monitor)
         return;
 
@@ -747,7 +747,11 @@ static void renderOverviewWorkspaceShadow(PHLMONITOR monitor, const CBox& worksp
     const auto progress = std::clamp((1.F - overviewScale) / (1.F - ScrollOverview::Config::getScale(monitor)), 0.F, 1.F);
     alpha *= progress * progress * (3.F - 2.F * progress);
 
-    const auto SHADOW = getOverviewShadowConfig(monitor);
+    auto SHADOW = getOverviewShadowConfig(monitor);
+    if (selected) {
+        if (const auto ACTIVECOLOR = ScrollOverview::Config::getShadowActiveColor(monitor); ACTIVECOLOR && !ACTIVECOLOR->m_colors.empty())
+            SHADOW.color = *ACTIVECOLOR;
+    }
     const bool HASVISIBLECOLOR = std::ranges::any_of(SHADOW.color.m_colors, [](const CHyprColor& color) { return color.a > 0.F; });
     if (!SHADOW.enabled || SHADOW.range <= 0 || !HASVISIBLECOLOR || alpha <= 0.F)
         return;
@@ -4746,13 +4750,12 @@ void CScrollOverview::renderWorkspaceBackground(PHLMONITOR monitor, size_t works
         workspace->m_forceRendering = WASFORCERENDERING;
     });
 
-    renderOverviewWorkspaceShadow(monitor, WORKSPACEBOX, renderScale, WORKSPACEALPHA);
+    renderOverviewWorkspaceShadow(monitor, WORKSPACEBOX, renderScale, WORKSPACEALPHA, workspaceIdx == viewportCurrentWorkspace);
 
     if (ScrollOverview::Config::getBlur(pMonitor.lock()) && wallpaperMode != 1 && WORKSPACEALPHA > 0.001F)
         OverviewRender::queueBlur(g_pHyprRenderer->context(), WORKSPACEBOX, 0, 2.F, WORKSPACEALPHA, false);
 
-    const bool WALLPAPERHIDDEN = ScrollOverview::Config::getWallpaperActiveOnly(monitor) && workspaceIdx != viewportCurrentWorkspace;
-    if (wallpaperMode != 0 && WORKSPACEALPHA > 0.001F && !WALLPAPERHIDDEN)
+    if (wallpaperMode != 0 && WORKSPACEALPHA > 0.001F)
         renderWallpaperLayers(monitor, WORKSPACEBOX, renderScale, now, WORKSPACEALPHA);
 
     if (WORKSPACEALPHA >= 0.999F)
