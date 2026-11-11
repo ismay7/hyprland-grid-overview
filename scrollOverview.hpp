@@ -370,6 +370,7 @@ class CScrollOverview : public IOverview {
     SP<CEventLoopTimer>              dragEdgeTimer;
     int                              dragEdgeCol = 0, dragEdgeRow = 0;
     bool                             gridModeButtonPressed = false;
+    PHLWORKSPACEREF                  hoveredWorkspace;
 
     friend class CScrollOverviewPassElement;
     friend void removeOverview(IOverview* overview);

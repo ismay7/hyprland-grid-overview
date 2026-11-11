@@ -31,6 +31,7 @@
 #include <hyprland/src/keybinds/Manager.hpp>
 #include <hyprland/src/managers/SeatManager.hpp>
 #include <hyprland/src/managers/eventLoop/EventLoopManager.hpp>
+#include <hyprland/src/config/supplementary/executor/Executor.hpp>
 #include <hyprland/src/layout/LayoutManager.hpp>
 #include <hyprland/src/layout/algorithm/Algorithm.hpp>
 #include <hyprland/src/layout/space/Space.hpp>
@@ -82,6 +83,13 @@ static constexpr const char* OVERVIEW_SUBMAP = "scrolloverview";
 static constexpr auto        POST_DROP_PSEUDO_FOCUS_DURATION = std::chrono::milliseconds(100);
 // grid fit mode ("Komplettansicht"), remembered across overview openings for the lifetime of the plugin
 static bool                  g_gridFitMode = false;
+
+// exec_on_open / exec_on_close
+static void runOverviewHook(const char* name) {
+    const auto CMD = ScrollOverview::Config::getValue<std::string>(std::string{"plugin:scrolloverview:"} + name);
+    if (!CMD.empty())
+        Config::Supplementary::executor()->spawn(CMD);
+}
 static CScrollOverview*             g_pointerGrabOverview = nullptr;
 static bool                         g_finishingAdoptedNativeDrag    = false;
 static std::unordered_set<uint32_t> g_topLayerPointerButtons;
@@ -1121,6 +1129,8 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
         layout = ScrollOverview::Config::ELayout::VERTICAL;
     sharedStateOwner             = scrollOverviews().empty();
     usesSubmapKeybinds           = hasOverviewSubmap();
+    if (sharedStateOwner)
+        runOverviewHook("exec_on_open");
 
     applyWorkspaceAnimationOverrides();
     if (sharedStateOwner)
@@ -1228,6 +1238,15 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
 
         info.cancelled = true;
         requestInputFrame();
+
+        // hidden empty placeholders appear on mouse-over: redraw when the workspace under the pointer changes
+        if (grid && !dragActiveWindow) {
+            const auto HOVERED = workspaceAtOverviewPoint(lastMousePosLocal);
+            if (HOVERED != hoveredWorkspace.lock()) {
+                hoveredWorkspace = HOVERED;
+                damage();
+            }
+        }
 
         if (submapMouseClickPending) {
             const bool DRAGTHRESHOLDREACHED = dragStartMouseLocal.distanceSq(lastMousePosLocal) > DRAGTHRESHOLDSQ;
@@ -3979,9 +3998,10 @@ void CScrollOverview::moveViewportWorkspace(bool up) {
 }
 
 static constexpr float GRID_FIT_MARGIN      = 40.F; // layout px around the fitted grid
-static constexpr float GRID_BUTTON_W        = 56.F;
-static constexpr float GRID_BUTTON_H        = 32.F;
-static constexpr float GRID_BUTTON_GAP      = 8.F;
+static constexpr float GRID_BUTTON_W        = 76.F;
+static constexpr float GRID_BUTTON_H        = 44.F;
+static constexpr float GRID_BUTTON_GAP      = 10.F;
+static constexpr float GRID_BUTTON_ICON     = 1.4F; // icon scale (icons are drawn in a 30 x 16 px design grid)
 static constexpr float GRID_BUTTON_TOP      = 12.F; // below the work area's top edge (i.e. below the bar)
 static constexpr float GRID_BUTTON_BAND     = GRID_BUTTON_TOP + GRID_BUTTON_H + 12.F;
 
@@ -4096,7 +4116,7 @@ void CScrollOverview::renderGridModeButtons(PHLMONITOR monitor) {
 
     auto* const ACTIVEBORDER = sc<Config::CGradientValueData*>(ScrollOverview::Config::valueRef<Config::IComplexConfigValue>("general:col.active_border").ptr());
     const auto  ACCENT       = ACTIVEBORDER && !ACTIVEBORDER->m_colors.empty() ? ACTIVEBORDER->m_colors[0] : CHyprColor{1.F, 1.F, 1.F, 1.F};
-    const auto  UNIT         = monitor->m_scale;
+    const auto  UNIT         = monitor->m_scale * GRID_BUTTON_ICON;
 
     const auto rect = [&](const CBox& box, CHyprColor color, int round) {
         CRectPassElement::SRectData data;
@@ -5048,9 +5068,16 @@ void CScrollOverview::renderWorkspaceBackground(PHLMONITOR monitor, size_t works
             hovered        = workspaceAtOverviewDropPoint(lastMousePosLocal, &dropIdx, DRAGGED) == workspace && dropIdx == workspaceIdx;
         }
 
+        // a hidden placeholder also shows up (normal brightness) while the mouse is over it
+        bool mouseOver = false;
+        if (!DRAGGED && isOverviewPointerOnMonitor(monitor)) {
+            size_t hoverIdx = 0;
+            mouseOver       = workspaceAtOverviewPoint(lastMousePosLocal, &hoverIdx) == workspace && hoverIdx == workspaceIdx;
+        }
+
         const bool SELECTED = workspaceIdx == viewportCurrentWorkspace;
         const auto MODE     = ScrollOverview::Config::getEmptyMarker(monitor);
-        if (MODE == ScrollOverview::Config::EEmptyMarker::ALWAYS || SELECTED || hovered || (MODE == ScrollOverview::Config::EEmptyMarker::DRAG && DRAGGED))
+        if (MODE == ScrollOverview::Config::EEmptyMarker::ALWAYS || SELECTED || hovered || mouseOver || (MODE == ScrollOverview::Config::EEmptyMarker::DRAG && DRAGGED))
             renderEmptyWorkspaceMarker(monitor, WORKSPACEBOX, renderScale, WORKSPACEALPHA, SELECTED || hovered);
         return;
     }
@@ -5959,6 +5986,8 @@ void CScrollOverview::close(ECloseMode mode) {
     if (closeApplied)
         return;
     closeApplied = true;
+    if (sharedStateOwner)
+        runOverviewHook("exec_on_close");
 
     const bool PRESERVEMONITORSTATE = mode == ECloseMode::PRESERVE_MONITOR_STATE;
     const bool ACTIVATESELECTION    = !PRESERVEMONITORSTATE && activeScrollOverview().get() == this;
@@ -6127,6 +6156,8 @@ void CScrollOverview::reopen() {
     closeApplied        = false;
     closeRemovalPending = false;
     setClosing(false);
+    if (sharedStateOwner)
+        runOverviewHook("exec_on_open");
 
     // When all monitors were closing, the shared state may still belong to a
     // closing instance. Let it hand ownership to an open overview again.
