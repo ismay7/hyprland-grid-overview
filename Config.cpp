@@ -435,6 +435,9 @@ static void defineConfigValues() {
     addValue(makeShared<CBoolValue>("plugin:scrolloverview:highlight_selected",
                                     "only the selected workspace gets wallpaper and shadow; others show just their windows, empty ones an outline with a plus", false));
     addValue(makeShared<CGradientValue>("plugin:scrolloverview:empty_color", "outline and plus color of empty workspaces (highlight_selected)", -1));
+    addValue(makeShared<CBoolValue>("plugin:scrolloverview:empty_color_from_border",
+                                    "use general:col.active_border (e.g. matugen colours) for the outline and plus, with empty_color's alpha", false));
+    addValue(makeShared<CGradientValue>("plugin:scrolloverview:empty_halo_color", "thin halo under the outline and plus, for contrast on light wallpapers", -1));
     addValue(makeShared<CIntValue>("plugin:scrolloverview:highlight_padding",
                                    "highlight_selected: how far (layout px) the wallpaper reaches past the workspace's work area", 0, SIntValueOptions{.min = 0}));
     addValue(makeShared<CBoolValue>("plugin:scrolloverview:grid_buttons", "grid mode: buttons to switch between centred and whole-grid view", true));
@@ -610,16 +613,30 @@ EEmptyMarker getEmptyMarker(PHLMONITOR monitor) {
     return EEmptyMarker::ALWAYS;
 }
 
-CHyprColor getEmptyColor(PHLMONITOR monitor) {
-    constexpr auto NAME = "plugin:scrolloverview:empty_color";
+static std::optional<CHyprColor> firstColorIfSet(const std::string& name, PHLMONITOR monitor) {
+    if (!monitorValueData(name, monitor) && !valueRef<::Config::IComplexConfigValue>(name).setByUser())
+        return std::nullopt;
 
-    if (monitorValueData(NAME, monitor) || valueRef<::Config::IComplexConfigValue>(NAME).setByUser()) {
-        const auto GRADIENT = getValue<::Config::CGradientValueData>(NAME, monitor);
-        if (!GRADIENT.m_colors.empty())
-            return GRADIENT.m_colors[0];
+    const auto GRADIENT = getValue<::Config::CGradientValueData>(name, monitor);
+    if (GRADIENT.m_colors.empty())
+        return std::nullopt;
+    return GRADIENT.m_colors[0];
+}
+
+CHyprColor getEmptyColor(PHLMONITOR monitor) {
+    auto color = firstColorIfSet("plugin:scrolloverview:empty_color", monitor).value_or(CHyprColor{1.F, 1.F, 1.F, 0.35F});
+
+    if (getValue<bool>("plugin:scrolloverview:empty_color_from_border", monitor)) {
+        const auto BORDER = getValue<::Config::CGradientValueData>("general:col.active_border");
+        if (!BORDER.m_colors.empty())
+            color = BORDER.m_colors[0].modifyA(color.a);
     }
 
-    return CHyprColor{1.F, 1.F, 1.F, 0.35F};
+    return color;
+}
+
+CHyprColor getEmptyHaloColor(PHLMONITOR monitor) {
+    return firstColorIfSet("plugin:scrolloverview:empty_halo_color", monitor).value_or(CHyprColor{0.F, 0.F, 0.F, 0.4F});
 }
 
 std::optional<::Config::CGradientValueData> getShadowActiveColor(PHLMONITOR monitor) {

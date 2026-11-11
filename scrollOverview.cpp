@@ -5017,34 +5017,52 @@ static void renderEmptyWorkspaceMarker(PHLMONITOR monitor, const CBox& workspace
     if (alpha <= 0.F)
         return;
 
-    auto       color   = ScrollOverview::Config::getEmptyColor(monitor);
-    color.a            = std::min(1.F, sc<float>(color.a) * (selected ? 2.F : 1.F)) * alpha;
-    const auto UNIT    = std::max(monitor->m_scale, 0.01F);
+    auto color = ScrollOverview::Config::getEmptyColor(monitor);
+    color.a    = std::min(1.F, sc<float>(color.a) * (selected ? 2.F : 1.F)) * alpha;
+    auto halo  = ScrollOverview::Config::getEmptyHaloColor(monitor);
+    halo.a    *= alpha;
+
+    const auto UNIT     = std::max(monitor->m_scale, 0.01F);
     const auto ROUNDING = sc<int>(std::round(ScrollOverview::Config::getValue<int>("decoration:rounding") * UNIT * overviewScale));
     const auto BORDER   = std::max(1, sc<int>(std::round(2.F * UNIT)));
+    // dark halo under the light stroke: barely changes it on dark wallpapers, keeps it readable on light ones
+    const auto HALO = std::max(1, sc<int>(std::round(1.5F * UNIT)));
 
-    Config::CGradientValueData gradient;
-    gradient.m_colors = {color};
-    gradient.updateColorsOk();
+    const auto box = workspaceBox.copy().round();
 
-    auto box = workspaceBox.copy().round();
-    Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CBorderPassElement>(CBorderPassElement::SBorderData{
-        .box        = box.copy().expand(-BORDER).round(),
-        .grad1      = gradient,
-        .round      = ROUNDING,
-        .borderSize = BORDER,
-    }));
+    const auto outline = [&](CHyprColor c, int inset, int size, int round) {
+        if (c.a <= 0.F)
+            return;
+        Config::CGradientValueData gradient;
+        gradient.m_colors = {c};
+        gradient.updateColorsOk();
+        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CBorderPassElement>(CBorderPassElement::SBorderData{
+            .box        = box.copy().expand(-inset).round(),
+            .grad1      = gradient,
+            .round      = round,
+            .borderSize = size,
+        }));
+    };
 
     const float ARM   = std::min(box.width, box.height) * 0.08F;
     const float THICK = std::max(2.F * UNIT, ARM * 0.14F);
     const auto  MID   = box.middle();
-    for (const auto& PART : {CBox{MID.x - ARM, MID.y - THICK / 2.F, ARM * 2.F, THICK}, CBox{MID.x - THICK / 2.F, MID.y - ARM, THICK, ARM * 2.F}}) {
-        CRectPassElement::SRectData data;
-        data.box   = PART.copy().round();
-        data.color = color;
-        data.round = sc<int>(THICK / 2.F);
-        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(data));
-    }
+    const auto  plus  = [&](CHyprColor c, float grow) {
+        if (c.a <= 0.F)
+            return;
+        for (const auto& PART : {CBox{MID.x - ARM, MID.y - THICK / 2.F, ARM * 2.F, THICK}, CBox{MID.x - THICK / 2.F, MID.y - ARM, THICK, ARM * 2.F}}) {
+            CRectPassElement::SRectData data;
+            data.box   = PART.copy().expand(grow).round();
+            data.color = c;
+            data.round = sc<int>(THICK / 2.F + grow);
+            Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(data));
+        }
+    };
+
+    outline(halo, BORDER + HALO, BORDER + 2 * HALO, ROUNDING);
+    plus(halo, HALO);
+    outline(color, BORDER, BORDER, ROUNDING);
+    plus(color, 0.F);
 }
 
 void CScrollOverview::renderWorkspaceBackground(PHLMONITOR monitor, size_t workspaceIdx, size_t activeIdx, float workspacePitch, float renderScale, int wallpaperMode,
