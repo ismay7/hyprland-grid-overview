@@ -85,8 +85,20 @@ static CBox indicatorBox(const CDropIndicator::SRenderParams& params) {
     if (params.anchor.direction.empty())
         return params.anchor.box;
 
-    if (!scrollingAlgorithmForWorkspace(params.workspace))
-        return params.anchor.box;
+    if (!scrollingAlgorithmForWorkspace(params.workspace)) {
+        // the half of the anchor the dropped window will take; the whole anchor for a swap ("c")
+        auto box = params.anchor.box;
+        if (isHorizontalSide(params.anchor.direction)) {
+            box.width /= 2.F;
+            if (params.anchor.direction == "r")
+                box.x += box.width;
+        } else if (isVerticalSide(params.anchor.direction)) {
+            box.height /= 2.F;
+            if (params.anchor.direction == "d")
+                box.y += box.height;
+        }
+        return box;
+    }
 
     return scrollingIndicatorBox(params);
 }
@@ -126,7 +138,8 @@ void CDropIndicator::renderDropIndicator(const SRenderParams& params) {
     if (!params.anchor.window && params.floating && params.workspaceFullyVisible)
         return;
 
-    if (params.anchor.window && !params.anchor.direction.empty() && !isHorizontalSide(params.anchor.direction) && !isVerticalSide(params.anchor.direction))
+    if (params.anchor.window && !params.anchor.direction.empty() && params.anchor.direction != "c" && !isHorizontalSide(params.anchor.direction) &&
+        !isVerticalSide(params.anchor.direction))
         return;
 
     const auto BOX = clipScrollingIndicatorBox(indicatorBox(params), params);

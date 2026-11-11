@@ -35,6 +35,7 @@
 #include <hyprland/src/layout/space/Space.hpp>
 #include <hyprland/src/layout/target/Target.hpp>
 #include <hyprland/src/layout/algorithm/tiled/scrolling/ScrollingAlgorithm.hpp>
+#include <hyprland/src/layout/algorithm/tiled/dwindle/DwindleAlgorithm.hpp>
 #include <hyprland/src/desktop/state/GlobalWindowController.hpp>
 #include <hyprland/src/pointer/cursor/CursorShapeOverrideController.hpp>
 #include <hyprland/src/desktop/state/FocusState.hpp>
@@ -977,6 +978,38 @@ static bool moveOverviewScrollingTargetNextToWindow(const SP<Layout::ITarget>& t
     ALGO->m_scrollingData->recalculate();
     ALGO->focusTargetUpdate(target);
 
+    return true;
+}
+
+static Layout::Tiled::CDwindleAlgorithm* overviewDwindleAlgorithmForWorkspace(const PHLWORKSPACE& workspace) {
+    if (!workspace || !workspace->space() || !workspace->space()->algorithm())
+        return nullptr;
+
+    return dc<Layout::Tiled::CDwindleAlgorithm*>(workspace->space()->algorithm()->m_tiled.get());
+}
+
+// Re-insert a tiled target by splitting the anchor's node on the given side ("l", "r", "u", "d").
+// Uses dwindle's own preselect + focal point; use_active_for_splits makes it pick the node closest to the
+// focal point instead of the window under the (overview) cursor.
+static bool insertOverviewDwindleTargetNextTo(const SP<Layout::ITarget>& target, const PHLWINDOW& anchor, const std::string& direction) {
+    if (!target || !anchor || !anchor->layoutTarget() || direction.empty() || target->workspace() != anchor->m_workspace)
+        return false;
+
+    const auto ALGO = overviewDwindleAlgorithmForWorkspace(anchor->m_workspace);
+    if (!ALGO)
+        return false;
+
+    const auto FOCALPOINT = anchor->layoutTarget()->position().middle();
+
+    const auto PREVUSEACTIVE = ScrollOverview::Config::getValue<int>("dwindle:use_active_for_splits");
+    ScrollOverview::Config::setValue("dwindle:use_active_for_splits", 1);
+    auto restoreUseActive = Hyprutils::Utils::CScopeGuard([PREVUSEACTIVE] {
+        ScrollOverview::Config::setValue("dwindle:use_active_for_splits", PREVUSEACTIVE);
+    });
+
+    ALGO->removeTarget(target);
+    ALGO->layoutMsg("preselect " + direction);
+    ALGO->movedTarget(target, FOCALPOINT);
     return true;
 }
 
@@ -2640,6 +2673,22 @@ CDropIndicator::SDropAnchor CScrollOverview::dropAnchorAtOverviewCursorOnWorkspa
             setAnchor(result, ignoredWindow, DRAGCONTEXT->dragOriginalOverviewBox);
     };
 
+    // Non-scrolling layouts: the middle of a window swaps ("c"), the band along each edge inserts on that side
+    const auto tiledDirectionForBox = [&](const CBox& box) {
+        const auto X = box.width > 0 ? (lastMousePosLocal.x - box.x) / box.width : 0.5;
+        const auto Y = box.height > 0 ? (lastMousePosLocal.y - box.y) / box.height : 0.5;
+
+        if (X > 0.3 && X < 0.7 && Y > 0.3 && Y < 0.7)
+            return std::string{"c"};
+
+        const auto NEAREST = std::min({X, 1.0 - X, Y, 1.0 - Y});
+        if (NEAREST == X)
+            return std::string{"l"};
+        if (NEAREST == 1.0 - X)
+            return std::string{"r"};
+        return NEAREST == Y ? std::string{"u"} : std::string{"d"};
+    };
+
     float bestDistanceSq = std::numeric_limits<float>::max();
     for (auto it = IMAGE->windows.rbegin(); it != IMAGE->windows.rend(); ++it) {
         const auto WINDOW = getOverviewWindowToShow(it->lock());
@@ -2656,7 +2705,7 @@ CDropIndicator::SDropAnchor CScrollOverview::dropAnchorAtOverviewCursorOnWorkspa
         if (distanceSq >= bestDistanceSq)
             continue;
 
-        setAnchor(result, WINDOW, BOX, LOGICALBOX, directionForBox(BOX));
+        setAnchor(result, WINDOW, BOX, LOGICALBOX, ALGO ? directionForBox(BOX) : tiledDirectionForBox(BOX));
         bestDistanceSq = distanceSq;
     }
 
@@ -3684,6 +3733,11 @@ void CScrollOverview::endWindowDrag() {
                 moveOverviewTargetNextToWindow(TARGET, DROPANCHOR, dropDirection);
             else if (!DROPANCHOR)
                 moveOverviewScrollingTargetToWorkspaceEdge(TARGET, dropSide);
+        } else if (DROPANCHOR && DROPANCHOR->layoutTarget()) {
+            if (dropDirection == "c")
+                g_layoutManager->switchTargets(TARGET, DROPANCHOR->layoutTarget(), true);
+            else
+                insertOverviewDwindleTargetNextTo(TARGET, DROPANCHOR, dropDirection);
         }
 
         TARGET->rememberFloatingSize(dragOriginalFloatSize);
@@ -3694,7 +3748,8 @@ void CScrollOverview::endWindowDrag() {
 
         if (DROPANCHOR && !dropDirection.empty() && !DROPSCROLLINGLAYOUT && DROPANCHOR->layoutTarget()) {
             DROPANCHOR->layoutTarget()->damageEntire();
-            g_layoutManager->switchTargets(TARGET, DROPANCHOR->layoutTarget(), true);
+            if (dropDirection == "c" || !insertOverviewDwindleTargetNextTo(TARGET, DROPANCHOR, dropDirection))
+                g_layoutManager->switchTargets(TARGET, DROPANCHOR->layoutTarget(), true);
             DROPANCHOR->layoutTarget()->damageEntire();
         } else if (DROPANCHOR && !dropDirection.empty())
             moveOverviewTargetNextToWindow(TARGET, DROPANCHOR, dropDirection);
