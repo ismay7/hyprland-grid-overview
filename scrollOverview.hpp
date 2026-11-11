@@ -324,6 +324,8 @@ class CScrollOverview : public IOverview {
     PHLANIMVAR<float>                workspaceInsertFadeProgress;
     // highlight_selected: wallpaper + shadow slide from the previously selected card to the selected one
     PHLANIMVAR<float>                highlightProgress;
+    // transition_bezier: own curve for viewOffset / highlight, instead of the (possibly springy) windowsMove
+    SP<Hyprutils::Animation::SAnimationPropertyConfig> workspaceTransitionConfig;
     PHLWORKSPACEREF                  highlightFrom, highlightTo;
     SP<Hyprutils::Animation::SAnimationPropertyConfig> workspaceInsertFadeConfig;
     SP<Hyprutils::Animation::SAnimationPropertyConfig> workspaceRemoveFadeConfig;

@@ -1163,11 +1163,23 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
     workspaceRemoveFadeConfig->internalStyle   = WINDOWSMOVEVALUES ? WINDOWSMOVEVALUES->internalStyle : "";
     workspaceRemoveFadeConfig->pValues         = workspaceRemoveFadeConfig;
 
+    const auto TRANSITIONBEZIER = ScrollOverview::Config::getValue<std::string>("plugin:scrolloverview:transition_bezier");
+    if (!TRANSITIONBEZIER.empty() && Animation::mgr()->bezierExists(TRANSITIONBEZIER)) {
+        workspaceTransitionConfig                  = makeShared<Hyprutils::Animation::SAnimationPropertyConfig>();
+        workspaceTransitionConfig->overridden      = true;
+        workspaceTransitionConfig->internalBezier  = TRANSITIONBEZIER;
+        workspaceTransitionConfig->internalSpeed   = ScrollOverview::Config::getValue<float>("plugin:scrolloverview:transition_speed");
+        workspaceTransitionConfig->internalEnabled = WINDOWSMOVEVALUES ? WINDOWSMOVEVALUES->internalEnabled : 1;
+        workspaceTransitionConfig->internalStyle   = "";
+        workspaceTransitionConfig->pValues         = workspaceTransitionConfig;
+    }
+    const auto TRANSITIONCONFIG = workspaceTransitionConfig ? workspaceTransitionConfig : WINDOWSMOVECONFIG;
+
     Animation::mgr()->createAnimation(1.F, scale, WINDOWSMOVECONFIG, AVARDAMAGE_NONE);
-    Animation::mgr()->createAnimation({}, viewOffset, WINDOWSMOVECONFIG, AVARDAMAGE_NONE);
+    Animation::mgr()->createAnimation({}, viewOffset, TRANSITIONCONFIG, AVARDAMAGE_NONE);
     Animation::mgr()->createAnimation(1.F, workspaceInsertProgress, WINDOWSMOVECONFIG, AVARDAMAGE_NONE);
     Animation::mgr()->createAnimation(1.F, workspaceInsertFadeProgress, workspaceInsertFadeConfig, AVARDAMAGE_NONE);
-    Animation::mgr()->createAnimation(1.F, highlightProgress, WINDOWSMOVECONFIG, AVARDAMAGE_NONE);
+    Animation::mgr()->createAnimation(1.F, highlightProgress, TRANSITIONCONFIG, AVARDAMAGE_NONE);
 
     highlightProgress->setUpdateCallback([this](auto) { damage(); });
     scale->setUpdateCallback([this](auto) { damage(); });

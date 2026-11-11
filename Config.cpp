@@ -438,6 +438,10 @@ static void defineConfigValues() {
     addValue(makeShared<CIntValue>("plugin:scrolloverview:highlight_padding",
                                    "highlight_selected: how far (layout px) the wallpaper reaches past the workspace's work area", 0, SIntValueOptions{.min = 0}));
     addValue(makeShared<CBoolValue>("plugin:scrolloverview:grid_buttons", "grid mode: buttons to switch between centred and whole-grid view", true));
+    addValue(makeShared<CStringValue>("plugin:scrolloverview:transition_bezier",
+                                      "bezier for moving between workspaces inside the overview; empty = windowsMove animation", Hyprlang::STRING{""}));
+    addValue(makeShared<CFloatValue>("plugin:scrolloverview:transition_speed", "speed for transition_bezier (like animation speeds)", 4.F,
+                                     SFloatValueOptions{.min = 0.1F, .max = 100.F}));
     addValue(makeShared<CStringValue>("plugin:scrolloverview:exec_on_open", "shell command run when the overview opens", Hyprlang::STRING{""}));
     addValue(makeShared<CStringValue>("plugin:scrolloverview:exec_on_close", "shell command run when the overview starts closing", Hyprlang::STRING{""}));
     addValue(makeShared<CStringValue>("plugin:scrolloverview:empty_marker",
