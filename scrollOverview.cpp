@@ -4745,7 +4745,7 @@ static PHLWINDOW getOverviewFullscreenVisibilityWindow(const PHLWORKSPACE& works
 }
 
 // highlight_selected: an empty, unselected workspace is drawn as a rounded outline with a plus in the middle
-static void renderEmptyWorkspaceMarker(PHLMONITOR monitor, const CBox& workspaceBox, float overviewScale, float alpha) {
+static void renderEmptyWorkspaceMarker(PHLMONITOR monitor, const CBox& workspaceBox, float overviewScale, float alpha, bool selected) {
     // fade in with the overview zoom like the card shadow, so nothing pops up on the desktop
     const auto progress = std::clamp((1.F - overviewScale) / (1.F - ScrollOverview::Config::getScale(monitor)), 0.F, 1.F);
     alpha *= progress * progress * (3.F - 2.F * progress);
@@ -4753,7 +4753,7 @@ static void renderEmptyWorkspaceMarker(PHLMONITOR monitor, const CBox& workspace
         return;
 
     auto       color   = ScrollOverview::Config::getEmptyColor(monitor);
-    color.a           *= alpha;
+    color.a            = std::min(1.F, sc<float>(color.a) * (selected ? 2.F : 1.F)) * alpha;
     const auto UNIT    = std::max(monitor->m_scale, 0.01F);
     const auto ROUNDING = sc<int>(std::round(ScrollOverview::Config::getValue<int>("decoration:rounding") * UNIT * overviewScale));
     const auto BORDER   = std::max(1, sc<int>(std::round(2.F * UNIT)));
@@ -4806,9 +4806,13 @@ void CScrollOverview::renderWorkspaceBackground(PHLMONITOR monitor, size_t works
         workspace->m_forceRendering = WASFORCERENDERING;
     });
 
-    if (ScrollOverview::Config::getHighlightSelected(monitor) && workspaceIdx != viewportCurrentWorkspace) {
-        if (workspace->getWindowCount() == 0)
-            renderEmptyWorkspaceMarker(monitor, WORKSPACEBOX, renderScale, WORKSPACEALPHA);
+    // highlight_selected: empty workspaces stay outline + plus even when selected (drawn brighter then);
+    // they get wallpaper and shadow only once a window lands on them
+    const bool SELECTED = workspaceIdx == viewportCurrentWorkspace;
+    const bool EMPTY    = workspace->getWindowCount() == 0;
+    if (ScrollOverview::Config::getHighlightSelected(monitor) && (!SELECTED || EMPTY)) {
+        if (EMPTY)
+            renderEmptyWorkspaceMarker(monitor, WORKSPACEBOX, renderScale, WORKSPACEALPHA, SELECTED);
         return;
     }
 
