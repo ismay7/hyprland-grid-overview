@@ -127,5 +127,7 @@ int          getShadowRange(PHLMONITOR monitor);
 int          getShadowRenderPower(PHLMONITOR monitor);
 std::optional<::Config::CGradientValueData> getShadowColor(PHLMONITOR monitor);
 std::optional<::Config::CGradientValueData> getShadowActiveColor(PHLMONITOR monitor);
+bool          getHighlightSelected(PHLMONITOR monitor);
+CHyprColor    getEmptyColor(PHLMONITOR monitor);
 
 }

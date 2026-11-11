@@ -4744,6 +4744,44 @@ static PHLWINDOW getOverviewFullscreenVisibilityWindow(const PHLWORKSPACE& works
     return getOverviewWindowToShow(fallback);
 }
 
+// highlight_selected: an empty, unselected workspace is drawn as a rounded outline with a plus in the middle
+static void renderEmptyWorkspaceMarker(PHLMONITOR monitor, const CBox& workspaceBox, float overviewScale, float alpha) {
+    // fade in with the overview zoom like the card shadow, so nothing pops up on the desktop
+    const auto progress = std::clamp((1.F - overviewScale) / (1.F - ScrollOverview::Config::getScale(monitor)), 0.F, 1.F);
+    alpha *= progress * progress * (3.F - 2.F * progress);
+    if (alpha <= 0.F)
+        return;
+
+    auto       color   = ScrollOverview::Config::getEmptyColor(monitor);
+    color.a           *= alpha;
+    const auto UNIT    = std::max(monitor->m_scale, 0.01F);
+    const auto ROUNDING = sc<int>(std::round(ScrollOverview::Config::getValue<int>("decoration:rounding") * UNIT * overviewScale));
+    const auto BORDER   = std::max(1, sc<int>(std::round(2.F * UNIT)));
+
+    Config::CGradientValueData gradient;
+    gradient.m_colors = {color};
+    gradient.updateColorsOk();
+
+    auto box = workspaceBox.copy().round();
+    Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CBorderPassElement>(CBorderPassElement::SBorderData{
+        .box        = box.copy().expand(-BORDER).round(),
+        .grad1      = gradient,
+        .round      = ROUNDING,
+        .borderSize = BORDER,
+    }));
+
+    const float ARM   = std::min(box.width, box.height) * 0.08F;
+    const float THICK = std::max(2.F * UNIT, ARM * 0.14F);
+    const auto  MID   = box.middle();
+    for (const auto& PART : {CBox{MID.x - ARM, MID.y - THICK / 2.F, ARM * 2.F, THICK}, CBox{MID.x - THICK / 2.F, MID.y - ARM, THICK, ARM * 2.F}}) {
+        CRectPassElement::SRectData data;
+        data.box   = PART.copy().round();
+        data.color = color;
+        data.round = sc<int>(THICK / 2.F);
+        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(data));
+    }
+}
+
 void CScrollOverview::renderWorkspaceBackground(PHLMONITOR monitor, size_t workspaceIdx, size_t activeIdx, float workspacePitch, float renderScale, int wallpaperMode,
                                                 const Time::steady_tp& now) {
     const auto& workspaceImage = images[workspaceIdx];
@@ -4767,6 +4805,12 @@ void CScrollOverview::renderWorkspaceBackground(PHLMONITOR monitor, size_t works
         workspace->setVisible(WASVISIBLE);
         workspace->m_forceRendering = WASFORCERENDERING;
     });
+
+    if (ScrollOverview::Config::getHighlightSelected(monitor) && workspaceIdx != viewportCurrentWorkspace) {
+        if (workspace->getWindowCount() == 0)
+            renderEmptyWorkspaceMarker(monitor, WORKSPACEBOX, renderScale, WORKSPACEALPHA);
+        return;
+    }
 
     renderOverviewWorkspaceShadow(monitor, WORKSPACEBOX, renderScale, WORKSPACEALPHA, workspaceIdx == viewportCurrentWorkspace);
 

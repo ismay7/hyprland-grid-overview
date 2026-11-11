@@ -432,6 +432,9 @@ static void defineConfigValues() {
     addValue(makeShared<CIntValue>("plugin:scrolloverview:shadow:render_power", "workspace card shadow render power", -1));
     addValue(makeShared<CGradientValue>("plugin:scrolloverview:shadow:color", "workspace card shadow color", -1));
     addValue(makeShared<CGradientValue>("plugin:scrolloverview:shadow:active_color", "shadow color of the selected workspace card", -1));
+    addValue(makeShared<CBoolValue>("plugin:scrolloverview:highlight_selected",
+                                    "only the selected workspace gets wallpaper and shadow; others show just their windows, empty ones an outline with a plus", false));
+    addValue(makeShared<CGradientValue>("plugin:scrolloverview:empty_color", "outline and plus color of empty workspaces (highlight_selected)", -1));
 }
 
 static void initializeMonitorConfig() {
@@ -572,6 +575,22 @@ int getShadowRange(PHLMONITOR monitor) {
 
 int getShadowRenderPower(PHLMONITOR monitor) {
     return getValue<int>("plugin:scrolloverview:shadow:render_power", monitor);
+}
+
+bool getHighlightSelected(PHLMONITOR monitor) {
+    return getValue<bool>("plugin:scrolloverview:highlight_selected", monitor);
+}
+
+CHyprColor getEmptyColor(PHLMONITOR monitor) {
+    constexpr auto NAME = "plugin:scrolloverview:empty_color";
+
+    if (monitorValueData(NAME, monitor) || valueRef<::Config::IComplexConfigValue>(NAME).setByUser()) {
+        const auto GRADIENT = getValue<::Config::CGradientValueData>(NAME, monitor);
+        if (!GRADIENT.m_colors.empty())
+            return GRADIENT.m_colors[0];
+    }
+
+    return CHyprColor{1.F, 1.F, 1.F, 0.35F};
 }
 
 std::optional<::Config::CGradientValueData> getShadowActiveColor(PHLMONITOR monitor) {
