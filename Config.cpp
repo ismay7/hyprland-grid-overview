@@ -447,6 +447,11 @@ static void defineConfigValues() {
                                       "bezier for moving between workspaces inside the overview; empty = windowsMove animation", Hyprlang::STRING{""}));
     addValue(makeShared<CFloatValue>("plugin:gridoverview:transition_speed", "speed for transition_bezier (like animation speeds)", 4.F,
                                      SFloatValueOptions{.min = 0.1F, .max = 100.F}));
+    addValue(makeShared<CBoolValue>("plugin:gridoverview:window_icons", "draw the app icon in the middle of every window", false));
+    addValue(makeShared<CIntValue>("plugin:gridoverview:window_icon_size", "app icon size in layout px (scaled with the overview)", 96,
+                                   SIntValueOptions{.min = 8, .max = 1024}));
+    addValue(makeShared<CGradientValue>("plugin:gridoverview:window_icon_plate_color", "round plate behind the app icon", -1));
+    addValue(makeShared<CStringValue>("plugin:gridoverview:icon_theme", "icon theme searched before hicolor; empty = hicolor only", Hyprlang::STRING{""}));
     addValue(makeShared<CStringValue>("plugin:gridoverview:view_switch_bezier",
                                       "bezier for switching between centred and whole-grid view; empty = built-in smooth curve", Hyprlang::STRING{""}));
     addValue(makeShared<CFloatValue>("plugin:gridoverview:view_switch_speed", "speed for view_switch_bezier (like animation speeds)", 3.5F,
@@ -639,6 +644,10 @@ CHyprColor getEmptyColor(PHLMONITOR monitor) {
     }
 
     return color;
+}
+
+CHyprColor getWindowIconPlateColor(PHLMONITOR monitor) {
+    return firstColorIfSet("plugin:gridoverview:window_icon_plate_color", monitor).value_or(CHyprColor{0.F, 0.F, 0.F, 0.45F});
 }
 
 CHyprColor getEmptyHaloColor(PHLMONITOR monitor) {

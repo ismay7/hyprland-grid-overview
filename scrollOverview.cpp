@@ -72,6 +72,7 @@
 #undef private
 #include "Config.hpp"
 #include "DropIndicator.hpp"
+#include "Icons.hpp"
 #include "NativeDrag.hpp"
 #include "OverviewOpen.hpp"
 #include "OverviewPassElement.hpp"
@@ -5339,6 +5340,60 @@ void CScrollOverview::renderSelectedEmptyMarker(PHLMONITOR monitor, size_t activ
         renderEmptyWorkspaceMarker(monitor, BOX, renderScale, workspaceOverviewAlpha(viewportCurrentWorkspace), true);
 }
 
+// window_icons: app icon on a round plate in the middle of every window (not on the one being dragged)
+void CScrollOverview::renderWindowIcons(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale) {
+    if (!ScrollOverview::Config::getValue<bool>("plugin:gridoverview:window_icons", monitor))
+        return;
+
+    // fade in with the overview zoom like the card shadows
+    const float PROGRESS = std::clamp((1.F - renderScale) / (1.F - ScrollOverview::Config::getScale(monitor)), 0.F, 1.F);
+    const float ALPHA    = PROGRESS * PROGRESS * (3.F - 2.F * PROGRESS);
+    if (ALPHA <= 0.001F)
+        return;
+
+    const float SIZE    = ScrollOverview::Config::getValue<int>("plugin:gridoverview:window_icon_size", monitor) * renderScale * monitor->m_scale;
+    const float PLATE   = SIZE * 1.5F;
+    auto        plate   = ScrollOverview::Config::getWindowIconPlateColor(monitor);
+    plate.a            *= ALPHA;
+    const auto  THEME   = ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:icon_theme", monitor);
+    const auto  DRAGGED = getOverviewWindowToShow(dragActiveWindow.lock());
+
+    for (size_t workspaceIdx = 0; workspaceIdx < images.size(); ++workspaceIdx) {
+        if (!images[workspaceIdx])
+            continue;
+
+        const auto OFFSET = workspaceOverviewOffset(workspaceIdx, activeIdx, workspacePitch);
+        for (const auto& windowRef : images[workspaceIdx]->windows) {
+            const auto WINDOW = getOverviewWindowToShow(windowRef.lock());
+            if (!shouldShowOverviewWindow(WINDOW) || WINDOW == DRAGGED)
+                continue;
+
+            const auto BOX = getOverviewWindowBox(WINDOW, monitor, renderScale, viewOffset->value(), OFFSET, layout);
+            if (!overviewBoxIntersectsMonitor(BOX, monitor))
+                continue;
+
+            const auto TEXTURE = GridIcons::iconForAppID(WINDOW->metadata().appID(), THEME);
+            if (!TEXTURE)
+                continue;
+
+            const auto MID = BOX.middle();
+            if (plate.a > 0.F) {
+                CRectPassElement::SRectData data;
+                data.box   = CBox{MID.x - PLATE / 2.F, MID.y - PLATE / 2.F, PLATE, PLATE}.round();
+                data.color = plate;
+                data.round = sc<int>(PLATE / 2.F);
+                Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(data));
+            }
+
+            CTexPassElement::SRenderData data;
+            data.tex = TEXTURE;
+            data.box = CBox{MID.x - SIZE / 2.F, MID.y - SIZE / 2.F, SIZE, SIZE}.round();
+            data.a   = ALPHA;
+            Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CTexPassElement>(std::move(data)));
+        }
+    }
+}
+
 void CScrollOverview::renderWorkspaceLive(PHLMONITOR monitor, size_t workspaceIdx, size_t activeIdx, float workspacePitch, float renderScale, int wallpaperMode, const Time::steady_tp& now) {
     const auto& workspaceImage = images[workspaceIdx];
     if (!workspaceImage || !workspaceImage->pWorkspace)
@@ -6556,6 +6611,7 @@ void CScrollOverview::render() {
         renderWorkspaceLive(MONITOR, workspaceIdx, ACTIVEIDX, PITCH, SCALE, WALLPAPERMODE, NOW);
     }
 
+    renderWindowIcons(MONITOR, ACTIVEIDX, PITCH, SCALE);
     renderDraggedWindow(MONITOR, ACTIVEIDX, PITCH, SCALE, NOW);
     renderPinnedFloatingWindows(MONITOR, SCALE, NOW);
     renderGridModeButtons(MONITOR);

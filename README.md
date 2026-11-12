@@ -91,6 +91,10 @@ is plain Hyprland config: focus/move to `row * 10 + column`.
 | `empty_halo_color` | color | thin halo under outline and plus, for light wallpapers | `rgba(0,0,0,0.4)` |
 | `empty_color_from_border` | bool | use `general:col.active_border` (e.g. matugen) with `empty_color`'s alpha | `false` |
 | `shadow:active_color` | color | shadow colour of the selected workspace | unset |
+| `window_icons` | bool | app icon on a round plate in the middle of every window | `false` |
+| `window_icon_size` | int | icon size in layout px, scaled with the overview | `96` |
+| `window_icon_plate_color` | color | plate behind the icon | `rgba(0,0,0,0.45)` |
+| `icon_theme` | string | icon theme searched before hicolor (e.g. `Papirus-Dark`); empty = hicolor only | empty |
 | `transition_bezier` | string | bezier for moving between workspaces in the overview; empty = `windowsMove` | empty |
 | `transition_speed` | float | speed for `transition_bezier` | `4` |
 | `view_switch_bezier` | string | bezier for switching between centred and whole-grid view; empty = built-in smooth curve | empty |
