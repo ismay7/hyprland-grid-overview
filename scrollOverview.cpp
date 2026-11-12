@@ -1248,6 +1248,12 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
 
         lastMousePosLocal = getOverviewMousePosLocal(pMonitor.lock());
 
+        if (gridSliderDragging) {
+            info.cancelled = true;
+            setZoomFromSlider(lastMousePosLocal.x);
+            return;
+        }
+
         const auto beginScrollingPanAtPoint = [&](const Vector2D& point) {
             auto WORKSPACE = workspaceAtOverviewPoint(point);
             if (!WORKSPACE) {
@@ -1515,7 +1521,11 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
             if (event.state == WL_POINTER_BUTTON_STATE_PRESSED) {
                 if (const auto BUTTON = gridModeButtonAt(lastMousePosLocal)) {
                     gridModeButtonPressed = true;
-                    setGridFitMode(*BUTTON == 1);
+                    if (*BUTTON == 2) {
+                        gridSliderDragging = true;
+                        setZoomFromSlider(lastMousePosLocal.x);
+                    } else
+                        setGridFitMode(*BUTTON == 1);
                     return;
                 }
 
@@ -1529,6 +1539,10 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
 
             if (gridModeButtonPressed) {
                 gridModeButtonPressed = false;
+                if (gridSliderDragging) {
+                    gridSliderDragging = false;
+                    g_gridZoomLevel    = zoomLevel;
+                }
                 return;
             }
 
@@ -4053,6 +4067,7 @@ static constexpr float GRID_BUTTON_W        = 76.F;
 static constexpr float GRID_BUTTON_H        = 44.F;
 static constexpr float GRID_BUTTON_GAP      = 10.F;
 static constexpr float GRID_BUTTON_ICON     = 1.4F; // icon scale (icons are drawn in a 30 x 16 px design grid)
+static constexpr float GRID_SLIDER_W        = 180.F;
 static constexpr float GRID_BUTTON_TOP      = 12.F; // below the work area's top edge (i.e. below the bar)
 static constexpr float GRID_BUTTON_BAND     = GRID_BUTTON_TOP + GRID_BUTTON_H + 40.F; // incl. the space between buttons and the fitted grid
 
@@ -4150,8 +4165,6 @@ void CScrollOverview::applyGridFit() {
     damage();
 }
 
-static constexpr float ZOOM_NOTCH = 0.25F; // zoom levels per wheel notch
-
 void CScrollOverview::applyZoomLevel() {
     useViewSwitchAnimation(true);
     *scale      = targetOverviewScale();
@@ -4190,7 +4203,8 @@ void CScrollOverview::zoomStep(int direction) {
         }
     }
 
-    zoomLevel = std::clamp(zoomLevel + direction * ZOOM_NOTCH, 0.F, grid ? 2.F : 1.F);
+    const float STEP = std::clamp(ScrollOverview::Config::getValue<float>("plugin:gridoverview:zoom_step", pMonitor.lock()), 0.01F, 2.F);
+    zoomLevel        = std::clamp(zoomLevel + direction * STEP, 0.F, grid ? 2.F : 1.F);
     applyZoomLevel();
 
     // snap to the nearest view once SUPER + CTRL are released
@@ -4228,26 +4242,41 @@ void CScrollOverview::setGridViewMode(const std::string& mode) {
     }
 }
 
+// buttons: 0 = centred view, 1 = whole grid, 2 = zoom slider between them (centred <-> whole grid)
 CBox CScrollOverview::gridModeButtonBox(int button) const {
     const auto MONITOR = pMonitor.lock();
     if (!MONITOR)
         return {};
 
-    const float TOTAL = 2.F * GRID_BUTTON_W + GRID_BUTTON_GAP;
-    const float X     = (MONITOR->m_size.x - TOTAL) / 2.F + button * (GRID_BUTTON_W + GRID_BUTTON_GAP);
+    const float TOTAL = 2.F * GRID_BUTTON_W + GRID_SLIDER_W + 2.F * GRID_BUTTON_GAP;
+    const float LEFT  = (MONITOR->m_size.x - TOTAL) / 2.F;
     const float Y     = gridWorkAreaTop(MONITOR) + GRID_BUTTON_TOP;
-    return CBox{X, Y, GRID_BUTTON_W, GRID_BUTTON_H}.scale(MONITOR->m_scale).round();
+    const float X     = button == 0 ? LEFT : button == 2 ? LEFT + GRID_BUTTON_W + GRID_BUTTON_GAP : LEFT + TOTAL - GRID_BUTTON_W;
+    return CBox{X, Y, button == 2 ? GRID_SLIDER_W : GRID_BUTTON_W, GRID_BUTTON_H}.scale(MONITOR->m_scale).round();
 }
 
 std::optional<int> CScrollOverview::gridModeButtonAt(const Vector2D& pointLocal) const {
     if (!grid || closing || !ScrollOverview::Config::getGridButtons(pMonitor.lock()))
         return std::nullopt;
 
-    for (int button = 0; button < 2; ++button) {
+    for (int button = 0; button < 3; ++button) {
         if (gridModeButtonBox(button).containsPoint(pointLocal))
             return button;
     }
     return std::nullopt;
+}
+
+// the slider track spans its box minus the knob radius on both sides; 0 = centred view, 1 = whole grid
+CBox CScrollOverview::gridZoomSliderTrack() const {
+    const auto BOX    = gridModeButtonBox(2);
+    const auto MARGIN = BOX.height / 2.0;
+    return CBox{BOX.x + MARGIN, BOX.middle().y, std::max(1.0, BOX.width - 2.0 * MARGIN), 0.0};
+}
+
+void CScrollOverview::setZoomFromSlider(double xLocal) {
+    const auto TRACK = gridZoomSliderTrack();
+    zoomLevel        = 1.F + sc<float>(std::clamp((xLocal - TRACK.x) / TRACK.width, 0.0, 1.0));
+    applyZoomLevel();
 }
 
 void CScrollOverview::renderGridModeButtons(PHLMONITOR monitor) {
@@ -4294,6 +4323,21 @@ void CScrollOverview::renderGridModeButtons(PHLMONITOR monitor) {
             }
         }
     }
+
+    // zoom slider: track filled up to the knob; below the centred view the knob rests (dimmed) at the left end
+    const auto  SLIDERBOX = gridModeButtonBox(2);
+    const auto  TRACK     = gridZoomSliderTrack();
+    const float T         = std::clamp(zoomLevel - 1.F, 0.F, 1.F);
+    const bool  INRANGE   = zoomLevel >= 1.F - ZOOM_EPSILON;
+    const float TRACKH    = std::max(2.F, 4.F * sc<float>(monitor->m_scale));
+    const float KNOB      = SLIDERBOX.height * 0.5F;
+    const float KNOBX     = TRACK.x + TRACK.width * T;
+
+    rect(SLIDERBOX, CHyprColor{0.F, 0.F, 0.F, 0.45F * ALPHA}, sc<int>(SLIDERBOX.height / 2.0));
+    rect(CBox{TRACK.x, TRACK.y - TRACKH / 2.F, TRACK.width, TRACKH}, CHyprColor{1.F, 1.F, 1.F, 0.2F * ALPHA}, sc<int>(TRACKH / 2.F));
+    if (T > 0.F)
+        rect(CBox{TRACK.x, TRACK.y - TRACKH / 2.F, KNOBX - TRACK.x, TRACKH}, ACCENT.modifyA(0.7F * ALPHA), sc<int>(TRACKH / 2.F));
+    rect(CBox{KNOBX - KNOB / 2.F, TRACK.y - KNOB / 2.F, KNOB, KNOB}, CHyprColor{1.F, 1.F, 1.F, (INRANGE ? 0.95F : 0.45F) * ALPHA}, sc<int>(KNOB / 2.F));
 }
 
 void CScrollOverview::moveGridViewport(int dCol, int dRow) {

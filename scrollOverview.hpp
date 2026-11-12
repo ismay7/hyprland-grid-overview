@@ -140,6 +140,8 @@ class CScrollOverview : public IOverview {
     void       applyGridFit();
     void       setGridFitMode(bool fit);
     CBox       gridModeButtonBox(int button) const;
+    CBox       gridZoomSliderTrack() const;
+    void       setZoomFromSlider(double xLocal);
     std::optional<int> gridModeButtonAt(const Vector2D& pointLocal) const;
     void       renderGridModeButtons(PHLMONITOR monitor);
     CBox       highlightBoxFor(size_t workspaceIdx, size_t activeIdx, float workspacePitch, float renderScale, PHLMONITOR monitor) const;
@@ -387,6 +389,7 @@ class CScrollOverview : public IOverview {
     SP<CEventLoopTimer>              dragEdgeTimer;
     int                              dragEdgeCol = 0, dragEdgeRow = 0;
     bool                             gridModeButtonPressed = false;
+    bool                             gridSliderDragging    = false;
     PHLWORKSPACEREF                  hoveredWorkspace;
 
     friend class CScrollOverviewPassElement;
