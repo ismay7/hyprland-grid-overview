@@ -445,6 +445,10 @@ static void defineConfigValues() {
                                       "bezier for moving between workspaces inside the overview; empty = windowsMove animation", Hyprlang::STRING{""}));
     addValue(makeShared<CFloatValue>("plugin:gridoverview:transition_speed", "speed for transition_bezier (like animation speeds)", 4.F,
                                      SFloatValueOptions{.min = 0.1F, .max = 100.F}));
+    addValue(makeShared<CStringValue>("plugin:gridoverview:view_switch_bezier",
+                                      "bezier for switching between centred and whole-grid view; empty = built-in smooth curve", Hyprlang::STRING{""}));
+    addValue(makeShared<CFloatValue>("plugin:gridoverview:view_switch_speed", "speed for view_switch_bezier (like animation speeds)", 3.5F,
+                                     SFloatValueOptions{.min = 0.1F, .max = 100.F}));
     addValue(makeShared<CStringValue>("plugin:gridoverview:exec_on_open", "shell command run when the overview opens", Hyprlang::STRING{""}));
     addValue(makeShared<CStringValue>("plugin:gridoverview:exec_on_close", "shell command run when the overview starts closing", Hyprlang::STRING{""}));
     addValue(makeShared<CStringValue>("plugin:gridoverview:empty_marker",

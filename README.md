@@ -89,6 +89,8 @@ is plain Hyprland config: focus/move to `row * 10 + column`.
 | `shadow:active_color` | color | shadow colour of the selected workspace | unset |
 | `transition_bezier` | string | bezier for moving between workspaces in the overview; empty = `windowsMove` | empty |
 | `transition_speed` | float | speed for `transition_bezier` | `4` |
+| `view_switch_bezier` | string | bezier for switching between centred and whole-grid view; empty = built-in smooth curve | empty |
+| `view_switch_speed` | float | speed for `view_switch_bezier` | `3.5` |
 | `exec_on_open` / `exec_on_close` | string | shell command when the overview opens / starts closing | empty |
 
 The options, dispatchers, gestures and submaps of the original are documented in [docs/wiki](docs/wiki)

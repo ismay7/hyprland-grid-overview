@@ -327,6 +327,9 @@ class CScrollOverview : public IOverview {
     PHLANIMVAR<float>                highlightProgress;
     // transition_bezier: own curve for viewOffset / highlight, instead of the (possibly springy) windowsMove
     SP<Hyprutils::Animation::SAnimationPropertyConfig> workspaceTransitionConfig;
+    // zoom (open/close) and move (inside the overview) configs, and view_switch_*: centred <-> whole-grid view
+    SP<Hyprutils::Animation::SAnimationPropertyConfig> zoomAnimationConfig, moveAnimationConfig, viewSwitchConfig;
+    void                             useViewSwitchAnimation(bool viewSwitch);
     PHLWORKSPACEREF                  highlightFrom, highlightTo;
     SP<Hyprutils::Animation::SAnimationPropertyConfig> workspaceInsertFadeConfig;
     SP<Hyprutils::Animation::SAnimationPropertyConfig> workspaceRemoveFadeConfig;

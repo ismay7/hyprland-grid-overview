@@ -274,6 +274,7 @@ static bool isTopLayerFocused(PHLMONITOR monitor) {
 }
 
 static constexpr const char* OVERVIEW_INSERT_FADE_BEZIER = "gridoverviewWorkspaceInsertFade";
+static constexpr const char* VIEW_SWITCH_DEFAULT_BEZIER  = "gridoverviewViewSwitch";
 static constexpr const char* OVERVIEW_REMOVE_FADE_BEZIER = "gridoverviewWorkspaceRemoveFade";
 
 static bool isPointerOnTopLayer(PHLMONITOR monitor) {
@@ -1174,6 +1175,21 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
         workspaceTransitionConfig->pValues         = workspaceTransitionConfig;
     }
     const auto TRANSITIONCONFIG = workspaceTransitionConfig ? workspaceTransitionConfig : WINDOWSMOVECONFIG;
+
+    if (!Animation::mgr()->bezierExists(VIEW_SWITCH_DEFAULT_BEZIER))
+        Animation::mgr()->addBezierWithName(VIEW_SWITCH_DEFAULT_BEZIER, Vector2D{0.25, 1.0}, Vector2D{0.5, 1.0});
+    auto VIEWSWITCHBEZIER = ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:view_switch_bezier");
+    if (VIEWSWITCHBEZIER.empty() || !Animation::mgr()->bezierExists(VIEWSWITCHBEZIER))
+        VIEWSWITCHBEZIER = VIEW_SWITCH_DEFAULT_BEZIER;
+    viewSwitchConfig                  = makeShared<Hyprutils::Animation::SAnimationPropertyConfig>();
+    viewSwitchConfig->overridden      = true;
+    viewSwitchConfig->internalBezier  = VIEWSWITCHBEZIER;
+    viewSwitchConfig->internalSpeed   = ScrollOverview::Config::getValue<float>("plugin:gridoverview:view_switch_speed");
+    viewSwitchConfig->internalEnabled = WINDOWSMOVEVALUES ? WINDOWSMOVEVALUES->internalEnabled : 1;
+    viewSwitchConfig->internalStyle   = "";
+    viewSwitchConfig->pValues         = viewSwitchConfig;
+    zoomAnimationConfig               = WINDOWSMOVECONFIG;
+    moveAnimationConfig               = TRANSITIONCONFIG;
 
     Animation::mgr()->createAnimation(1.F, scale, WINDOWSMOVECONFIG, AVARDAMAGE_NONE);
     Animation::mgr()->createAnimation({}, viewOffset, TRANSITIONCONFIG, AVARDAMAGE_NONE);
@@ -4075,10 +4091,25 @@ Vector2D CScrollOverview::restingViewOffset() const {
     return Vector2D{DELTA.x * PITCH.x, DELTA.y * PITCH.y - TOP / 2.F / SCALE};
 }
 
+void CScrollOverview::useViewSwitchAnimation(bool viewSwitch) {
+    // zoom and offset share one curve while switching views, so the grid moves on a straight path
+    if (viewSwitch && viewSwitchConfig) {
+        scale->setConfig(viewSwitchConfig);
+        viewOffset->setConfig(viewSwitchConfig);
+        return;
+    }
+
+    if (zoomAnimationConfig)
+        scale->setConfig(zoomAnimationConfig);
+    if (moveAnimationConfig)
+        viewOffset->setConfig(moveAnimationConfig);
+}
+
 void CScrollOverview::applyGridFit() {
     if (!grid || closing)
         return;
 
+    useViewSwitchAnimation(true);
     *scale      = targetOverviewScale();
     *viewOffset = restingViewOffset();
     damage();
@@ -4193,6 +4224,7 @@ void CScrollOverview::endGridPan() {
         return;
 
     gridPanActive      = false;
+    useViewSwitchAnimation(false);
     const auto MONITOR = pMonitor.lock();
     if (!MONITOR || images.empty())
         return;
@@ -6064,6 +6096,7 @@ void CScrollOverview::close(ECloseMode mode) {
     const auto finishClose = [&](const PHLWORKSPACE& finalWorkspace, const PHLWINDOW& finalWindow) {
         emitFullscreenVisibilityState(getOverviewFullscreenVisibilityWindow(finalWorkspace, finalWindow), false);
 
+        useViewSwitchAnimation(false);
         *scale = 1.F;
 
         if (!ScrollOverview::Config::getValue<int>("animations:enabled")) {
@@ -6221,6 +6254,7 @@ void CScrollOverview::reopen() {
         keyboardKeyHook.reset();
     activateSubmapIfConfigured();
     emitFullscreenVisibilityState(Desktop::focusState()->window(), true);
+    useViewSwitchAnimation(false);
     *scale = targetOverviewScale();
     damage();
 }
@@ -6267,6 +6301,7 @@ void CScrollOverview::onWorkspaceChange() {
     const bool   GESTURESETTLE       = trackpadGestureSettlePending;
     const double GESTURESETTLEOFFSET = trackpadGestureSettleOffset;
     trackpadGestureSettlePending     = false;
+    useViewSwitchAnimation(false);
     const bool GRIDPANSETTLE         = gridPanSettlePending;
     gridPanSettlePending             = false;
 
