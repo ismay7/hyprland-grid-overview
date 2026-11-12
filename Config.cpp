@@ -448,7 +448,7 @@ static void defineConfigValues() {
     addValue(makeShared<CFloatValue>("plugin:gridoverview:transition_speed", "speed for transition_bezier (like animation speeds)", 4.F,
                                      SFloatValueOptions{.min = 0.1F, .max = 100.F}));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:window_icons", "draw the app icon in the middle of every window", false));
-    addValue(makeShared<CIntValue>("plugin:gridoverview:window_icon_size", "app icon size in layout px (scaled with the overview)", 96,
+    addValue(makeShared<CIntValue>("plugin:gridoverview:window_icon_size", "app icon size in screen (layout) px, independent of the overview zoom", 64,
                                    SIntValueOptions{.min = 8, .max = 1024}));
     addValue(makeShared<CGradientValue>("plugin:gridoverview:window_icon_plate_color", "round plate behind the app icon", -1));
     addValue(makeShared<CStringValue>("plugin:gridoverview:icon_theme", "icon theme searched before hicolor; empty = hicolor only", Hyprlang::STRING{""}));

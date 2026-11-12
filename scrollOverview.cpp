@@ -5351,8 +5351,8 @@ void CScrollOverview::renderWindowIcons(PHLMONITOR monitor, size_t activeIdx, fl
     if (ALPHA <= 0.001F)
         return;
 
-    const float SIZE    = ScrollOverview::Config::getValue<int>("plugin:gridoverview:window_icon_size", monitor) * renderScale * monitor->m_scale;
-    const float PLATE   = SIZE * 1.5F;
+    // fixed on-screen size (not scaled with the overview zoom), but never more than 60 % of a window's short side
+    const float SIZE    = ScrollOverview::Config::getValue<int>("plugin:gridoverview:window_icon_size", monitor) * monitor->m_scale;
     auto        plate   = ScrollOverview::Config::getWindowIconPlateColor(monitor);
     plate.a            *= ALPHA;
     const auto  THEME   = ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:icon_theme", monitor);
@@ -5376,7 +5376,9 @@ void CScrollOverview::renderWindowIcons(PHLMONITOR monitor, size_t activeIdx, fl
             if (!TEXTURE)
                 continue;
 
-            const auto MID = BOX.middle();
+            const auto  MID   = BOX.middle();
+            const float ICON  = std::min(SIZE, sc<float>(std::min(BOX.width, BOX.height)) * 0.6F / 1.5F);
+            const float PLATE = ICON * 1.5F;
             if (plate.a > 0.F) {
                 CRectPassElement::SRectData data;
                 data.box   = CBox{MID.x - PLATE / 2.F, MID.y - PLATE / 2.F, PLATE, PLATE}.round();
@@ -5387,7 +5389,7 @@ void CScrollOverview::renderWindowIcons(PHLMONITOR monitor, size_t activeIdx, fl
 
             CTexPassElement::SRenderData data;
             data.tex = TEXTURE;
-            data.box = CBox{MID.x - SIZE / 2.F, MID.y - SIZE / 2.F, SIZE, SIZE}.round();
+            data.box = CBox{MID.x - ICON / 2.F, MID.y - ICON / 2.F, ICON, ICON}.round();
             data.a   = ALPHA;
             Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CTexPassElement>(std::move(data)));
         }
