@@ -1,110 +1,99 @@
-# ScrollOverview
+# grid-overview
 
-ScrollOverview is an overview plugin like niri.
+A workspace **grid** overview for Hyprland: workspaces are arranged as a two-dimensional grid of
+*contexts* (rows) and *workspaces* (columns), e.g. row 1 = general work, row 2 = game dev,
+row 3 = communication. Workspace `R*10+C` sits in row `R`, column `C` (11–19, 21–29, …).
 
-https://github.com/user-attachments/assets/e5eb1ad2-79bc-492a-82cd-02cd8b960d3e
+grid-overview is a fork of [hyprland-scroll-overview](https://github.com/yayuuu/hyprland-scroll-overview)
+by Vaxry and yayuuu, a niri-like overview plugin. Everything the original does still works; the grid
+features are additions on top of it (see [Credits](#credits)).
+
+## Features
+
+- **Grid layout** (`grid = true`): rows are contexts, columns are workspaces; arrow keys, the mouse wheel
+  (`SHIFT` or horizontal wheel for columns) and the middle mouse button (free 2D pan, snaps on release)
+  move through it.
+- **Placeholders**: while the overview is open every row gets an empty workspace past its last used column,
+  plus an empty row below the last used one, so windows can be dropped there. Unused placeholders disappear
+  again, also while the overview stays open.
+- **Directional drop** for dwindle: dropping a window on the edge of another one inserts it on that side
+  (preview: the half it will take), dropping it in the middle swaps both.
+- **Edge scrolling**: holding a dragged window at a screen edge steps to the neighbouring workspace.
+- **Selected-workspace highlight** (`highlight_selected = true`): only the selected workspace gets wallpaper
+  and shadow, sliding between workspaces; the others show just their windows, empty ones an outline with a
+  plus.
+- **Whole-grid view**: buttons at the top switch between the centred view and a view that fits the whole
+  grid on screen (also `overview("fit" | "center" | "togglefit")`).
+- **Hooks**: shell commands on open/close (e.g. to change a dock's auto-hide while the overview is open).
 
 ## Installation
 
-### Using Hyprpm (recommended)
-
-1. Add the plugin repository:
-   ```bash
-   hyprpm add https://github.com/yayuuu/hyprland-scroll-overview.git
-   ```
-   If you use a Git build of Hyprland, add the plugin from the `new-release` branch instead:
-   ```bash
-   hyprpm add https://github.com/yayuuu/hyprland-scroll-overview origin/new-release
-   ```
-2. Build and fetch dependencies:
-   ```bash
-   hyprpm update
-   ```
-3. Enable the plugin:
-   ```bash
-   hyprpm enable scrolloverview
-   ```
-4. Configure and Enjoy.
-
-For more installation methods, including building from source and loading the plugin automatically, see the [Installation guide](https://github.com/yayuuu/hyprland-scroll-overview/wiki/Installation).
-
-## Configuration
-
-### Hyprlang
-
-```ini
-# .config/hypr/hyprland.conf
-plugin {
-    scrolloverview {
-        gesture_distance = 300 # how far is the "max" for the gesture
-        scale = 0.5 # preferred overview scale
-        workspace_gap = 100
-        layout = vertical # vertical, horizontal, or auto (per-monitor orientation)
-        wallpaper = 2 # 0: global only, 1: per-workspace only, 2: both
-        wallpaper_layer = auto # auto, background, or bottom
-        blur = true # blur only the main overview wallpaper
-
-        shadow {
-            enabled = true
-            range = 50
-        }
-    }
-}
-
-# Toggle ScrollOverview with SUPER+g
-bind = SUPER, g, scrolloverview:overview, "toggle all"
+```bash
+hyprpm add <url of this repository>
+hyprpm enable gridoverview
 ```
 
-### Lua
+For a manual build: `make all` produces `gridoverview.so` (needs the Hyprland headers of the running
+version).
+
+## Configuration (Lua)
 
 ```lua
--- .config/hypr/hyprland.lua
-hl.config({
-    plugin = {
-        scrolloverview = {
-            gesture_distance = 300, -- how far is the "max" for the gesture
-            scale = 0.5, -- preferred overview scale
-            workspace_gap = 100,
-            layout = "vertical", -- vertical, horizontal, or auto (per-monitor orientation)
-            wallpaper = 2, -- 0: global only, 1: per-workspace only, 2: both
-            wallpaper_layer = "auto", -- auto, background, or bottom
-            blur = true, -- blur only the main overview wallpaper
-
-            shadow = {
-                enabled = true,
-                range = 50,
+if hl.plugin and hl.plugin.gridoverview then
+    hl.config({
+        plugin = {
+            gridoverview = {
+                scale = 0.5,
+                workspace_gap = 60,
+                grid = true,
+                grid_rows = 4,
+                grid_columns = 9,
+                wallpaper = 2,
+                blur = true,
+                shadow = { enabled = true, range = 50 },
+                highlight_selected = true,
+                highlight_padding = 40,
+                empty_marker = "always",
+                transition_bezier = "easeOutQuint",
+                transition_speed = 3.0,
             },
         },
-    },
-})
+    })
+end
 
--- Toggle ScrollOverview with SUPER+g
-hl.bind("SUPER + g", function()
-    hl.plugin.scrolloverview.overview("toggle all")
+hl.bind("SUPER + D", function()
+    if hl.plugin and hl.plugin.gridoverview then
+        hl.plugin.gridoverview.overview("toggle")
+    end
 end)
 ```
 
-Set `cross_monitor_drag = true` to drag windows between monitors through ScrollOverview and adopt Hyprland move drags when another overview is open. It defaults to `false`. Native adoption uses Hyprland internals; if unavailable, overview-origin cross-monitor dragging still works.
+Moving between workspaces outside the overview (left/right within a context, up/down between contexts)
+is plain Hyprland config: focus/move to `row * 10 + column`.
 
-This setting does not affect overview-origin drags with `toggle all` because every overview is already open. Existing multi-monitor commands remain available when it is disabled.
+### Options added by this fork
 
-## Documentation
+| option | type | description | default |
+| --- | --- | --- | --- |
+| `grid` | bool | grid layout: workspace `R*10+C` in row `R`, column `C` | `false` |
+| `grid_rows` / `grid_columns` | int | highest row / column that gets placeholders (1–9) | `9` |
+| `grid_buttons` | bool | buttons to switch between centred and whole-grid view | `true` |
+| `highlight_selected` | bool | wallpaper + shadow only on the selected workspace; empty ones as outline + plus | `false` |
+| `highlight_padding` | int | how far (layout px) the highlight reaches past the work area | `0` |
+| `empty_marker` | string | when empty workspaces show their outline: `always`, `drag` (while dragging), `hover` | `always` |
+| `empty_color` | color | outline and plus colour | `rgba(255,255,255,0.35)` |
+| `empty_halo_color` | color | thin halo under outline and plus, for light wallpapers | `rgba(0,0,0,0.4)` |
+| `empty_color_from_border` | bool | use `general:col.active_border` (e.g. matugen) with `empty_color`'s alpha | `false` |
+| `shadow:active_color` | color | shadow colour of the selected workspace | unset |
+| `transition_bezier` | string | bezier for moving between workspaces in the overview; empty = `windowsMove` | empty |
+| `transition_speed` | float | speed for `transition_bezier` | `4` |
+| `exec_on_open` / `exec_on_close` | string | shell command when the overview opens / starts closing | empty |
 
-The complete documentation is available in the [ScrollOverview wiki](https://github.com/yayuuu/hyprland-scroll-overview/wiki). It covers all configuration options, keybinds, submaps, gestures, dispatchers, and advanced Lua examples.
+The options, dispatchers, gestures and submaps of the original are documented in [docs/wiki](docs/wiki)
+(adapted to the `gridoverview` names).
 
-## Supported plugins
+## Credits
 
-- `hyprbars`
-
-<br>
-<br>
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=yayuuu%2Fhyprland-scroll-overview&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=yayuuu/hyprland-scroll-overview&type=date&theme=dark&legend=top-left&sealed_token=dnoTQqdWontVtW1U-Qv5yJAQVYpafoKJ0ytKAwVNsCxYO8lor7ZbsD4oVIRHBW_9LjjRPMV-wHAXTw70cn4SbI_2OIrdFEMbOyjv9GVHi9EOBFIgwzKwvMTGWBhkYg5q1f9oV6mQqQZFgec__fA790Nj_OS5WOyVjeHFwceIJRFBlgSvBWyGMn3WUqym" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=yayuuu/hyprland-scroll-overview&type=date&legend=top-left&sealed_token=dnoTQqdWontVtW1U-Qv5yJAQVYpafoKJ0ytKAwVNsCxYO8lor7ZbsD4oVIRHBW_9LjjRPMV-wHAXTw70cn4SbI_2OIrdFEMbOyjv9GVHi9EOBFIgwzKwvMTGWBhkYg5q1f9oV6mQqQZFgec__fA790Nj_OS5WOyVjeHFwceIJRFBlgSvBWyGMn3WUqym" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=yayuuu/hyprland-scroll-overview&type=date&legend=top-left&sealed_token=dnoTQqdWontVtW1U-Qv5yJAQVYpafoKJ0ytKAwVNsCxYO8lor7ZbsD4oVIRHBW_9LjjRPMV-wHAXTw70cn4SbI_2OIrdFEMbOyjv9GVHi9EOBFIgwzKwvMTGWBhkYg5q1f9oV6mQqQZFgec__fA790Nj_OS5WOyVjeHFwceIJRFBlgSvBWyGMn3WUqym" />
- </picture>
-</a>
+grid-overview is based on [hyprland-scroll-overview](https://github.com/yayuuu/hyprland-scroll-overview)
+by **Vaxry** and **yayuuu** (BSD 3-Clause, Copyright (c) 2023, Hypr Development), which this fork keeps
+under the same license. Thanks to them for the overview this is built on.

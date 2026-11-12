@@ -73,7 +73,7 @@ local function update_last_workspace_scroll_bind()
     end
 
     local enabled = false
-    if hl.get_current_submap() == "scrolloverview" then
+    if hl.get_current_submap() == "gridoverview" then
         enabled = last_workspace_state()
     end
 
@@ -81,7 +81,7 @@ local function update_last_workspace_scroll_bind()
 end
 ```
 
-Add the following bind inside your existing `scrolloverview` submap. Do not define the same submap a second time; merge this with the configuration from [Keybind submap](Keybind-submap.md).
+Add the following bind inside your existing `gridoverview` submap. Do not define the same submap a second time; merge this with the configuration from [Keybind submap](Keybind-submap.md).
 
 ```lua
 lastWorkspaceScrollBind = hl.bind("mouse_down", create_workspace_at_end)

@@ -928,7 +928,7 @@ void initDecorationRenderer() {
     const auto install = [](CFunctionHook*& hook, const char* name, const char* signature, void* replacement) {
         hook = HyprlandAPI::createFunctionHook(SCROLLOVERVIEW_HANDLE, findFnOrThrow(name, {signature}), replacement);
         if (!hook || !hook->hook())
-            throw std::runtime_error(std::string{"[scrolloverview] Failed enabling decoration hook: "} + name);
+            throw std::runtime_error(std::string{"[gridoverview] Failed enabling decoration hook: "} + name);
     };
     install(rectHook, "renderRect", "Render::GL::CHyprOpenGLImpl::renderRect(", reinterpret_cast<void*>(renderDecorationRect));
     install(textureHook, "renderTexture", "Render::GL::CHyprOpenGLImpl::renderTexture(", reinterpret_cast<void*>(renderDecorationTexture));

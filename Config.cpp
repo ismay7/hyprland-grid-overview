@@ -96,7 +96,7 @@ int runDispatcherNow(lua_State* L, const SDispatcher& dispatcher, const char* ar
 }
 
 void pushDispatcherBindAction(lua_State* L, const char* name, const char* arg) {
-    const std::string CODE = "return function() return hl.plugin.scrolloverview._dispatch(\"" + std::string{name} + "\", \"" + std::string{arg} + "\") end";
+    const std::string CODE = "return function() return hl.plugin.gridoverview._dispatch(\"" + std::string{name} + "\", \"" + std::string{arg} + "\") end";
 
     if (luaL_loadstring(L, CODE.c_str()) != LUA_OK)
         lua_error(L);
@@ -194,7 +194,7 @@ std::optional<std::string> configureMonitor(lua_State* L, const std::string& out
             }
 
             const auto path = prefix.empty() ? key : prefix + ":" + key;
-            const auto name = "plugin:scrolloverview:" + path;
+            const auto name = "plugin:gridoverview:" + path;
             if (const auto definition = g_configDefinitions.find(name); definition != g_configDefinitions.end()) {
                 auto value = ::Config::Lua::fromGenericValue(definition->second);
                 if (!value) {
@@ -277,7 +277,7 @@ int configureLua(lua_State* L) {
     lua_newtable(L);
     lua_newtable(L);
     lua_pushvalue(L, CONFIG);
-    lua_setfield(L, -2, "scrolloverview");
+    lua_setfield(L, -2, "gridoverview");
     lua_setfield(L, -2, "plugin");
 
     if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
@@ -355,7 +355,7 @@ const void* monitorValueData(const std::string& name, PHLMONITOR monitor) {
 }
 
 bool hasCrossMonitorDragEnabled() {
-    constexpr auto NAME = "plugin:scrolloverview:cross_monitor_drag";
+    constexpr auto NAME = "plugin:gridoverview:cross_monitor_drag";
     if (getValue<bool>(NAME))
         return true;
 
@@ -366,7 +366,7 @@ bool hasCrossMonitorDragEnabled() {
 }
 
 void registerDispatcher(const std::string& name, TDispatcher dispatcher) {
-    HyprlandAPI::addDispatcherV2(SCROLLOVERVIEW_HANDLE, "scrolloverview:" + name, dispatcher);
+    HyprlandAPI::addDispatcherV2(SCROLLOVERVIEW_HANDLE, "gridoverview:" + name, dispatcher);
 
     if (::Config::mgr()->type() != ::Config::CONFIG_LUA)
         return;
@@ -376,25 +376,25 @@ void registerDispatcher(const std::string& name, TDispatcher dispatcher) {
         return;
 
     DISPATCHER->dispatcher = dispatcher;
-    HyprlandAPI::addLuaFunction(SCROLLOVERVIEW_HANDLE, "scrolloverview", std::string{DISPATCHER->name}, DISPATCHER->luaFunction);
+    HyprlandAPI::addLuaFunction(SCROLLOVERVIEW_HANDLE, "gridoverview", std::string{DISPATCHER->name}, DISPATCHER->luaFunction);
 }
 
 void registerGesture(TGestureRegistrar gestureRegistrar, TGestureKeyword gestureKeyword) {
-    HyprlandAPI::addConfigKeyword(SCROLLOVERVIEW_HANDLE, "scrolloverview-gesture", gestureKeyword, {});
+    HyprlandAPI::addConfigKeyword(SCROLLOVERVIEW_HANDLE, "gridoverview-gesture", gestureKeyword, {});
 
     if (::Config::mgr()->type() != ::Config::CONFIG_LUA)
         return;
 
     g_gestureRegistrar = gestureRegistrar;
-    HyprlandAPI::addLuaFunction(SCROLLOVERVIEW_HANDLE, "scrolloverview", "gesture", ::gestureLua);
+    HyprlandAPI::addLuaFunction(SCROLLOVERVIEW_HANDLE, "gridoverview", "gesture", ::gestureLua);
 }
 
 static void registerLuaFunctions() {
     if (::Config::mgr()->type() != ::Config::CONFIG_LUA)
         return;
 
-    HyprlandAPI::addLuaFunction(SCROLLOVERVIEW_HANDLE, "scrolloverview", "_dispatch", ::runDispatcherActionLua);
-    HyprlandAPI::addLuaFunction(SCROLLOVERVIEW_HANDLE, "scrolloverview", "configure", ::configureLua);
+    HyprlandAPI::addLuaFunction(SCROLLOVERVIEW_HANDLE, "gridoverview", "_dispatch", ::runDispatcherActionLua);
+    HyprlandAPI::addLuaFunction(SCROLLOVERVIEW_HANDLE, "gridoverview", "configure", ::configureLua);
 }
 
 static void defineConfigValues() {
@@ -403,51 +403,51 @@ static void defineConfigValues() {
         g_configDefinitions.emplace(value->name(), value);
     };
 
-    addValue(makeShared<CIntValue>("plugin:scrolloverview:gesture_distance", "gesture distance in pixels", 200, SIntValueOptions{.min = 1}));
-    addValue(makeShared<CFloatValue>("plugin:scrolloverview:scale", "overview scale", 0.5F, SFloatValueOptions{.min = 0.1F, .max = 0.9F}));
-    addValue(makeShared<CIntValue>("plugin:scrolloverview:workspace_gap", "gap between overview workspaces", 0, SIntValueOptions{.min = 0}));
-    addValue(makeShared<CStringValue>("plugin:scrolloverview:layout", "overview layout", Hyprlang::STRING{"vertical"}));
-    addValue(makeShared<CBoolValue>("plugin:scrolloverview:grid", "place workspace N*10+M in row N, column M", false));
-    addValue(makeShared<CIntValue>("plugin:scrolloverview:grid_rows", "grid mode: highest row that gets an empty placeholder workspace", 9,
+    addValue(makeShared<CIntValue>("plugin:gridoverview:gesture_distance", "gesture distance in pixels", 200, SIntValueOptions{.min = 1}));
+    addValue(makeShared<CFloatValue>("plugin:gridoverview:scale", "overview scale", 0.5F, SFloatValueOptions{.min = 0.1F, .max = 0.9F}));
+    addValue(makeShared<CIntValue>("plugin:gridoverview:workspace_gap", "gap between overview workspaces", 0, SIntValueOptions{.min = 0}));
+    addValue(makeShared<CStringValue>("plugin:gridoverview:layout", "overview layout", Hyprlang::STRING{"vertical"}));
+    addValue(makeShared<CBoolValue>("plugin:gridoverview:grid", "place workspace N*10+M in row N, column M", false));
+    addValue(makeShared<CIntValue>("plugin:gridoverview:grid_rows", "grid mode: highest row that gets an empty placeholder workspace", 9,
                                    SIntValueOptions{.min = 1, .max = 9}));
-    addValue(makeShared<CIntValue>("plugin:scrolloverview:grid_columns", "grid mode: highest column that gets an empty placeholder workspace", 9,
+    addValue(makeShared<CIntValue>("plugin:gridoverview:grid_columns", "grid mode: highest column that gets an empty placeholder workspace", 9,
                                    SIntValueOptions{.min = 1, .max = 9}));
-    addValue(makeShared<CBoolValue>("plugin:scrolloverview:cross_monitor_drag", "enable cross-monitor window dragging", false));
-    addValue(makeShared<CIntValue>("plugin:scrolloverview:input:scroll_event_delay", "minimum delay (ms) between discrete scroll steps (wheel workspace nav and trackpad focus stepping)", 200, SIntValueOptions{.min = 0}));
-    addValue(makeShared<CFloatValue>("plugin:scrolloverview:input:touchpad_scroll_factor", "overview touchpad scroll factor", 1.F,
+    addValue(makeShared<CBoolValue>("plugin:gridoverview:cross_monitor_drag", "enable cross-monitor window dragging", false));
+    addValue(makeShared<CIntValue>("plugin:gridoverview:input:scroll_event_delay", "minimum delay (ms) between discrete scroll steps (wheel workspace nav and trackpad focus stepping)", 200, SIntValueOptions{.min = 0}));
+    addValue(makeShared<CFloatValue>("plugin:gridoverview:input:touchpad_scroll_factor", "overview touchpad scroll factor", 1.F,
                                      SFloatValueOptions{.min = 0.F}));
-    addValue(makeShared<CIntValue>("plugin:scrolloverview:input:left_handed", "overview left handed mouse buttons, 2 follows input:left_handed", 2,
+    addValue(makeShared<CIntValue>("plugin:gridoverview:input:left_handed", "overview left handed mouse buttons, 2 follows input:left_handed", 2,
                                    SIntValueOptions{.min = 0, .max = 2}));
-    addValue(makeShared<CIntValue>("plugin:scrolloverview:input:scrolling_mode", "overview mouse wheel behavior", 0,
+    addValue(makeShared<CIntValue>("plugin:gridoverview:input:scrolling_mode", "overview mouse wheel behavior", 0,
                                    SIntValueOptions{.min = 0, .max = 3}));
-    addValue(makeShared<CIntValue>("plugin:scrolloverview:input:drag_mode", "overview mouse drag behavior", 0,
+    addValue(makeShared<CIntValue>("plugin:gridoverview:input:drag_mode", "overview mouse drag behavior", 0,
                                    SIntValueOptions{.min = 0, .max = 1}));
-    addValue(makeShared<CIntValue>("plugin:scrolloverview:input:drag_threshold", "overview drag threshold", 10,
+    addValue(makeShared<CIntValue>("plugin:gridoverview:input:drag_threshold", "overview drag threshold", 10,
                                    SIntValueOptions{.min = 0}));
-    addValue(makeShared<CIntValue>("plugin:scrolloverview:wallpaper", "wallpaper mode", 0, SIntValueOptions{.min = 0, .max = 2}));
-    addValue(makeShared<CStringValue>("plugin:scrolloverview:wallpaper_layer", "wallpaper layer detection: auto, background, or bottom", Hyprlang::STRING{"auto"}));
-    addValue(makeShared<CBoolValue>("plugin:scrolloverview:blur", "blur the overview wallpaper", false));
-    addValue(makeShared<CBoolValue>("plugin:scrolloverview:shadow:enabled", "draw a shadow around each workspace card", false));
-    addValue(makeShared<CIntValue>("plugin:scrolloverview:shadow:range", "workspace card shadow range", -1));
-    addValue(makeShared<CIntValue>("plugin:scrolloverview:shadow:render_power", "workspace card shadow render power", -1));
-    addValue(makeShared<CGradientValue>("plugin:scrolloverview:shadow:color", "workspace card shadow color", -1));
-    addValue(makeShared<CGradientValue>("plugin:scrolloverview:shadow:active_color", "shadow color of the selected workspace card", -1));
-    addValue(makeShared<CBoolValue>("plugin:scrolloverview:highlight_selected",
+    addValue(makeShared<CIntValue>("plugin:gridoverview:wallpaper", "wallpaper mode", 0, SIntValueOptions{.min = 0, .max = 2}));
+    addValue(makeShared<CStringValue>("plugin:gridoverview:wallpaper_layer", "wallpaper layer detection: auto, background, or bottom", Hyprlang::STRING{"auto"}));
+    addValue(makeShared<CBoolValue>("plugin:gridoverview:blur", "blur the overview wallpaper", false));
+    addValue(makeShared<CBoolValue>("plugin:gridoverview:shadow:enabled", "draw a shadow around each workspace card", false));
+    addValue(makeShared<CIntValue>("plugin:gridoverview:shadow:range", "workspace card shadow range", -1));
+    addValue(makeShared<CIntValue>("plugin:gridoverview:shadow:render_power", "workspace card shadow render power", -1));
+    addValue(makeShared<CGradientValue>("plugin:gridoverview:shadow:color", "workspace card shadow color", -1));
+    addValue(makeShared<CGradientValue>("plugin:gridoverview:shadow:active_color", "shadow color of the selected workspace card", -1));
+    addValue(makeShared<CBoolValue>("plugin:gridoverview:highlight_selected",
                                     "only the selected workspace gets wallpaper and shadow; others show just their windows, empty ones an outline with a plus", false));
-    addValue(makeShared<CGradientValue>("plugin:scrolloverview:empty_color", "outline and plus color of empty workspaces (highlight_selected)", -1));
-    addValue(makeShared<CBoolValue>("plugin:scrolloverview:empty_color_from_border",
+    addValue(makeShared<CGradientValue>("plugin:gridoverview:empty_color", "outline and plus color of empty workspaces (highlight_selected)", -1));
+    addValue(makeShared<CBoolValue>("plugin:gridoverview:empty_color_from_border",
                                     "use general:col.active_border (e.g. matugen colours) for the outline and plus, with empty_color's alpha", false));
-    addValue(makeShared<CGradientValue>("plugin:scrolloverview:empty_halo_color", "thin halo under the outline and plus, for contrast on light wallpapers", -1));
-    addValue(makeShared<CIntValue>("plugin:scrolloverview:highlight_padding",
+    addValue(makeShared<CGradientValue>("plugin:gridoverview:empty_halo_color", "thin halo under the outline and plus, for contrast on light wallpapers", -1));
+    addValue(makeShared<CIntValue>("plugin:gridoverview:highlight_padding",
                                    "highlight_selected: how far (layout px) the wallpaper reaches past the workspace's work area", 0, SIntValueOptions{.min = 0}));
-    addValue(makeShared<CBoolValue>("plugin:scrolloverview:grid_buttons", "grid mode: buttons to switch between centred and whole-grid view", true));
-    addValue(makeShared<CStringValue>("plugin:scrolloverview:transition_bezier",
+    addValue(makeShared<CBoolValue>("plugin:gridoverview:grid_buttons", "grid mode: buttons to switch between centred and whole-grid view", true));
+    addValue(makeShared<CStringValue>("plugin:gridoverview:transition_bezier",
                                       "bezier for moving between workspaces inside the overview; empty = windowsMove animation", Hyprlang::STRING{""}));
-    addValue(makeShared<CFloatValue>("plugin:scrolloverview:transition_speed", "speed for transition_bezier (like animation speeds)", 4.F,
+    addValue(makeShared<CFloatValue>("plugin:gridoverview:transition_speed", "speed for transition_bezier (like animation speeds)", 4.F,
                                      SFloatValueOptions{.min = 0.1F, .max = 100.F}));
-    addValue(makeShared<CStringValue>("plugin:scrolloverview:exec_on_open", "shell command run when the overview opens", Hyprlang::STRING{""}));
-    addValue(makeShared<CStringValue>("plugin:scrolloverview:exec_on_close", "shell command run when the overview starts closing", Hyprlang::STRING{""}));
-    addValue(makeShared<CStringValue>("plugin:scrolloverview:empty_marker",
+    addValue(makeShared<CStringValue>("plugin:gridoverview:exec_on_open", "shell command run when the overview opens", Hyprlang::STRING{""}));
+    addValue(makeShared<CStringValue>("plugin:gridoverview:exec_on_close", "shell command run when the overview starts closing", Hyprlang::STRING{""}));
+    addValue(makeShared<CStringValue>("plugin:gridoverview:empty_marker",
                                       "when empty workspaces show their outline: always, drag (while any window is dragged) or hover (only under a dragged window)",
                                       Hyprlang::STRING{"always"}));
 }
@@ -468,19 +468,19 @@ void registerConfig() {
 }
 
 int getGestureDistance(PHLMONITOR monitor) {
-    return std::max<int>(1, getValue<int>("plugin:scrolloverview:gesture_distance", monitor));
+    return std::max<int>(1, getValue<int>("plugin:gridoverview:gesture_distance", monitor));
 }
 
 float getScale(PHLMONITOR monitor) {
-    return std::clamp(getValue<float>("plugin:scrolloverview:scale", monitor), 0.1F, 0.9F);
+    return std::clamp(getValue<float>("plugin:gridoverview:scale", monitor), 0.1F, 0.9F);
 }
 
 int getWorkspaceGap(PHLMONITOR monitor) {
-    return std::max<int>(0, getValue<int>("plugin:scrolloverview:workspace_gap", monitor));
+    return std::max<int>(0, getValue<int>("plugin:gridoverview:workspace_gap", monitor));
 }
 
 ELayout getLayout(PHLMONITOR monitor) {
-    const auto LAYOUT = getValue<std::string>("plugin:scrolloverview:layout", monitor);
+    const auto LAYOUT = getValue<std::string>("plugin:gridoverview:layout", monitor);
     if (LAYOUT == "auto")
         return ELayout::AUTO;
 
@@ -488,23 +488,23 @@ ELayout getLayout(PHLMONITOR monitor) {
 }
 
 bool getGrid(PHLMONITOR monitor) {
-    return getValue<bool>("plugin:scrolloverview:grid", monitor);
+    return getValue<bool>("plugin:gridoverview:grid", monitor);
 }
 
 int getGridRows(PHLMONITOR monitor) {
-    return std::clamp<int>(getValue<int>("plugin:scrolloverview:grid_rows", monitor), 1, 9);
+    return std::clamp<int>(getValue<int>("plugin:gridoverview:grid_rows", monitor), 1, 9);
 }
 
 int getGridColumns(PHLMONITOR monitor) {
-    return std::clamp<int>(getValue<int>("plugin:scrolloverview:grid_columns", monitor), 1, 9);
+    return std::clamp<int>(getValue<int>("plugin:gridoverview:grid_columns", monitor), 1, 9);
 }
 
 bool getCrossMonitorDrag(PHLMONITOR monitor) {
-    return getValue<bool>("plugin:scrolloverview:cross_monitor_drag", monitor);
+    return getValue<bool>("plugin:gridoverview:cross_monitor_drag", monitor);
 }
 
 bool getLeftHanded(PHLMONITOR monitor) {
-    const auto LEFT_HANDED = getValue<int>("plugin:scrolloverview:input:left_handed", monitor);
+    const auto LEFT_HANDED = getValue<int>("plugin:gridoverview:input:left_handed", monitor);
     if (LEFT_HANDED <= 1)
         return LEFT_HANDED != 0;
 
@@ -512,18 +512,18 @@ bool getLeftHanded(PHLMONITOR monitor) {
 }
 
 int getDragMode(PHLMONITOR monitor) {
-    return std::clamp(getValue<int>("plugin:scrolloverview:input:drag_mode", monitor), 0, 1);
+    return std::clamp(getValue<int>("plugin:gridoverview:input:drag_mode", monitor), 0, 1);
 }
 
 int getDragThreshold(PHLMONITOR monitor) {
-    return std::max<int>(0, getValue<int>("plugin:scrolloverview:input:drag_threshold", monitor));
+    return std::max<int>(0, getValue<int>("plugin:gridoverview:input:drag_threshold", monitor));
 }
 
 float getTouchpadScrollFactor(PHLMONITOR monitor) {
     static constexpr float OVERVIEWTOUCHPADSCROLLFACTOR = 1.5F;
 
     return OVERVIEWTOUCHPADSCROLLFACTOR * std::max<float>(0.F, getValue<float>("input:touchpad:scroll_factor")) *
-        std::max<float>(0.F, getValue<float>("plugin:scrolloverview:input:touchpad_scroll_factor", monitor));
+        std::max<float>(0.F, getValue<float>("plugin:gridoverview:input:touchpad_scroll_factor", monitor));
 }
 
 static EScrollAction defaultVerticalScrollAction(ELayout layout) {
@@ -531,7 +531,7 @@ static EScrollAction defaultVerticalScrollAction(ELayout layout) {
 }
 
 EScrollAction getVerticalScrollAction(ELayout layout, PHLMONITOR monitor) {
-    const auto MODE = std::clamp(getValue<int>("plugin:scrolloverview:input:scrolling_mode", monitor), 0, 3);
+    const auto MODE = std::clamp(getValue<int>("plugin:gridoverview:input:scrolling_mode", monitor), 0, 3);
 
     switch (MODE) {
         case 1: return defaultVerticalScrollAction(layout) == EScrollAction::WORKSPACE ? EScrollAction::COLUMN : EScrollAction::WORKSPACE;
@@ -547,15 +547,15 @@ EScrollAction getHorizontalScrollAction(ELayout layout, PHLMONITOR monitor) {
 }
 
 int getScrollEventDelay(PHLMONITOR monitor) {
-    return std::max<int>(0, getValue<int>("plugin:scrolloverview:input:scroll_event_delay", monitor));
+    return std::max<int>(0, getValue<int>("plugin:gridoverview:input:scroll_event_delay", monitor));
 }
 
 int getWallpaperMode(PHLMONITOR monitor) {
-    return std::clamp<int>(getValue<int>("plugin:scrolloverview:wallpaper", monitor), 0, 2);
+    return std::clamp<int>(getValue<int>("plugin:gridoverview:wallpaper", monitor), 0, 2);
 }
 
 EWallpaperLayer getWallpaperLayer(PHLMONITOR monitor) {
-    const auto LAYER = getValue<std::string>("plugin:scrolloverview:wallpaper_layer", monitor);
+    const auto LAYER = getValue<std::string>("plugin:gridoverview:wallpaper_layer", monitor);
     if (LAYER == "background")
         return EWallpaperLayer::BACKGROUND;
     if (LAYER == "bottom")
@@ -565,7 +565,7 @@ EWallpaperLayer getWallpaperLayer(PHLMONITOR monitor) {
 }
 
 bool getBlur(PHLMONITOR monitor) {
-    return getValue<bool>("plugin:scrolloverview:blur", monitor);
+    return getValue<bool>("plugin:gridoverview:blur", monitor);
 }
 
 ::Config::CCssGapData getCssGapData(const std::string& name) {
@@ -581,31 +581,31 @@ bool getBlur(PHLMONITOR monitor) {
 }
 
 int getShadowEnabled(PHLMONITOR monitor) {
-    return getValue<bool>("plugin:scrolloverview:shadow:enabled", monitor) ? 1 : 0;
+    return getValue<bool>("plugin:gridoverview:shadow:enabled", monitor) ? 1 : 0;
 }
 
 int getShadowRange(PHLMONITOR monitor) {
-    return getValue<int>("plugin:scrolloverview:shadow:range", monitor);
+    return getValue<int>("plugin:gridoverview:shadow:range", monitor);
 }
 
 int getShadowRenderPower(PHLMONITOR monitor) {
-    return getValue<int>("plugin:scrolloverview:shadow:render_power", monitor);
+    return getValue<int>("plugin:gridoverview:shadow:render_power", monitor);
 }
 
 bool getHighlightSelected(PHLMONITOR monitor) {
-    return getValue<bool>("plugin:scrolloverview:highlight_selected", monitor);
+    return getValue<bool>("plugin:gridoverview:highlight_selected", monitor);
 }
 
 int getHighlightPadding(PHLMONITOR monitor) {
-    return std::max<int>(0, getValue<int>("plugin:scrolloverview:highlight_padding", monitor));
+    return std::max<int>(0, getValue<int>("plugin:gridoverview:highlight_padding", monitor));
 }
 
 bool getGridButtons(PHLMONITOR monitor) {
-    return getValue<bool>("plugin:scrolloverview:grid_buttons", monitor);
+    return getValue<bool>("plugin:gridoverview:grid_buttons", monitor);
 }
 
 EEmptyMarker getEmptyMarker(PHLMONITOR monitor) {
-    const auto MODE = getValue<std::string>("plugin:scrolloverview:empty_marker", monitor);
+    const auto MODE = getValue<std::string>("plugin:gridoverview:empty_marker", monitor);
     if (MODE == "drag")
         return EEmptyMarker::DRAG;
     if (MODE == "hover")
@@ -624,9 +624,9 @@ static std::optional<CHyprColor> firstColorIfSet(const std::string& name, PHLMON
 }
 
 CHyprColor getEmptyColor(PHLMONITOR monitor) {
-    auto color = firstColorIfSet("plugin:scrolloverview:empty_color", monitor).value_or(CHyprColor{1.F, 1.F, 1.F, 0.35F});
+    auto color = firstColorIfSet("plugin:gridoverview:empty_color", monitor).value_or(CHyprColor{1.F, 1.F, 1.F, 0.35F});
 
-    if (getValue<bool>("plugin:scrolloverview:empty_color_from_border", monitor)) {
+    if (getValue<bool>("plugin:gridoverview:empty_color_from_border", monitor)) {
         const auto BORDER = getValue<::Config::CGradientValueData>("general:col.active_border");
         if (!BORDER.m_colors.empty())
             color = BORDER.m_colors[0].modifyA(color.a);
@@ -636,11 +636,11 @@ CHyprColor getEmptyColor(PHLMONITOR monitor) {
 }
 
 CHyprColor getEmptyHaloColor(PHLMONITOR monitor) {
-    return firstColorIfSet("plugin:scrolloverview:empty_halo_color", monitor).value_or(CHyprColor{0.F, 0.F, 0.F, 0.4F});
+    return firstColorIfSet("plugin:gridoverview:empty_halo_color", monitor).value_or(CHyprColor{0.F, 0.F, 0.F, 0.4F});
 }
 
 std::optional<::Config::CGradientValueData> getShadowActiveColor(PHLMONITOR monitor) {
-    constexpr auto NAME = "plugin:scrolloverview:shadow:active_color";
+    constexpr auto NAME = "plugin:gridoverview:shadow:active_color";
 
     if (!monitorValueData(NAME, monitor) && !valueRef<::Config::IComplexConfigValue>(NAME).setByUser())
         return std::nullopt;
@@ -649,7 +649,7 @@ std::optional<::Config::CGradientValueData> getShadowActiveColor(PHLMONITOR moni
 }
 
 std::optional<::Config::CGradientValueData> getShadowColor(PHLMONITOR monitor) {
-    constexpr auto NAME = "plugin:scrolloverview:shadow:color";
+    constexpr auto NAME = "plugin:gridoverview:shadow:color";
 
     if (!monitorValueData(NAME, monitor) && !valueRef<::Config::IComplexConfigValue>(NAME).setByUser())
         return std::nullopt;

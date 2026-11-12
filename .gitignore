@@ -1,7 +1,7 @@
 build/
 .build/
 .cache/
-scrolloverview.so
+gridoverview.so
 
 # Nix
 result/

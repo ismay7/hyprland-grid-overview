@@ -21,7 +21,7 @@
 3. Enable the plugin:
 
    ```bash
-   hyprpm enable scrolloverview
+   hyprpm enable gridoverview
    ```
 
 4. To load enabled plugins automatically when Hyprland starts, run `hyprpm reload` from the `hyprland.start` event handler in your Lua configuration:
@@ -52,12 +52,12 @@
 3. Load the plugin into the running Hyprland instance:
 
    ```bash
-   hyprctl plugin load "$(pwd)/scrolloverview.so"
+   hyprctl plugin load "$(pwd)/gridoverview.so"
    ```
 
 4. To load the plugin automatically when Hyprland starts, add it to your Lua configuration using an absolute path:
 
    ```lua
-   local pluginPath = "/absolute/path/to/hyprland-scroll-overview/scrolloverview.so"
+   local pluginPath = "/absolute/path/to/hyprland-scroll-overview/gridoverview.so"
    hl.plugin.load(pluginPath)
    ```

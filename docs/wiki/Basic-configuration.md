@@ -6,7 +6,7 @@ The configuration below is a good starting point for most users. It provides a b
 -- .config/hypr/hyprland.lua
 hl.config({
     plugin = {
-        scrolloverview = {
+        gridoverview = {
             gesture_distance = 300, -- how far is the "max" for the gesture
             scale = 0.5, -- preferred overview scale
             workspace_gap = 100,
@@ -24,7 +24,7 @@ hl.config({
 
 -- Toggle ScrollOverview with SUPER+g
 hl.bind("SUPER + g", function()
-    hl.plugin.scrolloverview.overview("toggle all")
+    hl.plugin.gridoverview.overview("toggle all")
 end)
 ```
 
@@ -71,14 +71,14 @@ Controls the shadow around each workspace card. `enabled` defaults to `false`; a
 
 The overview can be opened and closed with a trackpad swipe gesture.
 
-Call `hl.plugin.scrolloverview.gesture({ ... })` from your Lua configuration.
+Call `hl.plugin.gridoverview.gesture({ ... })` from your Lua configuration.
 
 ```lua
 -- hyprland.lua
-hl.plugin.scrolloverview.gesture({ fingers = 3, direction = "vertical" })
-hl.plugin.scrolloverview.gesture({ fingers = 4, direction = "vertical", mod = "SUPER", scale = 1.5 })
-hl.plugin.scrolloverview.gesture({ fingers = 4, direction = "vertical", disable_inhibit = true })
-hl.plugin.scrolloverview.gesture({ fingers = 3, direction = "vertical", action = "unset" })
+hl.plugin.gridoverview.gesture({ fingers = 3, direction = "vertical" })
+hl.plugin.gridoverview.gesture({ fingers = 4, direction = "vertical", mod = "SUPER", scale = 1.5 })
+hl.plugin.gridoverview.gesture({ fingers = 4, direction = "vertical", disable_inhibit = true })
+hl.plugin.gridoverview.gesture({ fingers = 3, direction = "vertical", action = "unset" })
 ```
 
 | field | type | description | default |

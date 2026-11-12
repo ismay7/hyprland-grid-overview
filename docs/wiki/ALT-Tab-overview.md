@@ -38,13 +38,13 @@ local function navigate_to_first_column()
         end
 
         previousState = currentState
-        hl.plugin.scrolloverview.navigate("left")
+        hl.plugin.gridoverview.navigate("left")
     end
 end
 
 local function navigate_next_column()
     local previousState = selection_state()
-    hl.plugin.scrolloverview.navigate("right")
+    hl.plugin.gridoverview.navigate("right")
 
     if selection_state() == previousState then
         navigate_to_first_column()
@@ -54,20 +54,20 @@ end
 function M.next()
     hl.config({
         plugin = {
-            scrolloverview = {
+            gridoverview = {
                 layout = "horizontal",
                 scale = 0.3,
             },
         },
     })
-    hl.plugin.scrolloverview.overview("on")
+    hl.plugin.gridoverview.overview("on")
     openedByAltTab = true
     navigate_next_column()
 end
 
 function M.close()
     if openedByAltTab then
-        hl.plugin.scrolloverview.overview("off")
+        hl.plugin.gridoverview.overview("off")
         openedByAltTab = false
     end
 end

@@ -1,20 +1,14 @@
 [repository]
-name = "hyprland-scroll-overview"
-authors = ["yayuuu"]
-commit_pins = [
-    # Hyprland                                  hyprland-scroll-overview
-    ["521ece463c4a9d3d128670688a34756805a4328f", "e35c31c73fe36af05e75b7ff530b5ede422f75a9"], # v0.54.3
-    ["af923e30d1d24f1f4a4f5cb8308065173c1d9539", "b89de003673f9d579b9a14d844ee6a2dcb84ec88"], # v0.55.0
-    ["39d7e209c79d451efab1b21151d5938289da838d", "b89de003673f9d579b9a14d844ee6a2dcb84ec88"], # v0.55.2
-    ["fe5fe79a29ac3adaf3e75560b2f4b7a6d58b31c9", "25335dee0e8b1430356c3218a86dc7ee50d6df71"], # v0.55.3
-    ["a0136d8c04687bb36eb8a28eb9d1ff92aea99704", "cfc23b194ba9378d1606c7aa73060f6ffbe38445"], # v0.55.4
-    ["efb50993780079460b0cbed1363e2166a2de1d9f", "07a944e4d16f11d2d9be6ce10bea74a6f1e5f2ae"], # v0.56.2
-]
+name = "grid-overview"
+authors = ["maxg", "yayuuu"]
+# The commit pins of hyprland-scroll-overview point at upstream commits without the grid features; this fork
+# builds its HEAD for the installed Hyprland version until it gets pins of its own.
+commit_pins = []
 
-[scrolloverview]
-description = "A scrollable overview plugin for Hyprland with optional hyprbars integration."
-authors = ["yayuuu"]
-output = "scrolloverview.so"
+[gridoverview]
+description = "Workspace grid overview for Hyprland: contexts as rows, workspaces as columns (fork of hyprland-scroll-overview)."
+authors = ["maxg", "yayuuu"]
+output = "gridoverview.so"
 build = [
     "make all",
 ]

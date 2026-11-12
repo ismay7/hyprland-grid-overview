@@ -79,14 +79,14 @@
 #include "Window.hpp"
 
 static PHLWINDOW getOverviewFullscreenVisibilityWindow(const PHLWORKSPACE& workspace, const PHLWINDOW& fallback = {});
-static constexpr const char* OVERVIEW_SUBMAP = "scrolloverview";
+static constexpr const char* OVERVIEW_SUBMAP = "gridoverview";
 static constexpr auto        POST_DROP_PSEUDO_FOCUS_DURATION = std::chrono::milliseconds(100);
 // grid fit mode ("Komplettansicht"), remembered across overview openings for the lifetime of the plugin
 static bool                  g_gridFitMode = false;
 
 // exec_on_open / exec_on_close
 static void runOverviewHook(const char* name) {
-    const auto CMD = ScrollOverview::Config::getValue<std::string>(std::string{"plugin:scrolloverview:"} + name);
+    const auto CMD = ScrollOverview::Config::getValue<std::string>(std::string{"plugin:gridoverview:"} + name);
     if (!CMD.empty())
         Config::Supplementary::executor()->spawn(CMD);
 }
@@ -273,8 +273,8 @@ static bool isTopLayerFocused(PHLMONITOR monitor) {
     return layerOwner && layerOwner->m_monitor == monitor && layerOwner->m_layer >= ZWLR_LAYER_SHELL_V1_LAYER_TOP;
 }
 
-static constexpr const char* OVERVIEW_INSERT_FADE_BEZIER = "scrolloverviewWorkspaceInsertFade";
-static constexpr const char* OVERVIEW_REMOVE_FADE_BEZIER = "scrolloverviewWorkspaceRemoveFade";
+static constexpr const char* OVERVIEW_INSERT_FADE_BEZIER = "gridoverviewWorkspaceInsertFade";
+static constexpr const char* OVERVIEW_REMOVE_FADE_BEZIER = "gridoverviewWorkspaceRemoveFade";
 
 static bool isPointerOnTopLayer(PHLMONITOR monitor) {
     if (!monitor)
@@ -1163,12 +1163,12 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
     workspaceRemoveFadeConfig->internalStyle   = WINDOWSMOVEVALUES ? WINDOWSMOVEVALUES->internalStyle : "";
     workspaceRemoveFadeConfig->pValues         = workspaceRemoveFadeConfig;
 
-    const auto TRANSITIONBEZIER = ScrollOverview::Config::getValue<std::string>("plugin:scrolloverview:transition_bezier");
+    const auto TRANSITIONBEZIER = ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:transition_bezier");
     if (!TRANSITIONBEZIER.empty() && Animation::mgr()->bezierExists(TRANSITIONBEZIER)) {
         workspaceTransitionConfig                  = makeShared<Hyprutils::Animation::SAnimationPropertyConfig>();
         workspaceTransitionConfig->overridden      = true;
         workspaceTransitionConfig->internalBezier  = TRANSITIONBEZIER;
-        workspaceTransitionConfig->internalSpeed   = ScrollOverview::Config::getValue<float>("plugin:scrolloverview:transition_speed");
+        workspaceTransitionConfig->internalSpeed   = ScrollOverview::Config::getValue<float>("plugin:gridoverview:transition_speed");
         workspaceTransitionConfig->internalEnabled = WINDOWSMOVEVALUES ? WINDOWSMOVEVALUES->internalEnabled : 1;
         workspaceTransitionConfig->internalStyle   = "";
         workspaceTransitionConfig->pValues         = workspaceTransitionConfig;
@@ -1892,7 +1892,7 @@ static void logWallpaperDetection(PHLMONITOR monitor, const std::vector<PHLLS>& 
         return;
 
     last = summary;
-    std::fprintf(stderr, "[scrolloverview] monitor %s %s\n", monitor->m_name.c_str(), summary.c_str());
+    std::fprintf(stderr, "[gridoverview] monitor %s %s\n", monitor->m_name.c_str(), summary.c_str());
 }
 
 static std::vector<PHLLS> detectWallpaperSurfaces(PHLMONITOR monitor) {
@@ -2041,7 +2041,7 @@ void CScrollOverview::updateBackdropBlurCache(PHLMONITOR monitor, int wallpaperM
     const auto FBFORMAT  = monitorContext.m_data.currentFB->m_drmFormat;
     const auto DESC      = NColorManagement::getDefaultImageDescription();
     if (!backdropBlurFB)
-        backdropBlurFB = g_pHyprRenderer->createFB("scrolloverview_backdrop_blur");
+        backdropBlurFB = g_pHyprRenderer->createFB("gridoverview_backdrop_blur");
 
     if (!backdropBlurFB || !backdropBlurFB->isAllocated() || backdropBlurFB->m_size != FBSIZE || backdropBlurFB->m_drmFormat != FBFORMAT) {
         if (backdropBlurFB)
