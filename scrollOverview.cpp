@@ -81,8 +81,10 @@
 static PHLWINDOW getOverviewFullscreenVisibilityWindow(const PHLWORKSPACE& workspace, const PHLWINDOW& fallback = {});
 static constexpr const char* OVERVIEW_SUBMAP = "gridoverview";
 static constexpr auto        POST_DROP_PSEUDO_FOCUS_DURATION = std::chrono::milliseconds(100);
-// grid fit mode ("Komplettansicht"), remembered across overview openings for the lifetime of the plugin
-static bool                  g_gridFitMode = false;
+// grid zoom level, remembered across overview openings for the lifetime of the plugin:
+// 1 = centred view, 2 = whole grid ("Komplettansicht"), anything in between from the continuous zoom
+static float                 g_gridZoomLevel = 1.F;
+static constexpr float       ZOOM_EPSILON    = 1e-3F;
 
 // exec_on_open / exec_on_close
 static void runOverviewHook(const char* name) {
@@ -1206,7 +1208,7 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
     workspaceInsertProgress->setUpdateCallback([this](auto) { damage(); });
     workspaceInsertFadeProgress->setUpdateCallback([this](auto) { damage(); });
 
-    zoomLevel = swipe ? 0.F : (grid && g_gridFitMode ? 2.F : 1.F);
+    zoomLevel = swipe ? 0.F : (grid ? g_gridZoomLevel : 1.F);
     if (!swipe)
         *scale = targetOverviewScale();
 
@@ -2446,7 +2448,7 @@ void CScrollOverview::rebuildWorkspaceImages() {
     closeOnWindow = selectedWindow;
 
     // the grid may have grown or shrunk (placeholders, moved windows): refit
-    if (g_gridFitMode && !gridPanActive)
+    if (grid && zoomLevel > 1.F + ZOOM_EPSILON && !gridPanActive)
         applyGridFit();
 }
 
@@ -3396,7 +3398,7 @@ void CScrollOverview::updateDragEdgeScroll() {
     const auto MONITOR = pMonitor.lock();
     int        col = 0, row = 0;
 
-    if (grid && !g_gridFitMode && !closing && dragActiveWindow && MONITOR && isOverviewPointerOnMonitor(MONITOR)) {
+    if (grid && zoomLevel < 2.F - ZOOM_EPSILON && !closing && dragActiveWindow && MONITOR && isOverviewPointerOnMonitor(MONITOR)) {
         const auto SIZE   = MONITOR->m_size * MONITOR->m_scale;
         const auto MOUSE  = getOverviewMousePosLocal(MONITOR);
         const auto MARGIN = std::min(SIZE.x, SIZE.y) * 0.04;
@@ -4056,16 +4058,21 @@ static float gridWorkAreaTop(PHLMONITOR monitor) {
     return sc<float>(WORKSPACE->space()->workArea().y - monitor->m_position.y);
 }
 
+// zoom level -> overview scale / view offset: 0..1 from the desktop to the centred view, 1..2 from there to the
+// whole grid
 float CScrollOverview::targetOverviewScale() const {
-    if (!grid || !g_gridFitMode)
-        return ScrollOverview::Config::getScale(pMonitor.lock());
-    return gridFitScale();
+    const float CENTERSCALE = ScrollOverview::Config::getScale(pMonitor.lock());
+    if (!grid)
+        return CENTERSCALE;
+    if (zoomLevel <= 1.F)
+        return 1.F + (CENTERSCALE - 1.F) * zoomLevel;
+    return CENTERSCALE + (gridFitScale() - CENTERSCALE) * (std::min(zoomLevel, 2.F) - 1.F);
 }
 
 Vector2D CScrollOverview::restingViewOffset() const {
-    if (!grid || !g_gridFitMode)
+    if (!grid || zoomLevel <= 1.F)
         return {};
-    return gridFitViewOffset();
+    return gridFitViewOffset() * (std::min(zoomLevel, 2.F) - 1.F);
 }
 
 float CScrollOverview::gridFitScale() const {
@@ -4141,38 +4148,22 @@ void CScrollOverview::applyGridFit() {
 static constexpr float ZOOM_NOTCH = 0.25F; // zoom levels per wheel notch
 
 void CScrollOverview::applyZoomLevel() {
-    const float CENTERSCALE = ScrollOverview::Config::getScale(pMonitor.lock());
-    float       targetScale = 1.F + (CENTERSCALE - 1.F) * std::min(zoomLevel, 1.F);
-    Vector2D    targetOffset;
-
-    if (zoomLevel > 1.F) {
-        const float T = zoomLevel - 1.F;
-        targetScale   = CENTERSCALE + (gridFitScale() - CENTERSCALE) * T;
-        targetOffset  = gridFitViewOffset() * T;
-    }
-
     useViewSwitchAnimation(true);
-    *scale      = targetScale;
-    *viewOffset = targetOffset;
+    *scale      = targetOverviewScale();
+    *viewOffset = restingViewOffset();
     damage();
 }
 
+// the zoom stays where it was released and is remembered; zooming all the way in closes the overview
 void CScrollOverview::finishZoom() {
-    const int SNAPPED = sc<int>(std::round(zoomLevel));
-    if (SNAPPED <= 0) {
+    if (zoomLevel <= ZOOM_EPSILON) {
         zoomLevel = 0.F;
         close();
         return;
     }
 
-    zoomLevel = sc<float>(SNAPPED);
     if (grid)
-        g_gridFitMode = SNAPPED >= 2;
-
-    useViewSwitchAnimation(true);
-    *scale      = targetOverviewScale();
-    *viewOffset = restingViewOffset();
-    damage();
+        g_gridZoomLevel = zoomLevel;
 }
 
 void CScrollOverview::zoomStep(int direction) {
@@ -4210,14 +4201,14 @@ void CScrollOverview::setGridFitMode(bool fit) {
 }
 
 void CScrollOverview::setGridViewMode(const std::string& mode) {
-    const bool FIT = mode == "fit" ? true : mode == "center" ? false : !g_gridFitMode;
-    if (FIT == g_gridFitMode)
-        return;
+    const bool FIT = mode == "fit" ? true : mode == "center" ? false : g_gridZoomLevel < 2.F - ZOOM_EPSILON;
 
-    g_gridFitMode = FIT;
+    g_gridZoomLevel = FIT ? 2.F : 1.F;
     for (const auto& overview : scrollOverviews()) {
-        if (auto* const SCROLLOVERVIEW = dynamic_cast<CScrollOverview*>(overview.get()))
+        if (auto* const SCROLLOVERVIEW = dynamic_cast<CScrollOverview*>(overview.get())) {
+            SCROLLOVERVIEW->zoomLevel = g_gridZoomLevel;
             SCROLLOVERVIEW->applyGridFit();
+        }
     }
 }
 
@@ -4266,7 +4257,8 @@ void CScrollOverview::renderGridModeButtons(PHLMONITOR monitor) {
 
     for (int button = 0; button < 2; ++button) {
         const auto BOX    = gridModeButtonBox(button);
-        const bool ACTIVE = (button == 1) == g_gridFitMode;
+        // in-between zoom levels highlight neither button
+        const bool ACTIVE = button == 1 ? zoomLevel >= 2.F - ZOOM_EPSILON : std::abs(zoomLevel - 1.F) <= ZOOM_EPSILON;
         const auto MID    = BOX.middle();
 
         rect(BOX, ACTIVE ? ACCENT.modifyA(0.55F * ALPHA) : CHyprColor{0.F, 0.F, 0.F, 0.45F * ALPHA}, sc<int>(BOX.height / 2.0));
@@ -4319,8 +4311,8 @@ void CScrollOverview::endGridPan() {
     if (!MONITOR || images.empty())
         return;
 
-    // the whole grid is visible in fit mode: just spring back
-    if (g_gridFitMode) {
+    // zoomed out past the centred view the view rests on the grid, not on a workspace: just spring back
+    if (zoomLevel > 1.F + ZOOM_EPSILON) {
         *viewOffset = restingViewOffset();
         return;
     }
@@ -6475,8 +6467,9 @@ void CScrollOverview::onWorkspaceChange() {
         else
             viewOffset->setValueAndWarp(
             axisOffsetVector(workspaceOverviewLogicalOffset(previousActiveIdx, viewportCurrentWorkspace, getWorkspaceLogicalPitch(pMonitor.lock(), scale->value(), layout)), layout) +
-            // fit mode rests away from the active workspace; keep the grid where it is while the active one changes
-            (grid && g_gridFitMode ? viewOffset->value() : Vector2D{}));
+            // zoomed out past the centred view the view rests away from the active workspace; keep the grid where it
+            // is while the active one changes
+            (grid && zoomLevel > 1.F + ZOOM_EPSILON ? viewOffset->value() : Vector2D{}));
         *viewOffset = restingViewOffset();
     }
 

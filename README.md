@@ -24,6 +24,9 @@ features are additions on top of it (see [Credits](#credits)).
   plus.
 - **Whole-grid view**: buttons at the top switch between the centred view and a view that fits the whole
   grid on screen (also `overview("fit" | "center" | "togglefit")`).
+- **Continuous zoom**: `overview("zoomout" | "zoomin")` (e.g. on `SUPER + CTRL + wheel`) zooms from the desktop
+  into the centred view and on to the whole grid; the zoom stays where it is released and is remembered,
+  zooming all the way in closes the overview.
 - **Hooks**: shell commands on open/close (e.g. to change a dock's auto-hide while the overview is open).
 
 ## Installation
