@@ -94,6 +94,7 @@ and add `require("gridoverview")` to `hyprland.lua`.
 | `empty_halo_color` | color | thin halo under outline and plus, for light wallpapers | `rgba(0,0,0,0.4)` |
 | `empty_color_from_border` | bool | use `general:col.active_border` (e.g. matugen) with `empty_color`'s alpha | `false` |
 | `shadow:active_color` | color | shadow colour of the selected workspace | unset |
+| `zoom_follow_mouse` | bool | continuous zoom: zooming in selects the workspace under the cursor and zooms towards it | `false` |
 | `window_icons` | bool | app icon on a round plate in the middle of every window | `false` |
 | `window_icon_size` | int | icon size on screen in layout px, independent of the zoom (at most 60 % of a window's short side incl. plate) | `64` |
 | `window_icon_plate_color` | color | plate behind the icon | `rgba(0,0,0,0.45)` |

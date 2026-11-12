@@ -4179,6 +4179,17 @@ void CScrollOverview::zoomStep(int direction) {
         zoomLevel = 0.F;
     }
 
+    // zoom_follow_mouse: zooming in selects the workspace under the cursor, so the view glides towards it and
+    // zooming in all the way lands on it
+    if (direction < 0 && grid && ScrollOverview::Config::getValue<bool>("plugin:gridoverview:zoom_follow_mouse", pMonitor.lock())) {
+        if (const auto MONITOR = pMonitor.lock(); MONITOR && isOverviewPointerOnMonitor(MONITOR)) {
+            lastMousePosLocal = getOverviewMousePosLocal(MONITOR);
+            size_t hoveredIdx = 0;
+            if (workspaceAtOverviewPoint(lastMousePosLocal, &hoveredIdx) && hoveredIdx != viewportCurrentWorkspace)
+                moveViewportToWorkspace(hoveredIdx);
+        }
+    }
+
     zoomLevel = std::clamp(zoomLevel + direction * ZOOM_NOTCH, 0.F, grid ? 2.F : 1.F);
     applyZoomLevel();
 

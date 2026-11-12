@@ -447,6 +447,8 @@ static void defineConfigValues() {
                                       "bezier for moving between workspaces inside the overview; empty = windowsMove animation", Hyprlang::STRING{""}));
     addValue(makeShared<CFloatValue>("plugin:gridoverview:transition_speed", "speed for transition_bezier (like animation speeds)", 4.F,
                                      SFloatValueOptions{.min = 0.1F, .max = 100.F}));
+    addValue(makeShared<CBoolValue>("plugin:gridoverview:zoom_follow_mouse",
+                                    "continuous zoom: zooming in selects the workspace under the cursor and zooms towards it", false));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:window_icons", "draw the app icon in the middle of every window", false));
     addValue(makeShared<CIntValue>("plugin:gridoverview:window_icon_size", "app icon size in screen (layout) px, independent of the overview zoom", 64,
                                    SIntValueOptions{.min = 8, .max = 1024}));

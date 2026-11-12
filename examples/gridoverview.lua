@@ -50,6 +50,7 @@ local settings = {
         highlight_selected = true, -- wallpaper + shadow only on the selected workspace, empty ones as outline + plus
         highlight_padding = 40,
         empty_marker = "always",   -- always | drag | hover
+        zoom_follow_mouse = false, -- continuous zoom: zooming in goes towards the workspace under the cursor
         window_icons = false,
         window_icon_size = 64,
         transition_bezier = "",    -- e.g. a bezier defined in your config; empty = windowsMove animation
