@@ -5447,10 +5447,14 @@ void CScrollOverview::renderContextLabels(PHLMONITOR monitor, size_t activeIdx, 
         if (!texture || texture->m_size.x <= 0)
             continue;
 
-        const auto BOX  = getOverviewWorkspaceBox(monitor, renderScale, viewOffset->value(), workspaceOverviewOffset(idx, activeIdx, workspacePitch), layout);
-        const auto TEXT = texture->m_size;
-        const CBox LABEL = gridContextsAsColumns ? CBox{BOX.middle().x - TEXT.x / 2.0, BOX.y - GAP - TEXT.y, TEXT.x, TEXT.y} :
-                                                   CBox{BOX.x - GAP - TEXT.x, BOX.middle().y - TEXT.y / 2.0, TEXT.x, TEXT.y};
+        // centred between the screen edge (below the bar for columns) and the first workspace, at least GAP away from it
+        const auto   BOX  = getOverviewWorkspaceBox(monitor, renderScale, viewOffset->value(), workspaceOverviewOffset(idx, activeIdx, workspacePitch), layout);
+        const auto   TEXT = texture->m_size;
+        const double EDGE = gridContextsAsColumns ? gridWorkAreaTop(monitor) * monitor->m_scale : 0.0;
+        const CBox   LABEL =
+            gridContextsAsColumns ?
+            CBox{BOX.middle().x - TEXT.x / 2.0, std::min((EDGE + BOX.y) / 2.0 - TEXT.y / 2.0, BOX.y - GAP - TEXT.y), TEXT.x, TEXT.y} :
+            CBox{std::min(BOX.x / 2.0 - TEXT.x / 2.0, BOX.x - GAP - TEXT.x), BOX.middle().y - TEXT.y / 2.0, TEXT.x, TEXT.y};
         if (!overviewBoxIntersectsMonitor(LABEL, monitor))
             continue;
 
