@@ -1,0 +1,191 @@
+-- Example Hyprland (Lua config) module for hyprland-grid-overview.
+--
+-- Save as ~/.config/hypr/gridoverview.lua and add `require("gridoverview")` to hyprland.lua. Remove or
+-- rebind your own workspace keys that clash with the ones below (SUPER + [1-9], SUPER + SHIFT + arrows, ...).
+--
+-- Contexts with their workspaces: workspace id = context * 10 + position (context 1 = 11..19, 2 = 21..29, ...).
+-- orientation "rows": contexts are rows, their workspaces side by side;
+--             "columns": contexts are columns, their workspaces stacked (keys and overview follow).
+--
+-- SUPER + SHIFT + arrow          next workspace / context in that direction (back to the workspace last used
+--                                in a context when switching to it)
+-- SUPER + CTRL + SHIFT + arrow   same, taking the active window along
+-- SUPER + [1-9]                  workspace 1-9 of the current context (+ SHIFT: move window there)
+-- SUPER + Tab / SHIFT + Tab      next/previous non-empty workspace of the current context
+-- SUPER + scroll                 same as Tab; SUPER + SHIFT + scroll: next/previous context
+-- SUPER + D                      grid overview; SUPER + CTRL + scroll zooms into / out of it continuously
+
+local settings = {
+    orientation = "rows",
+    workspaces  = 9,  -- per context
+    monitor     = "", -- monitor of the first workspace (11); empty = Hyprland's choice
+
+    -- one entry per context (their number sets the grid size). wallpaper is optional, see wallpaperCommand.
+    contexts = {
+        { name = "General" },
+        { name = "Development" },
+        { name = "Communication" },
+    },
+
+    -- run when the active workspace moves to another context that has a wallpaper; %s = the wallpaper path.
+    -- nil = wallpapers are not switched. Examples:
+    --   "swww img '%s'"
+    --   "dms ipc call wallpaper set '%s'"   (Dux / DankMaterialShell)
+    wallpaperCommand = nil,
+
+    -- plugin:gridoverview options (grid, grid_orientation, grid_rows and grid_columns are set from the above)
+    overview = {
+        scale = 0.5,
+        workspace_gap = 40,
+        wallpaper = 2,
+        blur = true,
+        shadow = {
+            enabled = true,
+            range = 50,
+        },
+        highlight_selected = true, -- wallpaper + shadow only on the selected workspace, empty ones as outline + plus
+        highlight_padding = 40,
+        empty_marker = "always",   -- always | drag | hover
+        window_icons = false,
+        window_icon_size = 64,
+        transition_bezier = "",    -- e.g. a bezier defined in your config; empty = windowsMove animation
+        transition_speed = 3.0,
+        -- exec_on_open = "",
+        -- exec_on_close = "",
+    },
+}
+
+-- ---------------------------------------------------------------------------------------------------------------
+
+local mainMod           = "SUPER"
+local gridRows          = #settings.contexts
+local gridCols          = settings.workspaces
+local contextsAsColumns = settings.orientation == "columns"
+local contextSlide      = contextsAsColumns and "slide" or "slidevert"
+local workspaceSlide    = contextsAsColumns and "slidevert" or "slide"
+local gridLastCol       = {}
+
+-- empty drop targets in the overview are created by the plugin itself; only the first workspace is kept
+local firstWorkspace = { workspace = "11", default = true, persistent = true }
+if settings.monitor ~= "" then
+    firstWorkspace.monitor = settings.monitor
+end
+hl.workspace_rule(firstWorkspace)
+
+-- workspaces outside the grid (e.g. plain 1-10) count as context 1
+local function gridPos()
+    local ws = hl.get_active_workspace()
+    local id = ws and ws.id or 11
+    if id < 11 or id > gridRows * 10 + gridCols or id % 10 == 0 then
+        return 1, math.max(1, math.min(id % 10, gridCols))
+    end
+    return math.floor(id / 10), id % 10
+end
+
+-- Hyprland picks the slide direction from the workspace ids; only the axis has to be set per switch.
+-- Adjust speed / bezier to your own workspace animation.
+local function gridSlide(style)
+    for _, leaf in ipairs({ "workspaces", "workspacesIn", "workspacesOut" }) do
+        hl.animation({ leaf = leaf, enabled = true, speed = 2.4, bezier = "default", style = style })
+    end
+end
+
+local function gridGoto(row, col, carry, style)
+    gridSlide(style)
+    local id = row * 10 + col
+    if carry and hl.get_active_window() then
+        hl.dispatch(hl.dsp.window.move({ workspace = id }))
+    else
+        hl.dispatch(hl.dsp.focus({ workspace = id }))
+    end
+end
+
+local function gridStep(dRow, dCol, carry)
+    return function()
+        local row, col = gridPos()
+        local newRow = math.max(1, math.min(gridRows, row + dRow))
+        local newCol = math.max(1, math.min(gridCols, col + dCol))
+        if dRow ~= 0 then newCol = gridLastCol[newRow] or 1 end
+        if newRow == row and newCol == col then return end
+        gridGoto(newRow, newCol, carry, dRow ~= 0 and contextSlide or workspaceSlide)
+    end
+end
+
+local function gridCycle(step)
+    return function()
+        local row, col = gridPos()
+        local used = {}
+        for _, ws in ipairs(hl.get_workspaces()) do
+            if ws.id and not ws.special and math.floor(ws.id / 10) == row and ws.windows > 0 then
+                used[ws.id % 10] = true
+            end
+        end
+        for k = 1, gridCols - 1 do
+            local c = (col - 1 + step * k) % gridCols + 1
+            if used[c] then return gridGoto(row, c, false, workspaceSlide) end
+        end
+    end
+end
+
+-- remember the last workspace per context and switch the context wallpaper
+local wallpaperRow = gridPos()
+hl.on("workspace.active", function()
+    local row, col = gridPos()
+    gridLastCol[row] = col
+
+    if row ~= wallpaperRow then
+        wallpaperRow = row
+        local context = settings.contexts[row]
+        if settings.wallpaperCommand and context and context.wallpaper then
+            hl.exec_cmd(string.format(settings.wallpaperCommand, context.wallpaper))
+        end
+    end
+end)
+
+-- keys: { key, context delta, workspace delta }
+local gridArrows = contextsAsColumns
+    and { { "left", -1, 0 }, { "right", 1, 0 }, { "up", 0, -1 }, { "down", 0, 1 } }
+    or  { { "left", 0, -1 }, { "right", 0, 1 }, { "up", -1, 0 }, { "down", 1, 0 } }
+for _, dir in ipairs(gridArrows) do
+    hl.bind(mainMod .. " + SHIFT + " .. dir[1],        gridStep(dir[2], dir[3], false))
+    hl.bind(mainMod .. " + CTRL + SHIFT + " .. dir[1], gridStep(dir[2], dir[3], true))
+end
+
+for i = 1, gridCols do
+    hl.bind(mainMod .. " + " .. i,         function() gridGoto(gridPos(), i, false, workspaceSlide) end)
+    hl.bind(mainMod .. " + SHIFT + " .. i, function() gridGoto(gridPos(), i, true, workspaceSlide) end)
+end
+
+hl.bind(mainMod .. " + Tab", gridCycle(1))
+hl.bind(mainMod .. " + SHIFT + Tab", gridCycle(-1))
+hl.bind(mainMod .. " + mouse_down", gridCycle(1))
+hl.bind(mainMod .. " + mouse_up",   gridCycle(-1))
+hl.bind(mainMod .. " + SHIFT + mouse_down", gridStep(1, 0, false))
+hl.bind(mainMod .. " + SHIFT + mouse_up",   gridStep(-1, 0, false))
+
+-- hl.plugin.gridoverview only exists once hyprpm has loaded the plugin, so resolve it at keypress time
+local function overview(action)
+    return function()
+        if hl.plugin and hl.plugin.gridoverview then
+            hl.plugin.gridoverview.overview(action)
+        end
+    end
+end
+
+hl.bind(mainMod .. " + D", overview("toggle"))
+hl.bind(mainMod .. " + CTRL + mouse_down", overview("zoomout"))
+hl.bind(mainMod .. " + CTRL + mouse_up",   overview("zoomin"))
+
+-- plugin.gridoverview keys are unknown until the plugin is loaded and would abort the config
+if hl.plugin and hl.plugin.gridoverview then
+    local options = {}
+    for key, value in pairs(settings.overview) do
+        options[key] = value
+    end
+    options.grid             = true
+    options.grid_orientation = settings.orientation
+    options.grid_rows        = gridRows
+    options.grid_columns     = gridCols
+
+    hl.config({ plugin = { gridoverview = options } })
+end
