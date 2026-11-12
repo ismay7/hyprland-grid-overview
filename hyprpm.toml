@@ -1,5 +1,5 @@
 [repository]
-name = "grid-overview"
+name = "hyprland-grid-overview"
 authors = ["maxg", "yayuuu"]
 # The commit pins of hyprland-scroll-overview point at upstream commits without the grid features; this fork
 # builds its HEAD for the installed Hyprland version until it gets pins of its own.

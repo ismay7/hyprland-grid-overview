@@ -1,10 +1,10 @@
-# grid-overview
+# hyprland-grid-overview
 
-A workspace **grid** overview for Hyprland: workspaces are arranged as a two-dimensional grid of
+A workspace **grid** overview for Hyprland (plugin name `gridoverview`): workspaces are arranged as a two-dimensional grid of
 *contexts* (rows) and *workspaces* (columns), e.g. row 1 = general work, row 2 = game dev,
 row 3 = communication. Workspace `R*10+C` sits in row `R`, column `C` (11–19, 21–29, …).
 
-grid-overview is a fork of [hyprland-scroll-overview](https://github.com/yayuuu/hyprland-scroll-overview)
+hyprland-grid-overview is a fork of [hyprland-scroll-overview](https://github.com/yayuuu/hyprland-scroll-overview)
 by Vaxry and yayuuu, a niri-like overview plugin. Everything the original does still works; the grid
 features are additions on top of it (see [Credits](#credits)).
 
@@ -29,9 +29,11 @@ features are additions on top of it (see [Credits](#credits)).
 ## Installation
 
 ```bash
-hyprpm add <url of this repository>
+hyprpm add git@gitlab.com:ismay7/hyprland-grid-overview.git
 hyprpm enable gridoverview
 ```
+
+The repository is private for now, so cloning needs access to it (SSH key or token).
 
 For a manual build: `make all` produces `gridoverview.so` (needs the Hyprland headers of the running
 version).
@@ -94,6 +96,6 @@ The options, dispatchers, gestures and submaps of the original are documented in
 
 ## Credits
 
-grid-overview is based on [hyprland-scroll-overview](https://github.com/yayuuu/hyprland-scroll-overview)
+hyprland-grid-overview is based on [hyprland-scroll-overview](https://github.com/yayuuu/hyprland-scroll-overview)
 by **Vaxry** and **yayuuu** (BSD 3-Clause, Copyright (c) 2023, Hypr Development), which this fork keeps
 under the same license. Thanks to them for the overview this is built on.
