@@ -5395,6 +5395,73 @@ void CScrollOverview::renderSelectedEmptyMarker(PHLMONITOR monitor, size_t activ
         renderEmptyWorkspaceMarker(monitor, BOX, renderScale, workspaceOverviewAlpha(viewportCurrentWorkspace), true);
 }
 
+// context_labels: the context name next to the first workspace of each context (left of it with contexts as rows,
+// above it with contexts as columns); fixed on-screen size, moving with zoom and pan
+void CScrollOverview::renderContextLabels(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale) {
+    if (!grid || !ScrollOverview::Config::getValue<bool>("plugin:gridoverview:context_labels", monitor))
+        return;
+
+    const float PROGRESS = std::clamp((1.F - renderScale) / (1.F - ScrollOverview::Config::getScale(monitor)), 0.F, 1.F);
+    const float ALPHA    = PROGRESS * PROGRESS * (3.F - 2.F * PROGRESS);
+    if (ALPHA <= 0.001F)
+        return;
+
+    std::vector<std::string> names;
+    {
+        std::stringstream all(ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:context_names", monitor));
+        for (std::string name; std::getline(all, name, ',');) {
+            const auto FIRST = name.find_first_not_of(" \t");
+            const auto LAST  = name.find_last_not_of(" \t");
+            names.emplace_back(FIRST == std::string::npos ? "" : name.substr(FIRST, LAST - FIRST + 1));
+        }
+    }
+
+    const auto contextOf = [this](size_t idx) -> int {
+        const auto ID = idx < images.size() && images[idx] && images[idx]->pWorkspace ? images[idx]->pWorkspace->numberedID() : std::nullopt;
+        return ID && *ID >= 11 && *ID % 10 != 0 ? sc<int>(*ID / 10) : 0;
+    };
+
+    // the first (lowest position) workspace of every context
+    std::unordered_map<int, size_t> firstOfContext;
+    for (size_t i = 0; i < images.size(); ++i) {
+        const int CONTEXT = contextOf(i);
+        if (CONTEXT < 1 || CONTEXT > sc<int>(names.size()) || names[CONTEXT - 1].empty())
+            continue;
+        const auto IT = firstOfContext.find(CONTEXT);
+        if (IT == firstOfContext.end() || images[i]->pWorkspace->numberedID() < images[IT->second]->pWorkspace->numberedID())
+            firstOfContext[CONTEXT] = i;
+    }
+
+    const int   SIZE     = std::max(1, sc<int>(std::round(ScrollOverview::Config::getValue<int>("plugin:gridoverview:context_label_size", monitor) * monitor->m_scale)));
+    const auto  COLOR    = ScrollOverview::Config::getContextLabelColor(monitor);
+    const float GAP      = 24.F * monitor->m_scale;
+    const int   SELECTED = contextOf(viewportCurrentWorkspace);
+
+    for (const auto& [context, idx] : firstOfContext) {
+        const auto& NAME = names[context - 1];
+        const auto  KEY  = NAME + "\n" + std::to_string(SIZE) + "\n" + std::to_string(COLOR.r) + std::to_string(COLOR.g) + std::to_string(COLOR.b) + std::to_string(COLOR.a);
+
+        auto& texture = contextLabelTextures[KEY];
+        if (!texture)
+            texture = g_pHyprRenderer->renderText(NAME, COLOR, SIZE, false, "", 0, 600);
+        if (!texture || texture->m_size.x <= 0)
+            continue;
+
+        const auto BOX  = getOverviewWorkspaceBox(monitor, renderScale, viewOffset->value(), workspaceOverviewOffset(idx, activeIdx, workspacePitch), layout);
+        const auto TEXT = texture->m_size;
+        const CBox LABEL = gridContextsAsColumns ? CBox{BOX.middle().x - TEXT.x / 2.0, BOX.y - GAP - TEXT.y, TEXT.x, TEXT.y} :
+                                                   CBox{BOX.x - GAP - TEXT.x, BOX.middle().y - TEXT.y / 2.0, TEXT.x, TEXT.y};
+        if (!overviewBoxIntersectsMonitor(LABEL, monitor))
+            continue;
+
+        CTexPassElement::SRenderData data;
+        data.tex = texture;
+        data.box = LABEL.copy().round();
+        data.a   = ALPHA * (context == SELECTED ? 1.F : 0.55F);
+        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CTexPassElement>(std::move(data)));
+    }
+}
+
 // window_icons: app icon on a round plate in the middle of every window (not on the one being dragged)
 void CScrollOverview::renderWindowIcons(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale) {
     if (!ScrollOverview::Config::getValue<bool>("plugin:gridoverview:window_icons", monitor))
@@ -6669,6 +6736,7 @@ void CScrollOverview::render() {
     }
 
     renderWindowIcons(MONITOR, ACTIVEIDX, PITCH, SCALE);
+    renderContextLabels(MONITOR, ACTIVEIDX, PITCH, SCALE);
     renderDraggedWindow(MONITOR, ACTIVEIDX, PITCH, SCALE, NOW);
     renderPinnedFloatingWindows(MONITOR, SCALE, NOW);
     renderGridModeButtons(MONITOR);

@@ -52,6 +52,8 @@ local settings = {
         empty_marker = "always",   -- always | drag | hover
         zoom_step = 0.25,          -- continuous zoom per wheel notch (1 = desktop -> centred view)
         zoom_follow_mouse = false, -- continuous zoom: zooming in goes towards the workspace under the cursor
+        context_labels = false,    -- context name next to the first workspace of each context (names from contexts)
+        context_label_size = 20,
         window_icons = false,
         window_icon_size = 64,
         transition_bezier = "",    -- e.g. a bezier defined in your config; empty = windowsMove animation
@@ -200,10 +202,16 @@ if hl.plugin and hl.plugin.gridoverview then
     for key, value in pairs(settings.overview) do
         options[key] = value
     end
+    local names = {}
+    for _, context in ipairs(settings.contexts) do
+        names[#names + 1] = (context.name or ""):gsub(",", " ")
+    end
+
     options.grid             = true
     options.grid_orientation = settings.orientation
     options.grid_rows        = gridRows
     options.grid_columns     = gridCols
+    options.context_names    = table.concat(names, ",")
 
     hl.config({ plugin = { gridoverview = options } })
 end

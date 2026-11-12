@@ -452,6 +452,11 @@ static void defineConfigValues() {
                                      SFloatValueOptions{.min = 0.01F, .max = 2.F}));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:zoom_follow_mouse",
                                     "continuous zoom: zooming in selects the workspace under the cursor and zooms towards it", false));
+    addValue(makeShared<CBoolValue>("plugin:gridoverview:context_labels", "grid mode: name of every context next to its first workspace", false));
+    addValue(makeShared<CStringValue>("plugin:gridoverview:context_names", "comma-separated context names (context 1, 2, ...)", Hyprlang::STRING{""}));
+    addValue(makeShared<CIntValue>("plugin:gridoverview:context_label_size", "context label font size in layout px, independent of the zoom", 20,
+                                   SIntValueOptions{.min = 6, .max = 200}));
+    addValue(makeShared<CGradientValue>("plugin:gridoverview:context_label_color", "context label colour", -1));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:window_icons", "draw the app icon in the middle of every window", false));
     addValue(makeShared<CIntValue>("plugin:gridoverview:window_icon_size", "app icon size in screen (layout) px, independent of the overview zoom", 64,
                                    SIntValueOptions{.min = 8, .max = 1024}));
@@ -649,6 +654,10 @@ CHyprColor getEmptyColor(PHLMONITOR monitor) {
     }
 
     return color;
+}
+
+CHyprColor getContextLabelColor(PHLMONITOR monitor) {
+    return firstColorIfSet("plugin:gridoverview:context_label_color", monitor).value_or(CHyprColor{1.F, 1.F, 1.F, 0.9F});
 }
 
 CHyprColor getWindowIconPlateColor(PHLMONITOR monitor) {
