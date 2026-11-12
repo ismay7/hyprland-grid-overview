@@ -20,18 +20,22 @@ local settings = {
     workspaces  = 9,  -- per context
     monitor     = "", -- monitor of the first workspace (11); empty = Hyprland's choice
 
-    -- one entry per context (their number sets the grid size). wallpaper is optional, see wallpaperCommand.
+    -- one entry per context (their number sets the grid size); wallpaper is optional
     contexts = {
         { name = "General" },
         { name = "Development" },
         { name = "Communication" },
+        -- { name = "Design", wallpaper = "abstract/waves.jpg" },
     },
 
-    -- run when the active workspace moves to another context that has a wallpaper; %s = the wallpaper path.
-    -- nil = wallpapers are not switched. Examples:
+    -- true: switch the wallpaper to the context's one whenever the context changes (contexts without one keep
+    -- the current wallpaper). false: the wallpaper is left alone.
+    contextWallpapers = false,
+    wallpaperDir      = "~/Pictures/Wallpapers", -- base for relative wallpaper paths (absolute / ~ paths work too)
+    -- %s = the wallpaper path, e.g.
     --   "swww img '%s'"
     --   "dms ipc call wallpaper set '%s'"   (Dux / DankMaterialShell)
-    wallpaperCommand = nil,
+    wallpaperCommand  = "swww img '%s'",
 
     -- plugin:gridoverview options (grid, grid_orientation, grid_rows and grid_columns are set from the above)
     overview = {
@@ -128,16 +132,28 @@ local function gridCycle(step)
 end
 
 -- remember the last workspace per context and switch the context wallpaper
+local home         = os.getenv("HOME")
 local wallpaperRow = gridPos()
+
+local function wallpaperPath(path)
+    if path:sub(1, 1) == "~" then
+        return home .. path:sub(2)
+    end
+    if path:sub(1, 1) == "/" then
+        return path
+    end
+    return (settings.wallpaperDir:gsub("^~", home):gsub("/$", "")) .. "/" .. path
+end
+
 hl.on("workspace.active", function()
     local row, col = gridPos()
     gridLastCol[row] = col
 
-    if row ~= wallpaperRow then
+    if row ~= wallpaperRow and settings.contextWallpapers then
         wallpaperRow = row
         local context = settings.contexts[row]
         if settings.wallpaperCommand and context and context.wallpaper then
-            hl.exec_cmd(string.format(settings.wallpaperCommand, context.wallpaper))
+            hl.exec_cmd(string.format(settings.wallpaperCommand, wallpaperPath(context.wallpaper)))
         end
     end
 end)

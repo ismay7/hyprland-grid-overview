@@ -75,7 +75,7 @@ end)
 
 Moving between workspaces outside the overview (left/right within a context, up/down between contexts)
 is plain Hyprland config: focus/move to `row * 10 + column`. [examples/gridoverview.lua](examples/gridoverview.lua)
-is a complete module for that: contexts, grid keys, optional wallpaper per context, the overview and its
+is a complete module for that: contexts, grid keys, optional (togglable) wallpaper per context, the overview and its
 continuous zoom, and all plugin options in one settings table. Save it as `~/.config/hypr/gridoverview.lua`
 and add `require("gridoverview")` to `hyprland.lua`.
 
