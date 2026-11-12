@@ -81,7 +81,8 @@ is plain Hyprland config: focus/move to `row * 10 + column`.
 | option | type | description | default |
 | --- | --- | --- | --- |
 | `grid` | bool | grid layout: workspace `R*10+C` in row `R`, column `C` | `false` |
-| `grid_rows` / `grid_columns` | int | highest row / column that gets placeholders (1–9) | `9` |
+| `grid_orientation` | string | contexts (workspaces `R*10+C` sharing `R`) as `rows` or `columns` | `rows` |
+| `grid_rows` / `grid_columns` | int | highest context / position within a context that gets placeholders (1–9) | `9` |
 | `grid_buttons` | bool | buttons to switch between centred and whole-grid view | `true` |
 | `highlight_selected` | bool | wallpaper + shadow only on the selected workspace; empty ones as outline + plus | `false` |
 | `highlight_padding` | int | how far (layout px) the highlight reaches past the work area | `0` |

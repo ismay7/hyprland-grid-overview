@@ -296,6 +296,7 @@ class CScrollOverview : public IOverview {
     PHLWORKSPACEREF                  pendingRemovedWorkspace;
     ScrollOverview::Config::ELayout  layout = ScrollOverview::Config::ELayout::VERTICAL;
     bool                             grid   = false;
+    bool                             gridContextsAsColumns = false; // grid_orientation = columns
     // empty workspaces created for grid mode; persistent while the overview is open
     std::vector<PHLWORKSPACE>        gridPlaceholders;
 

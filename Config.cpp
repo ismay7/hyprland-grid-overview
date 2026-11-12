@@ -408,6 +408,8 @@ static void defineConfigValues() {
     addValue(makeShared<CIntValue>("plugin:gridoverview:workspace_gap", "gap between overview workspaces", 0, SIntValueOptions{.min = 0}));
     addValue(makeShared<CStringValue>("plugin:gridoverview:layout", "overview layout", Hyprlang::STRING{"vertical"}));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:grid", "place workspace N*10+M in row N, column M", false));
+    addValue(makeShared<CStringValue>("plugin:gridoverview:grid_orientation",
+                                      "grid mode: contexts (workspaces N*10+M share N) as rows or columns", Hyprlang::STRING{"rows"}));
     addValue(makeShared<CIntValue>("plugin:gridoverview:grid_rows", "grid mode: highest row that gets an empty placeholder workspace", 9,
                                    SIntValueOptions{.min = 1, .max = 9}));
     addValue(makeShared<CIntValue>("plugin:gridoverview:grid_columns", "grid mode: highest column that gets an empty placeholder workspace", 9,

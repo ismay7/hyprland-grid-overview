@@ -1129,6 +1129,7 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
     pMonitor                     = PMONITOR;
     layout                       = ScrollOverview::Config::getLayout(pMonitor.lock());
     grid                         = ScrollOverview::Config::getGrid(pMonitor.lock());
+    gridContextsAsColumns        = ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:grid_orientation", pMonitor.lock()) == "columns";
     if (layout == ScrollOverview::Config::ELayout::AUTO)
         layout = PMONITOR && PMONITOR->logicalBox().height > PMONITOR->logicalBox().width ? ScrollOverview::Config::ELayout::HORIZONTAL : ScrollOverview::Config::ELayout::VERTICAL;
     if (grid)
@@ -1690,7 +1691,8 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
             if (!scrollStepAllowed(e.timeMs))
                 return;
 
-            // grid: wheel = contexts (rows), SHIFT + wheel or horizontal wheel = workspaces within the row
+            // grid: wheel = up/down, SHIFT + wheel or horizontal wheel = left/right (contexts or workspaces,
+            // depending on grid_orientation)
             if (grid) {
                 const bool COLUMNS = e.axis == WL_POINTER_AXIS_HORIZONTAL_SCROLL || (g_pInputManager->getModsFromAllKBs() & Input::HL_MODIFIER_SHIFT);
                 const int  STEP    = e.delta > 0 ? 1 : -1;
@@ -2220,20 +2222,22 @@ Vector2D CScrollOverview::workspaceOverviewOffset(size_t workspaceIdx, size_t ac
     return axisOffsetVector(NEWOFFSET, layout);
 }
 
-// Grid mode: workspace R*10+C sits in row R, column C. Anything else (named workspaces, 1-10)
-// goes into row 0, ordered by id.
+// Grid mode: workspace R*10+C belongs to context R, position C. With grid_orientation = rows contexts are rows
+// (cell x = C - 1, y = R), with columns they are columns (x = R, y = C - 1). Anything else (named workspaces,
+// 1-10) goes into context 0, ordered by id.
 Vector2D CScrollOverview::workspaceGridCell(size_t workspaceIdx) const {
     if (workspaceIdx >= images.size() || !images[workspaceIdx] || !images[workspaceIdx]->pWorkspace)
         return {};
 
     const auto ID = images[workspaceIdx]->pWorkspace->numberedID();
-    if (!ID || *ID < 1)
-        return {0.F, 0.F};
+    float      context = 0.F, position = 0.F;
+    if (ID && *ID >= 11 && *ID % 10 != 0) {
+        context  = sc<float>(*ID / 10);
+        position = sc<float>(*ID % 10 - 1);
+    } else if (ID && *ID >= 1)
+        position = sc<float>(*ID - 1);
 
-    if (*ID >= 11 && *ID % 10 != 0)
-        return {sc<float>(*ID % 10 - 1), sc<float>(*ID / 10)};
-
-    return {sc<float>(*ID - 1), 0.F};
+    return gridContextsAsColumns ? Vector2D{context, position} : Vector2D{position, context};
 }
 
 std::optional<size_t> CScrollOverview::gridNeighbourWorkspace(size_t workspaceIdx, int dCol, int dRow) const {
