@@ -351,6 +351,22 @@ static SDispatchResult onOverviewDispatcher(std::string arg) {
     if (ACTIVE && ACTIVE->m_isSwiping)
         return {.success = false, .error = "already swiping"};
 
+    // continuous zoom (e.g. SUPER + CTRL + wheel): zoomout opens the overview from the desktop if needed
+    if (ACTION == "zoomout" || ACTION == "zoomin") {
+        const int DIRECTION = ACTION == "zoomout" ? 1 : -1;
+        auto*     overview  = ACTIVE ? dynamic_cast<CScrollOverview*>(ACTIVE.get()) : nullptr;
+        if (!overview) {
+            if (DIRECTION < 0)
+                return {};
+            const auto RESULT = openOverview(Desktop::focusState()->monitor(), true);
+            overview          = RESULT.overview ? dynamic_cast<CScrollOverview*>(RESULT.overview.get()) : nullptr;
+            if (!overview)
+                return {.success = false, .error = "failed enabling overview hooks (is other overview plugin enabled?)"};
+        }
+        overview->zoomStep(DIRECTION);
+        return {};
+    }
+
     if (ACTION == "off" || ACTION == "close" || ACTION == "disable") {
         if (TARGET.empty() || TARGET == "all") {
             closeAll();

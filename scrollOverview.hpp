@@ -55,6 +55,8 @@ class CScrollOverview : public IOverview {
     void         selectHoveredWorkspace() override;
     // grid mode: "fit" (whole grid), "center" (selected workspace centred) or "togglefit"; also affects the next opening
     static void  setGridViewMode(const std::string& mode);
+    // one wheel notch of the continuous zoom: +1 zooms out (towards the whole grid), -1 zooms in (towards the desktop)
+    void         zoomStep(int direction);
     bool         moveSelection(const std::string& direction) override;
     bool         windowDispatcherAction(const std::string& action) override;
 
@@ -127,6 +129,13 @@ class CScrollOverview : public IOverview {
     // grid fit mode: zoom out and centre so the whole grid is visible ("Komplettansicht")
     float      targetOverviewScale() const;
     Vector2D   restingViewOffset() const;
+    float      gridFitScale() const;
+    Vector2D   gridFitViewOffset() const;
+    // continuous zoom (SUPER + CTRL + wheel): 0 = desktop, 1 = centred view, 2 = whole grid
+    void       applyZoomLevel();
+    void       finishZoom();
+    float                            zoomLevel = 1.F;
+    SP<CEventLoopTimer>              zoomSnapTimer;
     void       applyGridFit();
     void       setGridFitMode(bool fit);
     CBox       gridModeButtonBox(int button) const;

@@ -1083,6 +1083,9 @@ CScrollOverview::~CScrollOverview() {
     if (dragEdgeTimer && g_pEventLoopManager)
         g_pEventLoopManager->removeTimer(dragEdgeTimer);
     dragEdgeTimer.reset();
+    if (zoomSnapTimer && g_pEventLoopManager)
+        g_pEventLoopManager->removeTimer(zoomSnapTimer);
+    zoomSnapTimer.reset();
     for (const auto& workspace : gridPlaceholders) {
         if (const auto REGULAR = dynamicPointerCast<::Workspace::CRegularWorkspace>(workspace))
             REGULAR->setPersistent(false);
@@ -1203,6 +1206,7 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
     workspaceInsertProgress->setUpdateCallback([this](auto) { damage(); });
     workspaceInsertFadeProgress->setUpdateCallback([this](auto) { damage(); });
 
+    zoomLevel = swipe ? 0.F : (grid && g_gridFitMode ? 2.F : 1.F);
     if (!swipe)
         *scale = targetOverviewScale();
 
@@ -1674,6 +1678,13 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
             trackpadScrollAccum        = 0.0;
             trackpadWorkspaceFollowing = false;
             trackpadTapeFollowing      = false;
+
+            // SUPER + CTRL + wheel: continuous zoom between desktop, centred and whole-grid view (not throttled)
+            if (const auto MODS = g_pInputManager->getModsFromAllKBs(); (MODS & Input::HL_MODIFIER_META) && (MODS & Input::HL_MODIFIER_CTRL)) {
+                zoomStep(e.delta > 0 ? 1 : -1);
+                return;
+            }
+
             if (!scrollStepAllowed(e.timeMs))
                 return;
 
@@ -4046,9 +4057,21 @@ static float gridWorkAreaTop(PHLMONITOR monitor) {
 }
 
 float CScrollOverview::targetOverviewScale() const {
+    if (!grid || !g_gridFitMode)
+        return ScrollOverview::Config::getScale(pMonitor.lock());
+    return gridFitScale();
+}
+
+Vector2D CScrollOverview::restingViewOffset() const {
+    if (!grid || !g_gridFitMode)
+        return {};
+    return gridFitViewOffset();
+}
+
+float CScrollOverview::gridFitScale() const {
     const auto MONITOR = pMonitor.lock();
     const auto CONFIGSCALE = ScrollOverview::Config::getScale(MONITOR);
-    if (!grid || !g_gridFitMode || !MONITOR || images.empty())
+    if (!MONITOR || images.empty())
         return CONFIGSCALE;
 
     Vector2D minCell{1e9, 1e9}, maxCell{-1e9, -1e9};
@@ -4069,9 +4092,9 @@ float CScrollOverview::targetOverviewScale() const {
     return std::clamp(FIT, 0.05F, CONFIGSCALE);
 }
 
-Vector2D CScrollOverview::restingViewOffset() const {
+Vector2D CScrollOverview::gridFitViewOffset() const {
     const auto MONITOR = pMonitor.lock();
-    if (!grid || !g_gridFitMode || !MONITOR || images.empty())
+    if (!MONITOR || images.empty())
         return {};
 
     Vector2D minCell{1e9, 1e9}, maxCell{-1e9, -1e9};
@@ -4081,7 +4104,7 @@ Vector2D CScrollOverview::restingViewOffset() const {
         maxCell = Vector2D{std::max(maxCell.x, CELL.x), std::max(maxCell.y, CELL.y)};
     }
 
-    const float SCALE = std::max(targetOverviewScale(), 0.01F);
+    const float SCALE = std::max(gridFitScale(), 0.01F);
     const auto  GAP   = sc<float>(ScrollOverview::Config::getWorkspaceGap(MONITOR)) / SCALE;
     const auto  PITCH = MONITOR->m_size + Vector2D{GAP, GAP};
     const auto  DELTA = (minCell + maxCell) / 2.0 - workspaceGridCell(activeWorkspaceIndex());
@@ -4113,6 +4136,73 @@ void CScrollOverview::applyGridFit() {
     *scale      = targetOverviewScale();
     *viewOffset = restingViewOffset();
     damage();
+}
+
+static constexpr float ZOOM_NOTCH = 0.25F; // zoom levels per wheel notch
+
+void CScrollOverview::applyZoomLevel() {
+    const float CENTERSCALE = ScrollOverview::Config::getScale(pMonitor.lock());
+    float       targetScale = 1.F + (CENTERSCALE - 1.F) * std::min(zoomLevel, 1.F);
+    Vector2D    targetOffset;
+
+    if (zoomLevel > 1.F) {
+        const float T = zoomLevel - 1.F;
+        targetScale   = CENTERSCALE + (gridFitScale() - CENTERSCALE) * T;
+        targetOffset  = gridFitViewOffset() * T;
+    }
+
+    useViewSwitchAnimation(true);
+    *scale      = targetScale;
+    *viewOffset = targetOffset;
+    damage();
+}
+
+void CScrollOverview::finishZoom() {
+    const int SNAPPED = sc<int>(std::round(zoomLevel));
+    if (SNAPPED <= 0) {
+        zoomLevel = 0.F;
+        close();
+        return;
+    }
+
+    zoomLevel = sc<float>(SNAPPED);
+    if (grid)
+        g_gridFitMode = SNAPPED >= 2;
+
+    useViewSwitchAnimation(true);
+    *scale      = targetOverviewScale();
+    *viewOffset = restingViewOffset();
+    damage();
+}
+
+void CScrollOverview::zoomStep(int direction) {
+    if (closing) {
+        if (direction < 0)
+            return;
+        reopen();
+        zoomLevel = 0.F;
+    }
+
+    zoomLevel = std::clamp(zoomLevel + direction * ZOOM_NOTCH, 0.F, grid ? 2.F : 1.F);
+    applyZoomLevel();
+
+    // snap to the nearest view once SUPER + CTRL are released
+    if (!zoomSnapTimer) {
+        zoomSnapTimer = makeShared<CEventLoopTimer>(
+            std::nullopt,
+            [this](SP<CEventLoopTimer> self, void*) {
+                const auto MODS = g_pInputManager->getModsFromAllKBs();
+                if ((MODS & Input::HL_MODIFIER_META) && (MODS & Input::HL_MODIFIER_CTRL)) {
+                    self->updateTimeout(std::chrono::milliseconds(100));
+                    return;
+                }
+                if (!closing)
+                    finishZoom();
+            },
+            nullptr);
+        g_pEventLoopManager->addTimer(zoomSnapTimer);
+    }
+    zoomSnapTimer->updateTimeout(std::chrono::milliseconds(150));
 }
 
 void CScrollOverview::setGridFitMode(bool fit) {

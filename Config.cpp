@@ -58,7 +58,7 @@ SDispatcher* findDispatcher(const std::string_view name) {
     static SDispatcher registrations[] = {
         {
             .name            = "overview",
-            .argPattern      = std::regex{R"(^(select|fit|center|togglefit|(toggle|on|open|enable|off|close|disable)([ \t]+(all|[^ \t"\\]+))?)$)"},
+            .argPattern      = std::regex{R"(^(select|fit|center|togglefit|zoomin|zoomout|(toggle|on|open|enable|off|close|disable)([ \t]+(all|[^ \t"\\]+))?)$)"},
             .defaultArg      = "toggle",
             .typeArgError    = "expected an optional string argument; did you forget quotes around it?",
             .invalidArgError = "expected select or toggle/open/close [monitor|all] (aliases: on, enable, off, disable)",
