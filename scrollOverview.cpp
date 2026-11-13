@@ -3547,11 +3547,14 @@ void CScrollOverview::updateWindowDrag() {
 }
 
 void CScrollOverview::updateDragEdgeScroll() {
-    static constexpr auto FIRST_STEP_DELAY  = std::chrono::milliseconds(350);
-    static constexpr auto REPEAT_STEP_DELAY = std::chrono::milliseconds(650);
+    static constexpr auto  FIRST_STEP_DELAY      = std::chrono::milliseconds(350);
+    static constexpr auto  FIRST_STEP_DELAY_TRAY = std::chrono::milliseconds(700);
+    static constexpr auto  REPEAT_STEP_DELAY     = std::chrono::milliseconds(650);
+    static constexpr float TRAY_PUSH_ZONE        = 10.F; // logical px at the right screen edge, beyond the cards
 
     const auto MONITOR = pMonitor.lock();
     int        col = 0, row = 0;
+    bool       pushThroughTray = false;
 
     if (grid && zoomLevel < 2.F - ZOOM_EPSILON && !closing && dragActiveWindow && MONITOR && isOverviewPointerOnMonitor(MONITOR)) {
         const auto SIZE   = MONITOR->m_size * MONITOR->m_scale;
@@ -3561,9 +3564,14 @@ void CScrollOverview::updateDragEdgeScroll() {
         col = MOUSE.x < MARGIN ? -1 : MOUSE.x > SIZE.x - MARGIN ? 1 : 0;
         row = MOUSE.y < MARGIN ? -1 : MOUSE.y > SIZE.y - MARGIN ? 1 : 0;
 
-        // no scrolling while the pointer is over the scratchpad tray at the right edge
-        if (const auto TRAY = specialTrayVisibleWidth(); TRAY > 1.F && MOUSE.x > SIZE.x - TRAY * MONITOR->m_scale - MARGIN)
-            col = row = 0;
+        // over the scratchpad tray (also while it slides in) the edge belongs to the tray; only pushing on to the
+        // very screen edge, beyond the cards, scrolls on, after a longer pause so a swing to the edge and back onto
+        // a card does not
+        if (const auto TRAY = specialTrayShownWidth(); TRAY > 0.F && MOUSE.x > SIZE.x - TRAY * MONITOR->m_scale - MARGIN) {
+            pushThroughTray = MOUSE.x >= SIZE.x - TRAY_PUSH_ZONE * MONITOR->m_scale;
+            col             = pushThroughTray ? 1 : 0;
+            row             = 0;
+        }
     }
 
     if (col == dragEdgeCol && row == dragEdgeRow)
@@ -3593,7 +3601,7 @@ void CScrollOverview::updateDragEdgeScroll() {
         g_pEventLoopManager->addTimer(dragEdgeTimer);
     }
 
-    dragEdgeTimer->updateTimeout(col != 0 || row != 0 ? std::optional<Time::steady_dur>{FIRST_STEP_DELAY} : std::nullopt);
+    dragEdgeTimer->updateTimeout(col != 0 || row != 0 ? std::optional<Time::steady_dur>{pushThroughTray ? FIRST_STEP_DELAY_TRAY : FIRST_STEP_DELAY} : std::nullopt);
 }
 
 void CScrollOverview::updateWindowResize() {
@@ -5744,15 +5752,6 @@ bool CScrollOverview::specialTrayAutohide() const {
     return ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray_autohide", pMonitor.lock());
 }
 
-float CScrollOverview::specialTrayVisibleWidth() const {
-    const auto MONITOR = pMonitor.lock();
-    const auto CARDS   = specialTrayCards();
-    if (!MONITOR || CARDS.empty())
-        return 0.F;
-    const float WIDTH = sc<float>(CARDS.front().box.w) / std::max(MONITOR->m_scale, 0.01F) + TRAY_MARGIN;
-    return specialTrayAutohide() && trayReveal ? WIDTH * trayReveal->value() : WIDTH;
-}
-
 // a dragged window approaching the tray shrinks (around the grab point) from its grid size to the size it has in
 // a card, reaching it at the cards' left edge
 float CScrollOverview::specialTrayDragScale(const Vector2D& cursorGlobal, float gridScale) const {
@@ -5773,14 +5772,24 @@ float CScrollOverview::specialTrayDragScale(const Vector2D& cursorGlobal, float 
     return 1.F + (CARDSCALE - 1.F) * progress;
 }
 
+float CScrollOverview::specialTrayShownWidth() const {
+    if (specialTrayAutohide() && trayReveal && trayReveal->goal() < 0.5F)
+        return 0.F;
+    const auto MONITOR = pMonitor.lock();
+    const auto CARDS   = specialTrayCards();
+    if (!MONITOR || CARDS.empty())
+        return 0.F;
+    return sc<float>(CARDS.front().box.w) / std::max(MONITOR->m_scale, 0.01F) + TRAY_MARGIN;
+}
+
 // a hidden (autohide) tray lies over the grid when shown instead of keeping space free
 float CScrollOverview::specialTrayReserve() const {
-    return specialTrayAutohide() ? 0.F : specialTrayVisibleWidth();
+    return specialTrayAutohide() ? 0.F : specialTrayShownWidth();
 }
 
 // autohide: shown when the pointer touches the right edge, hidden once it leaves the tray. While a window is dragged
-// it only comes up in the edge scrolling zone once there is no workspace further right, so edge scrolling first runs
-// to the end of the row
+// it comes up as soon as the pointer enters the edge scrolling zone; pushing on to the very edge scrolls further
+// (updateDragEdgeScroll)
 void CScrollOverview::updateSpecialTrayReveal(const Vector2D& pointLocal) {
     const auto MONITOR = pMonitor.lock();
     if (!MONITOR || !trayReveal || closing || !specialTrayAutohide())
@@ -5794,11 +5803,10 @@ void CScrollOverview::updateSpecialTrayReveal(const Vector2D& pointLocal) {
     const double RIGHT    = SIZE.x;
     const double KEEP     = RIGHT - (CARDS.front().box.w + 2.0 * TRAY_MARGIN * MONITOR->m_scale);
     const bool   DRAGGING = dragActiveWindow || (g_pointerGrabOverview && g_pointerGrabOverview->dragActiveWindow);
-    const bool   ATEND    = !grid || zoomLevel >= 2.F - ZOOM_EPSILON || !gridNeighbourWorkspace(viewportCurrentWorkspace, 1, 0);
-    // same zone as updateDragEdgeScroll()
+    // dragging: the edge scrolling zone of updateDragEdgeScroll()
     const double EDGE  = DRAGGING ? RIGHT - std::min(SIZE.x, SIZE.y) * 0.04 : RIGHT - 2.0 * MONITOR->m_scale;
     const bool   SHOWN = trayReveal->goal() > 0.5F;
-    const bool   SHOW  = isOverviewPointerOnMonitor(MONITOR) && ((pointLocal.x >= EDGE && (!DRAGGING || ATEND)) || (SHOWN && pointLocal.x >= KEEP));
+    const bool   SHOW  = isOverviewPointerOnMonitor(MONITOR) && (pointLocal.x >= EDGE || (SHOWN && pointLocal.x >= KEEP));
     if (SHOW != SHOWN)
         *trayReveal = SHOW ? 1.F : 0.F;
 }

@@ -456,7 +456,7 @@ static void defineConfigValues() {
                                     "grid mode: every context up to grid_rows always has its first workspace in the overview", false));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:special_tray", "special workspaces (scratchpads) as cards at the right screen edge", true));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:special_tray_autohide",
-                                    "hide the scratchpad tray until the pointer touches the right screen edge (while dragging a window: at the end of the row)",
+                                    "hide the scratchpad tray until the pointer touches the right screen edge (also while dragging a window)",
                                     false));
     addValue(makeShared<CStringValue>("plugin:gridoverview:special_workspaces",
                                       "comma-separated special workspace names always shown in the tray, also when empty", Hyprlang::STRING{""}));

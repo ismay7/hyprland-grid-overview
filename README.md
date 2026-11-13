@@ -18,7 +18,9 @@ features are additions on top of it (see [Credits](#credits)).
   again, also while the overview stays open.
 - **Directional drop** for dwindle: dropping a window on the edge of another one inserts it on that side
   (preview: the half it will take), dropping it in the middle swaps both.
-- **Edge scrolling**: holding a dragged window at a screen edge steps to the neighbouring workspace.
+- **Edge scrolling**: holding a dragged window at a screen edge steps to the neighbouring workspace. On the right
+  the scratchpad tray comes first (it slides in with `special_tray_autohide`); pushing on to the very edge, beyond
+  its cards, and holding there scrolls on behind it.
 - **Selected-workspace highlight** (`highlight_selected = true`): only the selected workspace gets wallpaper
   and shadow, sliding between workspaces; the others show just their windows, empty ones an outline with a
   plus.
@@ -122,7 +124,7 @@ workspaces of a context are created on its monitor. A separate grid per monitor 
 | `window_icon_plate_color` | color | plate behind the icon | `rgba(0,0,0,0.45)` |
 | `icon_theme` | string | icon theme searched before hicolor (e.g. `Papirus-Dark`); empty = hicolor only | empty |
 | `special_tray` | bool | special workspaces (scratchpads) as cards at the right screen edge; the whole-grid view keeps that space free | `true` |
-| `special_tray_autohide` | bool | hide the tray until the pointer touches the right screen edge, like an auto-hiding dock; it stays while the pointer is over it. While a window is dragged it comes up only once edge scrolling has reached the end of the row, so windows can be dropped into a scratchpad there. The whole-grid view keeps no space free | `false` |
+| `special_tray_autohide` | bool | hide the tray until the pointer touches the right screen edge, like an auto-hiding dock; it stays while the pointer is over it, also while a window is dragged. The whole-grid view keeps no space free | `false` |
 | `special_workspaces` | string | comma-separated special workspace names (without `special:`) that always get a card, also while empty | empty |
 | `special_tray_width` | int | card width in layout px (cards shrink when they do not fit the screen height) | `300` |
 | `transition_bezier` | string | bezier for moving between workspaces in the overview; empty = `windowsMove` | empty |
