@@ -25,6 +25,10 @@ local settings = {
     -- below the last used one, up to this many rows (1 = a single row, 9 at most)
     rows = 9,
 
+    -- false: the contexts below are ignored (no names, labels, reserved rows, context wallpapers or monitors), the
+    -- grid stays free; the entries stay and come back with true
+    useContexts = true,
+
     -- optional names for the first rows, the contexts; rows without an entry work the same, just unnamed.
     -- wallpaper is optional, monitor = "DP-2" keeps all workspaces of the context on that monitor (multi-monitor),
     -- without it they stay where they are
@@ -83,7 +87,7 @@ local settings = {
 -- ---------------------------------------------------------------------------------------------------------------
 
 local mainMod           = "SUPER"
-local contexts          = settings.contexts or {}
+local contexts          = settings.useContexts ~= false and settings.contexts or {}
 local gridRows          = math.max(1, math.min(9, settings.rows or 9))
 local gridCols          = settings.workspaces
 local contextsAsColumns = settings.orientation == "columns"
