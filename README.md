@@ -10,9 +10,9 @@ features are additions on top of it (see [Credits](#credits)).
 
 ## Features
 
-- **Grid layout** (`grid = true`): rows are contexts, columns are workspaces; arrow keys, the mouse wheel
-  (`SHIFT` or horizontal wheel for columns) and the middle mouse button (free 2D pan, snaps on release)
-  move through it.
+- **Grid layout** (`grid = true`): workspace `R*10+C` in row `R`, column `C`; rows can be named (contexts) but
+  work the same without. Arrow keys, the mouse wheel (`SHIFT` or horizontal wheel for columns) and the middle
+  mouse button (free 2D pan, snaps on release) move through it.
 - **Placeholders**: while the overview is open every row gets an empty workspace past its last used column,
   plus an empty row below the last used one, so windows can be dropped there. Unused placeholders disappear
   again, also while the overview stays open.
@@ -104,7 +104,7 @@ workspaces of a context are created on its monitor. A separate grid per monitor 
 | --- | --- | --- | --- |
 | `grid` | bool | grid layout: workspace `R*10+C` in row `R`, column `C` | `false` |
 | `grid_orientation` | string | contexts (workspaces `R*10+C` sharing `R`) as `rows` or `columns` | `rows` |
-| `grid_rows` / `grid_columns` | int | highest context / position within a context that gets placeholders (1–9) | `9` |
+| `grid_rows` / `grid_columns` | int | highest row / position within a row that gets placeholders (1–9; `grid_rows = 1` for a single row) | `9` |
 | `grid_buttons` | bool | buttons to switch between centred and whole-grid view | `true` |
 | `highlight_selected` | bool | wallpaper + shadow only on the selected workspace; empty ones as outline + plus | `false` |
 | `highlight_padding` | int | how far (layout px) the highlight reaches past the work area | `0` |
@@ -115,7 +115,7 @@ workspaces of a context are created on its monitor. A separate grid per monitor 
 | `shadow:active_color` | color | shadow colour of the selected workspace | unset |
 | `zoom_step` | float | continuous zoom: zoom levels per wheel notch (0 = desktop, 1 = centred view, 2 = whole grid) | `0.25` |
 | `zoom_follow_mouse` | bool | continuous zoom: zooming in selects the workspace under the cursor and zooms towards it | `false` |
-| `grid_all_contexts` | bool | every context up to `grid_rows` always has its first workspace in the overview | `false` |
+| `grid_all_contexts` | bool | every named context (`context_names`) always has its first workspace in the overview; below the last used row there is always one empty row anyway (up to `grid_rows`) | `false` |
 | `context_labels` | bool | name of every context next to its first workspace (left of it for rows, above for columns) | `false` |
 | `context_names` | string | comma-separated context names, context 1 first | empty |
 | `context_label_size` | int | label font size in layout px, independent of the zoom | `20` |

@@ -3,9 +3,10 @@
 -- Save as ~/.config/hypr/gridoverview.lua and add `require("gridoverview")` to hyprland.lua. Remove or
 -- rebind your own workspace keys that clash with the ones below (SUPER + [1-9], SUPER + SHIFT + arrows, ...).
 --
--- Contexts with their workspaces: workspace id = context * 10 + position (context 1 = 11..19, 2 = 21..29, ...).
--- orientation "rows": contexts are rows, their workspaces side by side;
---             "columns": contexts are columns, their workspaces stacked (keys and overview follow).
+-- A free grid of workspaces: workspace id = row * 10 + position (row 1 = 11..19, 2 = 21..29, ...). Rows can have
+-- a name (contexts below), they work the same without.
+-- orientation "rows": the rows are rows, their workspaces side by side;
+--             "columns": they are columns, their workspaces stacked (keys and overview follow).
 --
 -- SUPER + SHIFT + arrow          next workspace / context in that direction, also onto the empty plus ones
 --                                (same position in the other context, or the last reachable one before it)
@@ -20,8 +21,13 @@ local settings = {
     workspaces  = 9,  -- per context
     monitor     = "", -- monitor of the first workspace (11); empty = Hyprland's choice
 
-    -- one entry per context (their number sets the grid size); wallpaper is optional, monitor = "DP-2" keeps all
-    -- workspaces of the context on that monitor (multi-monitor), without it they stay where they are
+    -- the grid is free: like a row gets an empty workspace past its last used one, the grid gets an empty row
+    -- below the last used one, up to this many rows (1 = a single row, 9 at most)
+    rows = 9,
+
+    -- optional names for the first rows, the contexts; rows without an entry work the same, just unnamed.
+    -- wallpaper is optional, monitor = "DP-2" keeps all workspaces of the context on that monitor (multi-monitor),
+    -- without it they stay where they are
     contexts = {
         { name = "General" },
         { name = "Development" },
@@ -57,7 +63,7 @@ local settings = {
         empty_marker = "always",   -- always | drag (while dragging) | hover (only under the pointer)
         zoom_step = 0.25,          -- continuous zoom per wheel notch (1 = desktop -> centred view)
         zoom_follow_mouse = false, -- continuous zoom: zooming in goes towards the workspace under the cursor
-        grid_all_contexts = true,  -- every context above always has its first workspace in the overview
+        grid_all_contexts = true,  -- every named context above always has its first workspace in the overview
         context_labels = false,    -- context name next to the first workspace of each context (names from contexts)
         context_label_size = 20,
         window_icons = false,
@@ -77,7 +83,8 @@ local settings = {
 -- ---------------------------------------------------------------------------------------------------------------
 
 local mainMod           = "SUPER"
-local gridRows          = #settings.contexts
+local contexts          = settings.contexts or {}
+local gridRows          = math.max(1, math.min(9, settings.rows or 9))
 local gridCols          = settings.workspaces
 local contextsAsColumns = settings.orientation == "columns"
 local contextSlide      = contextsAsColumns and "slide" or "slidevert"
@@ -91,7 +98,7 @@ end
 hl.workspace_rule(firstWorkspace)
 
 -- contexts with a monitor: all their workspaces live there, the first one is that monitor's default workspace
-for index, context in ipairs(settings.contexts) do
+for index, context in ipairs(contexts) do
     if context.monitor and context.monitor ~= "" then
         for position = 1, gridCols do
             hl.workspace_rule({ workspace = tostring(index * 10 + position), monitor = context.monitor, default = position == 1 })
@@ -120,7 +127,7 @@ end
 -- multi-monitor: the monitor a context lives on - its monitor entry, else the monitor of its existing
 -- workspaces, else the one of workspace 11 (nil: don't care)
 local function contextMonitor(row)
-    local context = settings.contexts[row]
+    local context = contexts[row]
     if context and context.monitor and context.monitor ~= "" then
         return context.monitor
     end
@@ -163,8 +170,8 @@ local function gridGoto(row, col, carry, style)
 end
 
 -- Workspaces the keys may go to: those that exist, plus what the overview shows as empty plus: in each context
--- the positions up to one past its last used one, the first workspace of the context after the last used one
--- (or of every context with grid_all_contexts)
+-- the positions up to one past its last used one, the first workspace of the row after the last used one (with
+-- grid_all_contexts at least down to the last named context)
 local function gridTargets()
     local lastCol, lastRow, existing = {}, 0, {}
     for _, ws in ipairs(hl.get_workspaces()) do
@@ -179,7 +186,8 @@ local function gridTargets()
         end
     end
 
-    local maxRow = settings.overview.grid_all_contexts and gridRows or math.min(lastRow + 1, gridRows)
+    -- one row past the last used one, and (grid_all_contexts) at least down to the last named context
+    local maxRow = math.min(gridRows, math.max(lastRow + 1, settings.overview.grid_all_contexts and #contexts or 0))
     local function allowed(row, col)
         if existing[row * 10 + col] then return true end
         return row >= 1 and row <= maxRow and col >= 1 and col <= math.min((lastCol[row] or 0) + 1, gridCols)
@@ -255,7 +263,7 @@ hl.on("workspace.active", function()
     end
     wallpaperRow[key] = row
 
-    local context = settings.contexts[row]
+    local context = contexts[row]
     if not (context and context.wallpaper) then
         return
     end
@@ -307,7 +315,7 @@ if hl.plugin and hl.plugin.gridoverview then
         options[key] = value
     end
     local names = {}
-    for _, context in ipairs(settings.contexts) do
+    for _, context in ipairs(contexts) do
         names[#names + 1] = (context.name or ""):gsub(",", " ")
     end
 

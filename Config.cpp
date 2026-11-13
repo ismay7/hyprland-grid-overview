@@ -453,7 +453,7 @@ static void defineConfigValues() {
     addValue(makeShared<CBoolValue>("plugin:gridoverview:zoom_follow_mouse",
                                     "continuous zoom: zooming in selects the workspace under the cursor and zooms towards it", false));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:grid_all_contexts",
-                                    "grid mode: every context up to grid_rows always has its first workspace in the overview", false));
+                                    "grid mode: every named context (context_names) always has its first workspace in the overview", false));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:special_tray", "special workspaces (scratchpads) as cards at the right screen edge", true));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:special_tray_autohide",
                                     "hide the scratchpad tray until the pointer touches the right screen edge (also while dragging a window)",

@@ -2461,8 +2461,19 @@ void CScrollOverview::ensureGridPlaceholders() {
         lastOccupiedRow      = std::max(lastOccupiedRow, ROW);
     }
 
-    // grid_all_contexts: every context up to grid_rows gets at least its first workspace
-    const int LASTROW = ScrollOverview::Config::getValue<bool>("plugin:gridoverview:grid_all_contexts", MONITOR) ? MAXROWS : std::min(lastOccupiedRow + 1, MAXROWS);
+    // the grid grows by one row below the last used one; grid_all_contexts: every named context (context_names) also
+    // gets at least its first workspace
+    int namedRows = 0;
+    if (ScrollOverview::Config::getValue<bool>("plugin:gridoverview:grid_all_contexts", MONITOR)) {
+        std::stringstream all(ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:context_names", MONITOR));
+        int               row = 0;
+        for (std::string name; std::getline(all, name, ',');) {
+            ++row;
+            if (name.find_first_not_of(" \t") != std::string::npos)
+                namedRows = row;
+        }
+    }
+    const int LASTROW = std::min(std::max(lastOccupiedRow + 1, namedRows), MAXROWS);
 
     // Multi-monitor: placeholders only for contexts of this monitor. A context belongs to the monitor a workspace
     // rule binds its first workspace to; without a rule to the monitor that already has workspaces of it, and a
