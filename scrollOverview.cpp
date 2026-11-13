@@ -5005,10 +5005,18 @@ void CScrollOverview::forceWindowVisible(PHLWINDOW window) {
 
     constexpr auto FULLSCREENALPHA = Desktop::View::WINDOW_ALPHA_FULLSCREEN;
 
+    // windows on hidden workspaces (and scratchpads) are suspended: many clients then stop drawing, and a window
+    // retiled there (e.g. dropped onto an empty workspace) never gets a buffer of its new size
+    const auto unsuspend = [&window] {
+        if (window->m_suspended)
+            window->setSuspended(false);
+    };
+
     for (auto& entry : forcedWindowVisibility) {
         if (entry.window == window) {
             window->setHidden(false);
             window->presentation().alpha(FULLSCREENALPHA)->setValueAndWarp(1.F);
+            unsuspend();
             return;
         }
     }
@@ -5019,6 +5027,7 @@ void CScrollOverview::forceWindowVisible(PHLWINDOW window) {
 
     window->setHidden(false);
     window->presentation().alpha(FULLSCREENALPHA)->setValueAndWarp(1.F);
+    unsuspend();
 }
 
 void CScrollOverview::forceLayersAboveFullscreen() {
@@ -5091,6 +5100,9 @@ void CScrollOverview::restoreForcedWindowVisibility() {
         if (group)
             group->updateWindowVisibility();
     }
+
+    if (!forcedWindowVisibility.empty())
+        Desktop::globalWindowController()->updateSuspendedStates();
 
     forcedWindowVisibility.clear();
 }
@@ -6506,6 +6518,19 @@ void CScrollOverview::sendOverviewFrameCallbacks(const Time::steady_tp& now) {
         }
     }
 
+    for (const auto& card : specialTrayCards()) {
+        for (const auto& window : specialTrayWindows(card)) {
+            if (!CANFRAMETHROTTLEDWINDOWS && window != DRAGGED) {
+                scheduleRealtimePreviewFrame();
+                continue;
+            }
+
+            surfaceTreePresent(window->wlSurface() ? window->wlSurface()->resource() : nullptr, MONITOR, now);
+            if (window != DRAGGED)
+                sentThrottledWindowFrame = true;
+        }
+    }
+
     if (sentThrottledWindowFrame)
         lastRealtimePreviewFrame = now;
 
@@ -6567,6 +6592,15 @@ bool CScrollOverview::shouldAllowSurfaceFrame(SP<CWLSurfaceResource> surface, co
 
     if (!shouldShowOverviewWindow(window) || !window->m_workspace)
         return true;
+
+    if (window->m_workspace->type() == Workspace::eWorkspaceType::SPECIAL &&
+        std::ranges::any_of(specialTrayCards(), [&window](const auto& card) { return card.workspace == window->m_workspace; })) {
+        if (sendingOverviewFrameCallbacks)
+            return true;
+
+        scheduleRealtimePreviewFrame();
+        return false;
+    }
 
     const auto ACTIVEIDX = activeWorkspaceIndex();
     const auto SCALE     = scale->value();
