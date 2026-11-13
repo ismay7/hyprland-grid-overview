@@ -6,7 +6,7 @@ authors = ["maxg", "yayuuu"]
 commit_pins = []
 
 [gridoverview]
-description = "Workspace grid overview for Hyprland: contexts as rows, workspaces as columns (fork of hyprland-scroll-overview)."
+description = "Workspace grid overview for Hyprland: a free grid of workspaces, scratchpads at hand, all by mouse (fork of hyprland-scroll-overview)."
 authors = ["maxg", "yayuuu"]
 output = "gridoverview.so"
 build = [
