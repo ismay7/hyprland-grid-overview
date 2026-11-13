@@ -4229,7 +4229,7 @@ static constexpr float GRID_BUTTON_H        = 44.F;
 static constexpr float GRID_BUTTON_GAP      = 10.F;
 static constexpr float GRID_BUTTON_ICON     = 1.4F; // icon scale (icons are drawn in a 30 x 16 px design grid)
 static constexpr float GRID_SLIDER_W        = 180.F;
-static constexpr float GRID_BUTTON_TOP      = 12.F; // below the work area's top edge (i.e. below the bar)
+static constexpr float GRID_BUTTON_TOP      = 28.F; // below the work area's top edge (i.e. below the bar)
 static constexpr float GRID_BUTTON_BAND     = GRID_BUTTON_TOP + GRID_BUTTON_H + 40.F; // incl. the space between buttons and the fitted grid
 
 static float gridWorkAreaTop(PHLMONITOR monitor) {

@@ -480,7 +480,7 @@ static void defineConfigValues() {
     addValue(makeShared<CStringValue>("plugin:gridoverview:exec_on_open", "shell command run when the overview opens", Hyprlang::STRING{""}));
     addValue(makeShared<CStringValue>("plugin:gridoverview:exec_on_close", "shell command run when the overview starts closing", Hyprlang::STRING{""}));
     addValue(makeShared<CStringValue>("plugin:gridoverview:empty_marker",
-                                      "when empty workspaces show their outline: always, drag (while any window is dragged) or hover (only under a dragged window)",
+                                      "when empty workspaces show their outline: always, drag (while any window is dragged) or hover (only under the pointer or a dragged window)",
                                       Hyprlang::STRING{"always"}));
 }
 

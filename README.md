@@ -104,7 +104,7 @@ workspaces of a context are created on its monitor. A separate grid per monitor 
 | `grid_buttons` | bool | buttons to switch between centred and whole-grid view | `true` |
 | `highlight_selected` | bool | wallpaper + shadow only on the selected workspace; empty ones as outline + plus | `false` |
 | `highlight_padding` | int | how far (layout px) the highlight reaches past the work area | `0` |
-| `empty_marker` | string | when empty workspaces show their outline: `always`, `drag` (while dragging), `hover` | `always` |
+| `empty_marker` | string | when empty workspaces show their outline: `always`, `drag` (while dragging), `hover` (only under the pointer or a dragged window; the selected one always) | `always` |
 | `empty_color` | color | outline and plus colour | `rgba(255,255,255,0.35)` |
 | `empty_halo_color` | color | thin halo under outline and plus, for light wallpapers | `rgba(0,0,0,0.4)` |
 | `empty_color_from_border` | bool | use `general:col.active_border` (e.g. matugen) with `empty_color`'s alpha | `false` |

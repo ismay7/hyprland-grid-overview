@@ -54,7 +54,7 @@ local settings = {
         },
         highlight_selected = true, -- wallpaper + shadow only on the selected workspace, empty ones as outline + plus
         highlight_padding = 40,
-        empty_marker = "always",   -- always | drag | hover
+        empty_marker = "always",   -- always | drag (while dragging) | hover (only under the pointer)
         zoom_step = 0.25,          -- continuous zoom per wheel notch (1 = desktop -> centred view)
         zoom_follow_mouse = false, -- continuous zoom: zooming in goes towards the workspace under the cursor
         grid_all_contexts = true,  -- every context above always has its first workspace in the overview
