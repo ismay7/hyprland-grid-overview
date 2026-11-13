@@ -33,7 +33,7 @@ features are additions on top of it (see [Credits](#credits)).
 ## Installation
 
 ```bash
-hyprpm add git@gitlab.com:ismay7/hyprland-grid-overview.git
+hyprpm add https://github.com/ismay7/hyprland-grid-overview
 hyprpm enable gridoverview
 ```
 
