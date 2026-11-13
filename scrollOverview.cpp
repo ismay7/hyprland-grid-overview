@@ -5812,11 +5812,18 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
             const auto WORKSPACE         = CARD.workspace;
             const bool WASVISIBLE        = WORKSPACE->visible();
             const bool WASFORCERENDERING = WORKSPACE->m_forceRendering;
+            // a scratchpad that was just left fades out (workspace alpha -> 0), also after the overview opened;
+            // window contents are multiplied by it, borders are not. Only the drawn value, the fade keeps running.
+            const float WASALPHA = WORKSPACE->m_alpha ? WORKSPACE->m_alpha->value() : 1.F;
             WORKSPACE->setVisible(true);
             WORKSPACE->m_forceRendering = true;
-            auto restoreWorkspaceState  = Hyprutils::Utils::CScopeGuard([WORKSPACE, WASVISIBLE, WASFORCERENDERING] {
+            if (WORKSPACE->m_alpha)
+                WORKSPACE->m_alpha->value() = 1.F;
+            auto restoreWorkspaceState = Hyprutils::Utils::CScopeGuard([WORKSPACE, WASVISIBLE, WASFORCERENDERING, WASALPHA] {
                 WORKSPACE->setVisible(WASVISIBLE);
                 WORKSPACE->m_forceRendering = WASFORCERENDERING;
+                if (WORKSPACE->m_alpha)
+                    WORKSPACE->m_alpha->value() = WASALPHA;
             });
 
             for (const auto& window : windows)
