@@ -11,7 +11,7 @@
 --                                (same position in the other context, or the last reachable one before it)
 -- SUPER + CTRL + SHIFT + arrow   same, taking the active window along
 -- SUPER + [1-9]                  workspace 1-9 of the current context (+ SHIFT: move window there)
--- SUPER + Tab / SHIFT + Tab      next/previous non-empty workspace of the current context
+-- SUPER + Tab / SHIFT + Tab      next/previous workspace of the current context, incl. the new empty one
 -- SUPER + scroll                 same as Tab; SUPER + SHIFT + scroll: next/previous context
 -- SUPER + D                      grid overview; SUPER + CTRL + scroll zooms into / out of it continuously
 
@@ -158,18 +158,14 @@ local function gridStep(dRow, dCol, carry)
     end
 end
 
+-- next/previous reachable workspace of the current context (incl. the new empty one at its end), wrapping around
 local function gridCycle(step)
     return function()
         local row, col = gridPos()
-        local used = {}
-        for _, ws in ipairs(hl.get_workspaces()) do
-            if ws.id and not ws.special and math.floor(ws.id / 10) == row and ws.windows > 0 then
-                used[ws.id % 10] = true
-            end
-        end
+        local allowed = gridTargets()
         for k = 1, gridCols - 1 do
             local c = (col - 1 + step * k) % gridCols + 1
-            if used[c] then return gridGoto(row, c, false, workspaceSlide) end
+            if allowed(row, c) then return gridGoto(row, c, false, workspaceSlide) end
         end
     end
 end
