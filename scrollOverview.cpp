@@ -32,6 +32,7 @@
 #include <hyprland/src/managers/SeatManager.hpp>
 #include <hyprland/src/managers/eventLoop/EventLoopManager.hpp>
 #include <hyprland/src/config/supplementary/executor/Executor.hpp>
+#include <hyprland/src/config/shared/workspace/WorkspaceRuleManager.hpp>
 #include <hyprland/src/layout/LayoutManager.hpp>
 #include <hyprland/src/layout/algorithm/Algorithm.hpp>
 #include <hyprland/src/layout/space/Space.hpp>
@@ -2391,9 +2392,34 @@ void CScrollOverview::ensureGridPlaceholders() {
     // grid_all_contexts: every context up to grid_rows gets at least its first workspace
     const int LASTROW = ScrollOverview::Config::getValue<bool>("plugin:gridoverview:grid_all_contexts", MONITOR) ? MAXROWS : std::min(lastOccupiedRow + 1, MAXROWS);
 
+    // Multi-monitor: placeholders only for contexts of this monitor. A context belongs to the monitor a workspace
+    // rule binds its first workspace to; without a rule to the monitor that already has workspaces of it, and a
+    // context without any workspace to the monitor of workspace 11 (the main one).
+    const auto MAINWORKSPACE = State::workspaceState()->query().numbered(::Workspace::SWorkspaceNumberedID{11}).run();
+    std::array<bool, 10> ownedContext{};
+    for (int row = 1; row <= LASTROW; ++row) {
+        const auto FIRST = ::Workspace::SWorkspaceNumberedID{sc<::Workspace::WorkspaceIDContainer>(row * 10 + 1)};
+        if (const auto BOUND = Config::workspaceRuleMgr()->getBoundMonitorForWS(FIRST, ::Workspace::eWorkspaceType::NORMAL, std::to_string(row * 10 + 1)); BOUND && *BOUND) {
+            ownedContext[row] = *BOUND == MONITOR;
+            continue;
+        }
+
+        PHLMONITOR holder;
+        for (const auto& workspaceRef : State::workspaceState()->workspaces()) {
+            const auto WORKSPACE = workspaceRef.lock();
+            const auto ID        = WORKSPACE ? WORKSPACE->numberedID() : std::nullopt;
+            if (!ID || *ID / 10 != row || *ID % 10 == 0 || !WORKSPACE->m_monitor)
+                continue;
+            holder = WORKSPACE->m_monitor.lock();
+            if (holder == MONITOR)
+                break;
+        }
+        ownedContext[row] = holder ? holder == MONITOR : !MAINWORKSPACE || !MAINWORKSPACE->m_monitor || MAINWORKSPACE->m_monitor == MONITOR;
+    }
+
     const auto isNeeded = [&](::Workspace::WorkspaceIDContainer id) {
         const int ROW = sc<int>(id / 10), COL = sc<int>(id % 10);
-        return ROW >= 1 && ROW <= LASTROW && COL >= 1 && COL <= std::min(lastOccupiedCol[ROW] + 1, MAXCOLS);
+        return ROW >= 1 && ROW <= LASTROW && ownedContext[ROW] && COL >= 1 && COL <= std::min(lastOccupiedCol[ROW] + 1, MAXCOLS);
     };
 
     // Rearranging can leave placeholders behind that are no longer at the end of a row or below the last
@@ -2410,6 +2436,8 @@ void CScrollOverview::ensureGridPlaceholders() {
     });
 
     for (int row = 1; row <= LASTROW; ++row) {
+        if (!ownedContext[row])
+            continue;
         for (int col = 1; col <= std::min(lastOccupiedCol[row] + 1, MAXCOLS); ++col) {
             const auto ID = ::Workspace::SWorkspaceNumberedID{sc<::Workspace::WorkspaceIDContainer>(row * 10 + col)};
             if (State::workspaceState()->query().numbered(ID).run())

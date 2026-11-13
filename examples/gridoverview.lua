@@ -20,12 +20,13 @@ local settings = {
     workspaces  = 9,  -- per context
     monitor     = "", -- monitor of the first workspace (11); empty = Hyprland's choice
 
-    -- one entry per context (their number sets the grid size); wallpaper is optional
+    -- one entry per context (their number sets the grid size); wallpaper is optional, monitor = "DP-2" keeps all
+    -- workspaces of the context on that monitor (multi-monitor), without it they stay where they are
     contexts = {
         { name = "General" },
         { name = "Development" },
         { name = "Communication" },
-        -- { name = "Design", wallpaper = "abstract/waves.jpg" },
+        -- { name = "Design", wallpaper = "abstract/waves.jpg", monitor = "HDMI-A-1" },
     },
 
     -- true: switch the wallpaper to the context's one whenever the context changes (contexts without one keep
@@ -79,6 +80,15 @@ if settings.monitor ~= "" then
     firstWorkspace.monitor = settings.monitor
 end
 hl.workspace_rule(firstWorkspace)
+
+-- contexts with a monitor: all their workspaces live there, the first one is that monitor's default workspace
+for index, context in ipairs(settings.contexts) do
+    if context.monitor and context.monitor ~= "" then
+        for position = 1, gridCols do
+            hl.workspace_rule({ workspace = tostring(index * 10 + position), monitor = context.monitor, default = position == 1 })
+        end
+    end
+end
 
 -- workspaces outside the grid (e.g. plain 1-10) count as context 1
 local function gridPos()
