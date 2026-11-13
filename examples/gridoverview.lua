@@ -7,8 +7,8 @@
 -- orientation "rows": contexts are rows, their workspaces side by side;
 --             "columns": contexts are columns, their workspaces stacked (keys and overview follow).
 --
--- SUPER + SHIFT + arrow          next workspace / context in that direction (same position in the other
---                                context, or its last existing workspace before that position)
+-- SUPER + SHIFT + arrow          next workspace / context in that direction, also onto the empty plus ones
+--                                (same position in the other context, or the last reachable one before it)
 -- SUPER + CTRL + SHIFT + arrow   same, taking the active window along
 -- SUPER + [1-9]                  workspace 1-9 of the current context (+ SHIFT: move window there)
 -- SUPER + Tab / SHIFT + Tab      next/previous non-empty workspace of the current context
@@ -108,27 +108,51 @@ local function gridGoto(row, col, carry, style)
     end
 end
 
--- same position in another context; if that workspace does not exist (yet), the last existing one before it in
--- that context, or its first workspace
-local function contextColumn(row, col)
-    local existing = {}
+-- Workspaces the keys may go to: those that exist, plus what the overview shows as empty plus: in each context
+-- the positions up to one past its last used one, the first workspace of the context after the last used one
+-- (or of every context with grid_all_contexts)
+local function gridTargets()
+    local lastCol, lastRow, existing = {}, 0, {}
     for _, ws in ipairs(hl.get_workspaces()) do
-        if ws.id and not ws.special and math.floor(ws.id / 10) == row and ws.id % 10 >= 1 then
-            existing[ws.id % 10] = true
+        local id = ws.id
+        if id and not ws.special and id >= 11 and id % 10 ~= 0 and math.floor(id / 10) <= gridRows then
+            existing[id] = true
+            if ws.windows > 0 then
+                local r = math.floor(id / 10)
+                lastCol[r] = math.max(lastCol[r] or 0, id % 10)
+                lastRow = math.max(lastRow, r)
+            end
         end
     end
-    for c = col, 1, -1 do
-        if existing[c] then return c end
+
+    local maxRow = settings.overview.grid_all_contexts and gridRows or math.min(lastRow + 1, gridRows)
+    local function allowed(row, col)
+        if existing[row * 10 + col] then return true end
+        return row >= 1 and row <= maxRow and col >= 1 and col <= math.min((lastCol[row] or 0) + 1, gridCols)
     end
-    return 1
+    return allowed, maxRow
+end
+
+-- same position in another context, or the last allowed one before it; nil if the context is not reachable
+local function contextColumn(row, col, allowed)
+    for c = col, 1, -1 do
+        if allowed(row, c) then return c end
+    end
+    return nil
 end
 
 local function gridStep(dRow, dCol, carry)
     return function()
         local row, col = gridPos()
+        local allowed = gridTargets()
         local newRow = math.max(1, math.min(gridRows, row + dRow))
         local newCol = math.max(1, math.min(gridCols, col + dCol))
-        if dRow ~= 0 and not carry then newCol = contextColumn(newRow, col) end
+        if dRow ~= 0 then
+            newCol = contextColumn(newRow, col, allowed)
+            if not newCol then return end
+        elseif not allowed(newRow, newCol) then
+            return
+        end
         if newRow == row and newCol == col then return end
         gridGoto(newRow, newCol, carry, dRow ~= 0 and contextSlide or workspaceSlide)
     end
