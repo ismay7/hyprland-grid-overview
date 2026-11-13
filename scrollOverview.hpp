@@ -109,6 +109,7 @@ class CScrollOverview : public IOverview {
     std::vector<STrayCard> specialTrayCards() const;
     float                  specialTrayReserve() const; // logical px kept free right of the fitted grid
     float                  specialTrayVisibleWidth() const; // logical px the tray covers right now (autohide: slid out)
+    float                  specialTrayDragScale(const Vector2D& cursorGlobal, float gridScale) const;
     bool                   specialTrayAutohide() const;
     void                   updateSpecialTrayReveal(const Vector2D& pointLocal);
     PHLANIMVAR<float>      trayReveal; // autohide: 0 hidden .. 1 shown

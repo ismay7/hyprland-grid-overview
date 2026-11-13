@@ -3227,8 +3227,10 @@ CBox CScrollOverview::draggedWindowGlobalBox() const {
     const auto WORKSPACEOFFSET = workspaceOverviewOffset(WORKSPACEKEYX, activeWorkspaceIndex(), getWorkspaceRenderedPitch(MONITOR, scale->value(), layout));
     const auto SOURCEBOX =
         getOverviewDragWindowBox(WINDOW, MONITOR, scale->value(), viewOffset->value(), WORKSPACEOFFSET, layout, false);
-    const auto GLOBALSIZE = SOURCEBOX.size() * (1.F / std::max(MONITOR->m_scale, 0.01F));
     const auto CURSOR     = g_pInputManager->getMouseCoordsInternal();
+    auto       GLOBALSIZE = SOURCEBOX.size() * (1.F / std::max(MONITOR->m_scale, 0.01F));
+    if (const auto* const TARGET = dynamic_cast<CScrollOverview*>(scrollOverviewAt(CURSOR).get()))
+        GLOBALSIZE = GLOBALSIZE * TARGET->specialTrayDragScale(CURSOR, scale->value());
 
     return {
         CURSOR.x - GLOBALSIZE.x * std::clamp(dragGrabRatio.x, 0.0, 1.0),
@@ -5741,6 +5743,26 @@ float CScrollOverview::specialTrayVisibleWidth() const {
     return specialTrayAutohide() && trayReveal ? WIDTH * trayReveal->value() : WIDTH;
 }
 
+// a dragged window approaching the tray shrinks (around the grab point) from its grid size to the size it has in
+// a card, reaching it at the cards' left edge
+float CScrollOverview::specialTrayDragScale(const Vector2D& cursorGlobal, float gridScale) const {
+    static constexpr float RANGE = 300.F; // logical px left of the cards
+    const auto             MONITOR = pMonitor.lock();
+    const auto             CARDS   = specialTrayCards();
+    if (!MONITOR || CARDS.empty() || closing)
+        return 1.F;
+
+    const double X        = (cursorGlobal.x - MONITOR->m_position.x) * MONITOR->m_scale;
+    const double START    = CARDS.front().box.x - RANGE * MONITOR->m_scale;
+    float        progress = std::clamp(sc<float>((X - START) / (CARDS.front().box.x - START)), 0.F, 1.F);
+    progress              = progress * progress * (3.F - 2.F * progress);
+    if (specialTrayAutohide() && trayReveal)
+        progress *= trayReveal->value();
+
+    const float CARDSCALE = specialTrayRenderScale(CARDS.front()) / std::max(gridScale, 0.01F);
+    return 1.F + (CARDSCALE - 1.F) * progress;
+}
+
 // a hidden (autohide) tray lies over the grid when shown instead of keeping space free
 float CScrollOverview::specialTrayReserve() const {
     return specialTrayAutohide() ? 0.F : specialTrayVisibleWidth();
@@ -6139,7 +6161,13 @@ void CScrollOverview::renderDraggedWindow(PHLMONITOR monitor, size_t activeIdx, 
             WORKSPACE->m_alpha->value() = WASALPHA;
     });
 
-    renderWindowLive(monitor, WINDOW, windowBox, dragOwner->scale->value(), now, nullptr, true);
+    // shrunk towards the scratchpad tray (draggedWindowGlobalBox): borders and rounding follow
+    float      draggedScale = dragOwner->scale->value();
+    const auto CURSOR       = g_pInputManager->getMouseCoordsInternal();
+    if (const auto* const TARGET = dynamic_cast<CScrollOverview*>(scrollOverviewAt(CURSOR).get()))
+        draggedScale *= TARGET->specialTrayDragScale(CURSOR, draggedScale);
+
+    renderWindowLive(monitor, WINDOW, windowBox, draggedScale, now, nullptr, true);
 }
 
 bool CScrollOverview::hasVisiblePrecomputedBlurWindow(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale) const {
@@ -7265,14 +7293,8 @@ void CScrollOverview::render() {
 
     renderWindowIcons(MONITOR, ACTIVEIDX, PITCH, SCALE);
     renderContextLabels(MONITOR, ACTIVEIDX, PITCH, SCALE);
-    // over the tray the dragged window (grid scale) would hide the target card: the tray goes on top then
-    const auto* const DRAGOWNER     = g_pointerGrabOverview && g_pointerGrabOverview->dragActiveWindow ? g_pointerGrabOverview : this;
-    const bool        TRAYOVERDRAG = DRAGOWNER->dragActiveWindow && isOverviewPointerOnMonitor(MONITOR) && specialTrayCardAt(getOverviewMousePosLocal(MONITOR));
-    if (!TRAYOVERDRAG)
-        renderSpecialTray(MONITOR, NOW);
+    renderSpecialTray(MONITOR, NOW);
     renderDraggedWindow(MONITOR, ACTIVEIDX, PITCH, SCALE, NOW);
-    if (TRAYOVERDRAG)
-        renderSpecialTray(MONITOR, NOW);
     renderPinnedFloatingWindows(MONITOR, SCALE, NOW);
     renderGridModeButtons(MONITOR);
 
