@@ -52,6 +52,7 @@ local settings = {
         empty_marker = "always",   -- always | drag | hover
         zoom_step = 0.25,          -- continuous zoom per wheel notch (1 = desktop -> centred view)
         zoom_follow_mouse = false, -- continuous zoom: zooming in goes towards the workspace under the cursor
+        grid_all_contexts = true,  -- every context above always has its first workspace in the overview
         context_labels = false,    -- context name next to the first workspace of each context (names from contexts)
         context_label_size = 20,
         window_icons = false,

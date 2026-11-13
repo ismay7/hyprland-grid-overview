@@ -452,7 +452,10 @@ static void defineConfigValues() {
                                      SFloatValueOptions{.min = 0.01F, .max = 2.F}));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:zoom_follow_mouse",
                                     "continuous zoom: zooming in selects the workspace under the cursor and zooms towards it", false));
+    addValue(makeShared<CBoolValue>("plugin:gridoverview:grid_all_contexts",
+                                    "grid mode: every context up to grid_rows always has its first workspace in the overview", false));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:context_labels", "grid mode: name of every context next to its first workspace", false));
+    addValue(makeShared<CGradientValue>("plugin:gridoverview:context_label_background", "pill behind the context labels", -1));
     addValue(makeShared<CStringValue>("plugin:gridoverview:context_names", "comma-separated context names (context 1, 2, ...)", Hyprlang::STRING{""}));
     addValue(makeShared<CIntValue>("plugin:gridoverview:context_label_size", "context label font size in layout px, independent of the zoom", 20,
                                    SIntValueOptions{.min = 6, .max = 200}));
@@ -654,6 +657,10 @@ CHyprColor getEmptyColor(PHLMONITOR monitor) {
     }
 
     return color;
+}
+
+CHyprColor getContextLabelBackground(PHLMONITOR monitor) {
+    return firstColorIfSet("plugin:gridoverview:context_label_background", monitor).value_or(CHyprColor{0.F, 0.F, 0.F, 0.45F});
 }
 
 CHyprColor getContextLabelColor(PHLMONITOR monitor) {

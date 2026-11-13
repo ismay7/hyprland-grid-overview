@@ -97,9 +97,11 @@ and add `require("gridoverview")` to `hyprland.lua`.
 | `shadow:active_color` | color | shadow colour of the selected workspace | unset |
 | `zoom_step` | float | continuous zoom: zoom levels per wheel notch (0 = desktop, 1 = centred view, 2 = whole grid) | `0.25` |
 | `zoom_follow_mouse` | bool | continuous zoom: zooming in selects the workspace under the cursor and zooms towards it | `false` |
+| `grid_all_contexts` | bool | every context up to `grid_rows` always has its first workspace in the overview | `false` |
 | `context_labels` | bool | name of every context next to its first workspace (left of it for rows, above for columns) | `false` |
 | `context_names` | string | comma-separated context names, context 1 first | empty |
 | `context_label_size` | int | label font size in layout px, independent of the zoom | `20` |
+| `context_label_background` | color | pill behind the labels | `rgba(0,0,0,0.45)` |
 | `context_label_color` | color | label colour (the current context's label is fully opaque, others dimmed) | `rgba(255,255,255,0.9)` |
 | `window_icons` | bool | app icon on a round plate in the middle of every window | `false` |
 | `window_icon_size` | int | icon size on screen in layout px, independent of the zoom (at most 60 % of a window's short side incl. plate) | `64` |

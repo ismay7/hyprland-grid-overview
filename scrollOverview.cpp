@@ -2368,9 +2368,12 @@ void CScrollOverview::ensureGridPlaceholders() {
         lastOccupiedRow      = std::max(lastOccupiedRow, ROW);
     }
 
+    // grid_all_contexts: every context up to grid_rows gets at least its first workspace
+    const int LASTROW = ScrollOverview::Config::getValue<bool>("plugin:gridoverview:grid_all_contexts", MONITOR) ? MAXROWS : std::min(lastOccupiedRow + 1, MAXROWS);
+
     const auto isNeeded = [&](::Workspace::WorkspaceIDContainer id) {
         const int ROW = sc<int>(id / 10), COL = sc<int>(id % 10);
-        return ROW >= 1 && ROW <= std::min(lastOccupiedRow + 1, MAXROWS) && COL >= 1 && COL <= std::min(lastOccupiedCol[ROW] + 1, MAXCOLS);
+        return ROW >= 1 && ROW <= LASTROW && COL >= 1 && COL <= std::min(lastOccupiedCol[ROW] + 1, MAXCOLS);
     };
 
     // Rearranging can leave placeholders behind that are no longer at the end of a row or below the last
@@ -2386,7 +2389,7 @@ void CScrollOverview::ensureGridPlaceholders() {
         return true;
     });
 
-    for (int row = 1; row <= std::min(lastOccupiedRow + 1, MAXROWS); ++row) {
+    for (int row = 1; row <= LASTROW; ++row) {
         for (int col = 1; col <= std::min(lastOccupiedCol[row] + 1, MAXCOLS); ++col) {
             const auto ID = ::Workspace::SWorkspaceNumberedID{sc<::Workspace::WorkspaceIDContainer>(row * 10 + col)};
             if (State::workspaceState()->query().numbered(ID).run())
@@ -5436,6 +5439,9 @@ void CScrollOverview::renderContextLabels(PHLMONITOR monitor, size_t activeIdx, 
     const auto  COLOR    = ScrollOverview::Config::getContextLabelColor(monitor);
     const float GAP      = 24.F * monitor->m_scale;
     const int   SELECTED = contextOf(viewportCurrentWorkspace);
+    // pill behind the label: PILLPADDING around the text, twice that left and right
+    const auto  BACKGROUND  = ScrollOverview::Config::getContextLabelBackground(monitor);
+    const float PILLPADDING = 6.F * monitor->m_scale;
 
     for (const auto& [context, idx] : firstOfContext) {
         const auto& NAME = names[context - 1];
@@ -5458,10 +5464,21 @@ void CScrollOverview::renderContextLabels(PHLMONITOR monitor, size_t activeIdx, 
         if (!overviewBoxIntersectsMonitor(LABEL, monitor))
             continue;
 
+        const float LABELALPHA = ALPHA * (context == SELECTED ? 1.F : 0.55F);
+        if (BACKGROUND.a > 0.F) {
+            CRectPassElement::SRectData pill;
+            pill.box   = LABEL.copy().expand(PILLPADDING).round();
+            pill.box.x -= PILLPADDING;
+            pill.box.w += 2.0 * PILLPADDING;
+            pill.color = BACKGROUND.modifyA(BACKGROUND.a * LABELALPHA);
+            pill.round = sc<int>(pill.box.h / 2.0);
+            Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(pill));
+        }
+
         CTexPassElement::SRenderData data;
         data.tex = texture;
         data.box = LABEL.copy().round();
-        data.a   = ALPHA * (context == SELECTED ? 1.F : 0.55F);
+        data.a   = LABELALPHA;
         Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CTexPassElement>(std::move(data)));
     }
 }

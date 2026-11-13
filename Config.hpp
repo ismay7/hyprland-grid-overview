@@ -138,6 +138,7 @@ CHyprColor    getEmptyColor(PHLMONITOR monitor);
 CHyprColor    getEmptyHaloColor(PHLMONITOR monitor);
 CHyprColor    getWindowIconPlateColor(PHLMONITOR monitor);
 CHyprColor    getContextLabelColor(PHLMONITOR monitor);
+CHyprColor    getContextLabelBackground(PHLMONITOR monitor);
 EEmptyMarker  getEmptyMarker(PHLMONITOR monitor);
 int           getHighlightPadding(PHLMONITOR monitor);
 bool          getGridButtons(PHLMONITOR monitor);
