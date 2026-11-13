@@ -459,7 +459,8 @@ static void defineConfigValues() {
                                     "hide the scratchpad tray until the pointer touches the right screen edge (also while dragging a window)",
                                     false));
     addValue(makeShared<CStringValue>("plugin:gridoverview:special_workspaces",
-                                      "comma-separated special workspace names always shown in the tray, also when empty", Hyprlang::STRING{""}));
+                                      "comma-separated special workspace names always shown in the tray, also when empty; \"special\" is Hyprland's unnamed one",
+                                      Hyprlang::STRING{"special"}));
     addValue(makeShared<CIntValue>("plugin:gridoverview:special_tray_width", "width of the special workspace cards in layout px", 300,
                                    SIntValueOptions{.min = 60, .max = 2000}));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:context_labels", "grid mode: name of every context next to its first workspace", false));
