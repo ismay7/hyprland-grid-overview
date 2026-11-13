@@ -2417,9 +2417,14 @@ void CScrollOverview::ensureGridPlaceholders() {
     std::array<int, 10> lastOccupiedCol{};
     int                 lastOccupiedRow = 0;
 
+    // the dragged window does not count: alone on its workspace it would get a placeholder behind it, dropping it
+    // there would leave a gap and a further placeholder behind, and so on through the whole row
+    const auto* DRAGOWNER = g_pointerGrabOverview && g_pointerGrabOverview->dragActiveWindow ? g_pointerGrabOverview : this;
+    const auto  DRAGGED   = getOverviewWindowToShow(DRAGOWNER->dragActiveWindow.lock());
+
     for (const auto& windowRef : Desktop::windowState()->windows()) {
         const auto WINDOW = getOverviewWindowToShow(windowRef);
-        if (!shouldShowOverviewWindow(WINDOW) || !WINDOW->m_workspace || WINDOW->m_workspace->m_monitor != MONITOR)
+        if (!shouldShowOverviewWindow(WINDOW) || !WINDOW->m_workspace || WINDOW->m_workspace->m_monitor != MONITOR || WINDOW == DRAGGED)
             continue;
 
         const auto ID = WINDOW->m_workspace->numberedID();
@@ -3316,6 +3321,14 @@ void CScrollOverview::initializeWindowDrag(const SWindowDragSnapshot& snapshot, 
     dragAdoptedFromNative        = adoptedFromNative;
     dragCrossMonitor             = crossMonitorDrag;
     dragCancelledAwaitingRelease = false;
+
+    // placeholders ignore the dragged window (ensureGridPlaceholders): recompute them on every monitor
+    for (const auto& overview : scrollOverviews()) {
+        if (auto* const SCROLLOVERVIEW = dynamic_cast<CScrollOverview*>(overview.get())) {
+            SCROLLOVERVIEW->rebuildPending = true;
+            SCROLLOVERVIEW->damage();
+        }
+    }
 }
 
 void CScrollOverview::beginWindowDrag(PHLWINDOW window) {
@@ -3626,6 +3639,9 @@ void CScrollOverview::finishWindowDragSession(const SP<IOverview>& persistentDes
         if (!overview)
             continue;
 
+        // the dragged window counts for the placeholders again (also after a cancelled drag)
+        if (auto* const SCROLLOVERVIEW = dynamic_cast<CScrollOverview*>(overview.get()))
+            SCROLLOVERVIEW->rebuildPending = true;
         overview->requestInputFrame();
         overview->damage();
     }
