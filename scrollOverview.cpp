@@ -5638,7 +5638,7 @@ void CScrollOverview::renderContextLabels(PHLMONITOR monitor, size_t activeIdx, 
 
 static constexpr float       TRAY_MARGIN     = 24.F; // logical px: screen edge to cards, and between grid and cards
 static constexpr float       TRAY_GAP        = 20.F; // between a card's label and the next card
-static constexpr float       TRAY_LABEL      = 34.F; // band under every card for its name
+static constexpr float       TRAY_LABEL      = 50.F; // band under every card for its name (centred in it)
 static constexpr int         TRAY_LABEL_SIZE = 15;
 static constexpr std::string_view SPECIAL_PREFIX = "special:";
 
