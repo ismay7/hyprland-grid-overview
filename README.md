@@ -33,8 +33,10 @@ features are additions on top of it (see [Credits](#credits)).
 - **Scratchpad tray** (on by default): special workspaces as cards at the right screen edge, outside
   the zoomed grid. Drag windows into a card (an unused configured name is created on the fly) or out of it onto
   any workspace; a click on a card closes the overview and shows that scratchpad. Names listed in
-  `special_workspaces` always get a card, also while empty. With `special_tray_autohide` it slides in only when
-  the pointer touches the right edge.
+  `special_workspaces` always get a card, also while empty. A window dropped on the "+" below the cards gets a
+  new scratchpad named after its app (`nautilus`, `kitty-2`, ...); a click on the "+" opens a new, empty one
+  (`scratch`), which Hyprland removes again once it is empty and hidden. With `special_tray_autohide` the tray
+  slides in only when the pointer touches the right edge.
 - **Hooks**: shell commands on open/close (e.g. to change a dock's auto-hide while the overview is open).
 
 ## Installation

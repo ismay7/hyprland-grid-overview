@@ -115,7 +115,12 @@ class CScrollOverview : public IOverview {
     PHLANIMVAR<float>      trayReveal; // autohide: 0 hidden .. 1 shown
     std::optional<size_t>  specialTrayCardAt(const Vector2D& pointLocal) const;
     bool                   specialTrayBandAt(const Vector2D& pointLocal) const;
+    CBox                   specialTrayBandBox() const;
     bool                   specialTrayBandPressed = false;
+    CBox                   specialTrayAddBox(const std::vector<STrayCard>& cards) const;
+    bool                   specialTrayAddAt(const Vector2D& pointLocal) const;
+    bool                   specialTrayAddPressed = false;
+    std::string            newSpecialWorkspaceName(const PHLWINDOW& window) const;
     CBox                   specialTrayWindowBox(const STrayCard& card, const PHLWINDOW& window) const;
     float                  specialTrayRenderScale(const STrayCard& card) const;
     std::vector<PHLWINDOW> specialTrayWindows(const STrayCard& card) const;

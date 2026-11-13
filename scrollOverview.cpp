@@ -1544,6 +1544,11 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
                     dragStartMouseLocal = lastMousePosLocal;
                     return;
                 }
+                // "+" below the cards: a click opens a new, empty scratchpad
+                if (specialTrayAddAt(lastMousePosLocal)) {
+                    specialTrayAddPressed = true;
+                    return;
+                }
                 // between the cards: a click there does nothing (instead of closing on the workspace below)
                 if (specialTrayBandAt(lastMousePosLocal)) {
                     specialTrayBandPressed = true;
@@ -1580,6 +1585,16 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
 
             if (specialTrayBandPressed) {
                 specialTrayBandPressed = false;
+                return;
+            }
+
+            if (specialTrayAddPressed) {
+                specialTrayAddPressed = false;
+                if (specialTrayAddAt(lastMousePosLocal)) {
+                    pendingSpecialName = newSpecialWorkspaceName(nullptr);
+                    closeOnWindow.reset();
+                    closeAll();
+                }
                 return;
             }
 
@@ -3996,8 +4011,10 @@ void CScrollOverview::endWindowDrag() {
     std::string         dropDirection;
 
     if (!DROPWORKSPACE && dropOverview) {
-        if (const auto CARD = dropOverview->specialTrayCardAt(DROPPOINTLOCAL)) {
-            const auto SPECIAL = dropOverview->ensureSpecialWorkspace(dropOverview->specialTrayCards()[*CARD]);
+        const auto CARD = dropOverview->specialTrayCardAt(DROPPOINTLOCAL);
+        if (CARD || dropOverview->specialTrayAddAt(DROPPOINTLOCAL)) {
+            const auto SPECIAL = dropOverview->ensureSpecialWorkspace(
+                CARD ? dropOverview->specialTrayCards()[*CARD] : STrayCard{.name = dropOverview->newSpecialWorkspaceName(WINDOW)});
             if (!SPECIAL || SPECIAL == WINDOW->m_workspace)
                 return;
 
@@ -5634,6 +5651,7 @@ void CScrollOverview::renderContextLabels(PHLMONITOR monitor, size_t activeIdx, 
     // pill behind the label: PILLPADDING around the text, twice that left and right
     const auto  BACKGROUND  = ScrollOverview::Config::getContextLabelBackground(monitor);
     const float PILLPADDING = 6.F * monitor->m_scale;
+    const auto  TRAYBAND    = specialTrayBandBox();
 
     for (const auto& [context, idx] : firstOfContext) {
         const auto& NAME = names[context - 1];
@@ -5660,6 +5678,9 @@ void CScrollOverview::renderContextLabels(PHLMONITOR monitor, size_t activeIdx, 
         auto        pillBox    = LABEL.copy().expand(PILLPADDING).round();
         pillBox.x -= PILLPADDING;
         pillBox.w += 2.0 * PILLPADDING;
+        // in the column of the shown scratchpad tray (columns layout: labels above the cards): no label peeking out
+        if (!TRAYBAND.empty() && pillBox.x + pillBox.w > TRAYBAND.x)
+            continue;
         contextLabelHitboxes.emplace_back(pillBox, idx);
 
         if (BACKGROUND.a > 0.F) {
@@ -5682,6 +5703,7 @@ static constexpr float       TRAY_MARGIN     = 24.F; // logical px: screen edge 
 static constexpr float       TRAY_GAP        = 20.F; // between a card's label and the next card
 static constexpr float       TRAY_LABEL      = 50.F; // band under every card for its name (centred in it)
 static constexpr int         TRAY_LABEL_SIZE = 15;
+static constexpr float       TRAY_ADD_HEIGHT = 56.F; // the "+" box below the cards
 static constexpr std::string_view SPECIAL_PREFIX = "special:";
 
 static std::string specialTrayName(std::string name) {
@@ -5731,9 +5753,11 @@ std::vector<CScrollOverview::STrayCard> CScrollOverview::specialTrayCards() cons
     const float AVAILH = sc<float>(SIZE.y) - TOP - TRAY_MARGIN;
     const float N      = sc<float>(cards.size());
     float       width  = sc<float>(ScrollOverview::Config::getValue<int>("plugin:gridoverview:special_tray_width", MONITOR));
-    const auto  heightFor = [&](float w) { return N * (w * ASPECT + TRAY_LABEL) + (N - 1.F) * TRAY_GAP; };
+    // the cards, then the "+" box (new scratchpad) below the last one
+    const float EXTRA     = N * TRAY_LABEL + N * TRAY_GAP + TRAY_ADD_HEIGHT;
+    const auto  heightFor = [&](float w) { return N * w * ASPECT + EXTRA; };
     if (heightFor(width) > AVAILH)
-        width = std::max(20.F, (AVAILH - (N - 1.F) * TRAY_GAP - N * TRAY_LABEL) / N / ASPECT);
+        width = std::max(20.F, (AVAILH - EXTRA) / N / ASPECT);
 
     const float HEIGHT = width * ASPECT;
     float       y      = TOP + std::max(0.F, (AVAILH - heightFor(width)) / 2.F);
@@ -5812,20 +5836,78 @@ void CScrollOverview::updateSpecialTrayReveal(const Vector2D& pointLocal) {
 }
 
 // the whole band around the cards (gaps and labels included): nothing under it reacts while the tray is shown
-bool CScrollOverview::specialTrayBandAt(const Vector2D& pointLocal) const {
+// render px; empty when there is no tray or it is hidden (autohide)
+CBox CScrollOverview::specialTrayBandBox() const {
     const auto MONITOR = pMonitor.lock();
     if (!MONITOR || closing || (specialTrayAutohide() && trayReveal && trayReveal->goal() < 0.5F))
-        return false;
+        return {};
 
     const auto CARDS = specialTrayCards();
     if (CARDS.empty())
-        return false;
+        return {};
 
     const double MARGIN = TRAY_MARGIN * MONITOR->m_scale;
     const double LEFT   = CARDS.front().box.x - MARGIN;
     const double TOP    = CARDS.front().box.y - MARGIN;
-    const double BOTTOM = CARDS.back().box.y + CARDS.back().box.h + TRAY_LABEL * MONITOR->m_scale + MARGIN;
-    return pointLocal.x >= LEFT && pointLocal.y >= TOP && pointLocal.y <= BOTTOM;
+    const auto   ADD    = specialTrayAddBox(CARDS);
+    return CBox{LEFT, TOP, MONITOR->m_size.x * MONITOR->m_scale - LEFT, ADD.y + ADD.h + MARGIN - TOP};
+}
+
+bool CScrollOverview::specialTrayBandAt(const Vector2D& pointLocal) const {
+    const auto BAND = specialTrayBandBox();
+    return !BAND.empty() && BAND.containsPoint(pointLocal);
+}
+
+// the "+" box below the last card: drop a window there for a new scratchpad named after its app, or click it
+CBox CScrollOverview::specialTrayAddBox(const std::vector<STrayCard>& cards) const {
+    const auto MONITOR = pMonitor.lock();
+    if (!MONITOR || cards.empty())
+        return {};
+    const auto& LAST = cards.back().box;
+    return CBox{LAST.x, LAST.y + LAST.h + (TRAY_LABEL + TRAY_GAP) * MONITOR->m_scale, LAST.w, TRAY_ADD_HEIGHT * MONITOR->m_scale}.round();
+}
+
+bool CScrollOverview::specialTrayAddAt(const Vector2D& pointLocal) const {
+    if (closing || (specialTrayAutohide() && trayReveal && trayReveal->goal() < 0.5F))
+        return false;
+    const auto ADD = specialTrayAddBox(specialTrayCards());
+    return !ADD.empty() && ADD.containsPoint(pointLocal);
+}
+
+// a name not taken by an existing or configured scratchpad: the app of the dropped window ("org.gnome.Nautilus" ->
+// "nautilus"), else "scratch"; "-2", "-3", ... when taken
+std::string CScrollOverview::newSpecialWorkspaceName(const PHLWINDOW& window) const {
+    std::string base;
+    if (window) {
+        auto app = window->metadata().appID();
+        if (const auto DOT = app.find_last_of('.'); DOT != std::string::npos && DOT + 1 < app.size())
+            app = app.substr(DOT + 1);
+        for (const char C : app) {
+            const char LOWER = sc<char>(std::tolower(sc<unsigned char>(C)));
+            if (std::isalnum(sc<unsigned char>(LOWER)) || LOWER == '_' || LOWER == '-')
+                base += LOWER;
+            else if (!base.empty() && base.back() != '-')
+                base += '-';
+        }
+        while (!base.empty() && base.back() == '-')
+            base.pop_back();
+    }
+    if (base.empty())
+        base = "scratch";
+
+    std::vector<std::string> taken;
+    for (const auto& card : specialTrayCards())
+        taken.push_back(card.name);
+    for (const auto& w : State::workspaceState()->workspaces()) {
+        if (const auto WORKSPACE = w.lock(); valid(WORKSPACE) && WORKSPACE->type() == Workspace::eWorkspaceType::SPECIAL)
+            taken.push_back(specialTrayName(WORKSPACE->addressableName()));
+    }
+
+    for (int i = 1;; ++i) {
+        const auto NAME = i == 1 ? base : base + "-" + std::to_string(i);
+        if (std::ranges::find(taken, NAME) == taken.end())
+            return NAME;
+    }
 }
 
 std::optional<size_t> CScrollOverview::specialTrayCardAt(const Vector2D& pointLocal) const {
@@ -6010,6 +6092,44 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
         data.box = LABEL.copy().round();
         data.a   = ALPHA * (CARD.workspace ? 1.F : 0.6F);
         Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CTexPassElement>(std::move(data)));
+    }
+
+    // "+" box: new scratchpad (drop a window on it, or click it); brighter under the pointer or a dragged window
+    const auto ADD = specialTrayAddBox(CARDS);
+    if (ADD.empty())
+        return;
+
+    const bool ADDHOVERED = isOverviewPointerOnMonitor(monitor) && specialTrayAddAt(getOverviewMousePosLocal(monitor));
+    const bool ADDTARGET  = ADDHOVERED && DRAGGED;
+    const auto UNIT       = monitor->m_scale;
+
+    CRectPassElement::SRectData addBackground;
+    addBackground.box   = ADD;
+    addBackground.color = CHyprColor{0.F, 0.F, 0.F, (ADDHOVERED ? 0.5F : 0.3F) * ALPHA};
+    addBackground.round = sc<int>(ADD.h / 2.0);
+    Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(addBackground));
+
+    auto color = ScrollOverview::Config::getEmptyColor(monitor);
+    color.a    = std::min(1.F, sc<float>(color.a) * (ADDHOVERED ? 2.F : 1.F)) * ALPHA;
+    Config::CGradientValueData gradient;
+    gradient.m_colors = {color};
+    gradient.updateColorsOk();
+    Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CBorderPassElement>(CBorderPassElement::SBorderData{
+        .box        = ADD,
+        .grad1      = gradient,
+        .round      = sc<int>(ADD.h / 2.0),
+        .borderSize = std::max(1, sc<int>(std::round((ADDTARGET ? 3.F : 2.F) * UNIT))),
+    }));
+
+    const float ARM   = 11.F * UNIT;
+    const float THICK = 3.F * UNIT;
+    const auto  MID   = ADD.middle();
+    for (const auto& PART : {CBox{MID.x - ARM, MID.y - THICK / 2.F, ARM * 2.F, THICK}, CBox{MID.x - THICK / 2.F, MID.y - ARM, THICK, ARM * 2.F}}) {
+        CRectPassElement::SRectData plus;
+        plus.box   = PART.copy().round();
+        plus.color = color;
+        plus.round = sc<int>(THICK / 2.F);
+        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(plus));
     }
 }
 
