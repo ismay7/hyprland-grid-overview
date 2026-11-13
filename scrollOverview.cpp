@@ -1519,6 +1519,16 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
             lastMousePosLocal = getOverviewMousePosLocal(pMonitor.lock());
 
             if (event.state == WL_POINTER_BUTTON_STATE_PRESSED) {
+                // click on a context label: go to the first workspace of that context
+                if (!closing) {
+                    for (const auto& [box, idx] : contextLabelHitboxes) {
+                        if (box.containsPoint(lastMousePosLocal)) {
+                            contextLabelPressed = idx;
+                            return;
+                        }
+                    }
+                }
+
                 if (const auto BUTTON = gridModeButtonAt(lastMousePosLocal)) {
                     gridModeButtonPressed = true;
                     if (*BUTTON == 2) {
@@ -1534,6 +1544,16 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
 
                 dragPendingPrimary  = true;
                 dragStartMouseLocal = lastMousePosLocal;
+                return;
+            }
+
+            if (contextLabelPressed) {
+                const auto IDX = *contextLabelPressed;
+                contextLabelPressed.reset();
+                if (IDX < images.size()) {
+                    moveViewportToWorkspace(IDX);
+                    closeAll();
+                }
                 return;
             }
 
@@ -5401,6 +5421,7 @@ void CScrollOverview::renderSelectedEmptyMarker(PHLMONITOR monitor, size_t activ
 // context_labels: the context name next to the first workspace of each context (left of it with contexts as rows,
 // above it with contexts as columns); fixed on-screen size, moving with zoom and pan
 void CScrollOverview::renderContextLabels(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale) {
+    contextLabelHitboxes.clear();
     if (!grid || !ScrollOverview::Config::getValue<bool>("plugin:gridoverview:context_labels", monitor))
         return;
 
@@ -5465,11 +5486,14 @@ void CScrollOverview::renderContextLabels(PHLMONITOR monitor, size_t activeIdx, 
             continue;
 
         const float LABELALPHA = ALPHA * (context == SELECTED ? 1.F : 0.55F);
+        auto        pillBox    = LABEL.copy().expand(PILLPADDING).round();
+        pillBox.x -= PILLPADDING;
+        pillBox.w += 2.0 * PILLPADDING;
+        contextLabelHitboxes.emplace_back(pillBox, idx);
+
         if (BACKGROUND.a > 0.F) {
             CRectPassElement::SRectData pill;
-            pill.box   = LABEL.copy().expand(PILLPADDING).round();
-            pill.box.x -= PILLPADDING;
-            pill.box.w += 2.0 * PILLPADDING;
+            pill.box   = pillBox;
             pill.color = BACKGROUND.modifyA(BACKGROUND.a * LABELALPHA);
             pill.round = sc<int>(pill.box.h / 2.0);
             Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(pill));

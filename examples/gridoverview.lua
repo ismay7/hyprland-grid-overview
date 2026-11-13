@@ -7,8 +7,8 @@
 -- orientation "rows": contexts are rows, their workspaces side by side;
 --             "columns": contexts are columns, their workspaces stacked (keys and overview follow).
 --
--- SUPER + SHIFT + arrow          next workspace / context in that direction (back to the workspace last used
---                                in a context when switching to it)
+-- SUPER + SHIFT + arrow          next workspace / context in that direction (same position in the other
+--                                context, or its last existing workspace before that position)
 -- SUPER + CTRL + SHIFT + arrow   same, taking the active window along
 -- SUPER + [1-9]                  workspace 1-9 of the current context (+ SHIFT: move window there)
 -- SUPER + Tab / SHIFT + Tab      next/previous non-empty workspace of the current context
@@ -72,7 +72,6 @@ local gridCols          = settings.workspaces
 local contextsAsColumns = settings.orientation == "columns"
 local contextSlide      = contextsAsColumns and "slide" or "slidevert"
 local workspaceSlide    = contextsAsColumns and "slidevert" or "slide"
-local gridLastCol       = {}
 
 -- empty drop targets in the overview are created by the plugin itself; only the first workspace is kept
 local firstWorkspace = { workspace = "11", default = true, persistent = true }
@@ -109,12 +108,27 @@ local function gridGoto(row, col, carry, style)
     end
 end
 
+-- same position in another context; if that workspace does not exist (yet), the last existing one before it in
+-- that context, or its first workspace
+local function contextColumn(row, col)
+    local existing = {}
+    for _, ws in ipairs(hl.get_workspaces()) do
+        if ws.id and not ws.special and math.floor(ws.id / 10) == row and ws.id % 10 >= 1 then
+            existing[ws.id % 10] = true
+        end
+    end
+    for c = col, 1, -1 do
+        if existing[c] then return c end
+    end
+    return 1
+end
+
 local function gridStep(dRow, dCol, carry)
     return function()
         local row, col = gridPos()
         local newRow = math.max(1, math.min(gridRows, row + dRow))
         local newCol = math.max(1, math.min(gridCols, col + dCol))
-        if dRow ~= 0 then newCol = gridLastCol[newRow] or 1 end
+        if dRow ~= 0 and not carry then newCol = contextColumn(newRow, col) end
         if newRow == row and newCol == col then return end
         gridGoto(newRow, newCol, carry, dRow ~= 0 and contextSlide or workspaceSlide)
     end
@@ -136,7 +150,7 @@ local function gridCycle(step)
     end
 end
 
--- remember the last workspace per context and switch the context wallpaper
+-- switch the context wallpaper
 local home         = os.getenv("HOME")
 local wallpaperRow = gridPos()
 
@@ -151,8 +165,7 @@ local function wallpaperPath(path)
 end
 
 hl.on("workspace.active", function()
-    local row, col = gridPos()
-    gridLastCol[row] = col
+    local row = gridPos()
 
     if row ~= wallpaperRow and settings.contextWallpapers then
         wallpaperRow = row

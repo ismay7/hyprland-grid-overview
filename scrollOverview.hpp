@@ -97,6 +97,9 @@ class CScrollOverview : public IOverview {
     void   renderWindowIcons(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale);
     void   renderContextLabels(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale);
     std::unordered_map<std::string, SP<Render::ITexture>> contextLabelTextures;
+    // where the labels were drawn last frame (pill box -> first workspace of the context), for clicks
+    std::vector<std::pair<CBox, size_t>> contextLabelHitboxes;
+    std::optional<size_t>            contextLabelPressed;
     void   renderWorkspaceLive(PHLMONITOR monitor, size_t workspaceIdx, size_t activeIdx, float workspacePitch, float renderScale, int wallpaperMode, const Time::steady_tp& now);
     bool   hasVisiblePrecomputedBlurWindow(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale) const;
     void   renderWindowLive(PHLMONITOR monitor, PHLWINDOW window, const CBox& windowBox, float renderScale, const Time::steady_tp& now, const CBox* workspaceBox = nullptr,
