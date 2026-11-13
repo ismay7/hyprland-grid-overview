@@ -122,7 +122,7 @@ workspaces of a context are created on its monitor. A separate grid per monitor 
 | `window_icon_plate_color` | color | plate behind the icon | `rgba(0,0,0,0.45)` |
 | `icon_theme` | string | icon theme searched before hicolor (e.g. `Papirus-Dark`); empty = hicolor only | empty |
 | `special_tray` | bool | special workspaces (scratchpads) as cards at the right screen edge; the whole-grid view keeps that space free | `true` |
-| `special_tray_autohide` | bool | hide the tray until the pointer touches the right screen edge, like an auto-hiding dock; it stays while the pointer is over it, a window drag leaves it as it is (no pop-up while edge scrolling), and the whole-grid view keeps no space free | `false` |
+| `special_tray_autohide` | bool | hide the tray until the pointer touches the right screen edge, like an auto-hiding dock; it stays while the pointer is over it. While a window is dragged it comes up only once edge scrolling has reached the end of the row, so windows can be dropped into a scratchpad there. The whole-grid view keeps no space free | `false` |
 | `special_workspaces` | string | comma-separated special workspace names (without `special:`) that always get a card, also while empty | empty |
 | `special_tray_width` | int | card width in layout px (cards shrink when they do not fit the screen height) | `300` |
 | `transition_bezier` | string | bezier for moving between workspaces in the overview; empty = `windowsMove` | empty |

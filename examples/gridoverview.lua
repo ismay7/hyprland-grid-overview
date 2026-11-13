@@ -66,7 +66,7 @@ local settings = {
         special_tray = true,
         special_workspaces = "",   -- e.g. "magic": always shown, also while empty (comma-separated)
         special_tray_width = 300,  -- card width in layout px
-        special_tray_autohide = false, -- true: hidden until the pointer touches the right edge (not while dragging)
+        special_tray_autohide = false, -- true: hidden until the pointer touches the right edge (dragging: at the end of the row)
         transition_bezier = "",    -- e.g. a bezier defined in your config; empty = windowsMove animation
         transition_speed = 3.0,
         -- exec_on_open = "",
