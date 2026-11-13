@@ -63,9 +63,10 @@ local settings = {
         window_icons = false,
         window_icon_size = 64,
         -- scratchpads (special workspaces) as cards at the right edge: drag windows in and out, click one to show it
-        special_tray = false,
+        special_tray = true,
         special_workspaces = "",   -- e.g. "magic": always shown, also while empty (comma-separated)
         special_tray_width = 300,  -- card width in layout px
+        special_tray_autohide = false, -- true: hidden until the pointer touches the right edge (not while dragging)
         transition_bezier = "",    -- e.g. a bezier defined in your config; empty = windowsMove animation
         transition_speed = 3.0,
         -- exec_on_open = "",

@@ -1217,8 +1217,10 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
     Animation::mgr()->createAnimation(1.F, workspaceInsertProgress, WINDOWSMOVECONFIG, AVARDAMAGE_NONE);
     Animation::mgr()->createAnimation(1.F, workspaceInsertFadeProgress, workspaceInsertFadeConfig, AVARDAMAGE_NONE);
     Animation::mgr()->createAnimation(1.F, highlightProgress, TRANSITIONCONFIG, AVARDAMAGE_NONE);
+    Animation::mgr()->createAnimation(specialTrayAutohide() ? 0.F : 1.F, trayReveal, TRANSITIONCONFIG, AVARDAMAGE_NONE);
 
     highlightProgress->setUpdateCallback([this](auto) { damage(); });
+    trayReveal->setUpdateCallback([this](auto) { damage(); });
     scale->setUpdateCallback([this](auto) { damage(); });
     viewOffset->setUpdateCallback([this](auto) { damage(); });
     workspaceInsertProgress->setUpdateCallback([this](auto) { damage(); });
@@ -1261,6 +1263,7 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
         const float    DRAGTHRESHOLDSQ       = std::pow(DRAGTHRESHOLD, 2);
 
         lastMousePosLocal = getOverviewMousePosLocal(pMonitor.lock());
+        updateSpecialTrayReveal(lastMousePosLocal);
 
         if (gridSliderDragging) {
             info.cancelled = true;
@@ -3531,7 +3534,7 @@ void CScrollOverview::updateDragEdgeScroll() {
         row = MOUSE.y < MARGIN ? -1 : MOUSE.y > SIZE.y - MARGIN ? 1 : 0;
 
         // no scrolling while the pointer is over the scratchpad tray at the right edge
-        if (const auto RESERVE = specialTrayReserve(); RESERVE > 0.F && MOUSE.x > SIZE.x - RESERVE * MONITOR->m_scale - MARGIN)
+        if (const auto TRAY = specialTrayVisibleWidth(); TRAY > 1.F && MOUSE.x > SIZE.x - TRAY * MONITOR->m_scale - MARGIN)
             col = row = 0;
     }
 
@@ -5695,7 +5698,9 @@ std::vector<CScrollOverview::STrayCard> CScrollOverview::specialTrayCards() cons
 
     const float HEIGHT = width * ASPECT;
     float       y      = TOP + std::max(0.F, (AVAILH - heightFor(width)) / 2.F);
-    const float X      = sc<float>(SIZE.x) - TRAY_MARGIN - width;
+    // autohide: slides in from beyond the right edge
+    const float HIDDEN = specialTrayAutohide() && trayReveal ? (1.F - trayReveal->value()) * (width + 2.F * TRAY_MARGIN) : 0.F;
+    const float X      = sc<float>(SIZE.x) - TRAY_MARGIN - width + HIDDEN;
     for (auto& card : cards) {
         card.box = CBox{X, y, width, HEIGHT}.scale(MONITOR->m_scale).round();
         y += HEIGHT + TRAY_LABEL + TRAY_GAP;
@@ -5704,16 +5709,48 @@ std::vector<CScrollOverview::STrayCard> CScrollOverview::specialTrayCards() cons
     return cards;
 }
 
-float CScrollOverview::specialTrayReserve() const {
+bool CScrollOverview::specialTrayAutohide() const {
+    return ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray_autohide", pMonitor.lock());
+}
+
+float CScrollOverview::specialTrayVisibleWidth() const {
     const auto MONITOR = pMonitor.lock();
     const auto CARDS   = specialTrayCards();
     if (!MONITOR || CARDS.empty())
         return 0.F;
-    return sc<float>(CARDS.front().box.w) / std::max(MONITOR->m_scale, 0.01F) + TRAY_MARGIN;
+    const float WIDTH = sc<float>(CARDS.front().box.w) / std::max(MONITOR->m_scale, 0.01F) + TRAY_MARGIN;
+    return specialTrayAutohide() && trayReveal ? WIDTH * trayReveal->value() : WIDTH;
+}
+
+// a hidden (autohide) tray lies over the grid when shown instead of keeping space free
+float CScrollOverview::specialTrayReserve() const {
+    return specialTrayAutohide() ? 0.F : specialTrayVisibleWidth();
+}
+
+// autohide: shown when the pointer touches the right edge, hidden once it leaves the tray; a window drag keeps the
+// current state, so dragging along the edge (edge scrolling) does not pop it up
+void CScrollOverview::updateSpecialTrayReveal(const Vector2D& pointLocal) {
+    const auto MONITOR = pMonitor.lock();
+    if (!MONITOR || !trayReveal || closing || !specialTrayAutohide())
+        return;
+    if (dragActiveWindow || (g_pointerGrabOverview && g_pointerGrabOverview->dragActiveWindow))
+        return;
+
+    const auto CARDS = specialTrayCards();
+    if (CARDS.empty())
+        return;
+
+    const double RIGHT  = MONITOR->m_size.x * MONITOR->m_scale;
+    const double EDGE   = RIGHT - 2.0 * MONITOR->m_scale;
+    const double KEEP   = RIGHT - (CARDS.front().box.w + 2.0 * TRAY_MARGIN * MONITOR->m_scale);
+    const bool   SHOWN  = trayReveal->goal() > 0.5F;
+    const bool   SHOW   = isOverviewPointerOnMonitor(MONITOR) && (pointLocal.x >= EDGE || (SHOWN && pointLocal.x >= KEEP));
+    if (SHOW != SHOWN)
+        *trayReveal = SHOW ? 1.F : 0.F;
 }
 
 std::optional<size_t> CScrollOverview::specialTrayCardAt(const Vector2D& pointLocal) const {
-    if (closing)
+    if (closing || (specialTrayAutohide() && trayReveal && trayReveal->goal() < 0.5F))
         return std::nullopt;
 
     const auto CARDS = specialTrayCards();
@@ -5801,7 +5838,8 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
         return;
 
     const float PROGRESS = std::clamp((1.F - scale->value()) / (1.F - ScrollOverview::Config::getScale(monitor)), 0.F, 1.F);
-    const float ALPHA    = PROGRESS * PROGRESS * (3.F - 2.F * PROGRESS);
+    const float REVEAL   = specialTrayAutohide() && trayReveal ? trayReveal->value() : 1.F;
+    const float ALPHA    = PROGRESS * PROGRESS * (3.F - 2.F * PROGRESS) * REVEAL;
     if (ALPHA <= 0.001F)
         return;
 
@@ -6343,7 +6381,7 @@ bool CScrollOverview::shouldAllowRealtimePreviewSchedule() {
     if (closing)
         return true;
 
-    if (scale->isBeingAnimated() || viewOffset->isBeingAnimated())
+    if (scale->isBeingAnimated() || viewOffset->isBeingAnimated() || (trayReveal && trayReveal->isBeingAnimated()))
         return true;
 
     if (realtimePreviewFrameQueued) {
@@ -6409,7 +6447,7 @@ bool CScrollOverview::shouldSuppressRenderDamage() const {
     if (!MONITOR || closing)
         return false;
 
-    if (scale->isBeingAnimated() || viewOffset->isBeingAnimated())
+    if (scale->isBeingAnimated() || viewOffset->isBeingAnimated() || (trayReveal && trayReveal->isBeingAnimated()))
         return false;
 
     const auto ACTIVEIDX = activeWorkspaceIndex();
