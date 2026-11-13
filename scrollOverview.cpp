@@ -1133,8 +1133,8 @@ CScrollOverview::~CScrollOverview() {
 
     // clicked in the scratchpad tray: shown only now, with the workspace animations back and Hyprland's own
     // dimming / blur behind it (shown during the close animation, the background only switched once it ended)
-    if (const auto SPECIAL = pendingSpecialWorkspace.lock(); SPECIAL && valid(SPECIAL)) {
-        if (const auto MONITOR = pMonitor.lock())
+    if (const auto MONITOR = pMonitor.lock(); MONITOR && !pendingSpecialName.empty()) {
+        if (const auto SPECIAL = ensureSpecialWorkspace(STrayCard{.name = pendingSpecialName}))
             MONITOR->setSpecialWorkspace(SPECIAL);
     }
 }
@@ -1578,7 +1578,7 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
                     const auto CARDS   = specialTrayCards();
                     const auto MONITOR = pMonitor.lock();
                     if (IDX < CARDS.size() && MONITOR && specialTrayCardAt(lastMousePosLocal) == IDX) {
-                        pendingSpecialWorkspace = ensureSpecialWorkspace(CARDS[IDX]);
+                        pendingSpecialName = CARDS[IDX].name;
                         closeOnWindow.reset();
                         closeAll();
                     }
@@ -5782,10 +5782,17 @@ void CScrollOverview::hideActiveSpecialWorkspace() {
 }
 
 PHLWORKSPACE CScrollOverview::ensureSpecialWorkspace(const STrayCard& card) const {
-    if (card.workspace)
+    if (card.workspace && valid(card.workspace))
         return card.workspace;
 
-    return State::workspaceState()->createSpecial(std::string{SPECIAL_PREFIX} + card.name, pMonitor.lock());
+    const auto ADDRESS = std::string{SPECIAL_PREFIX} + card.name;
+    for (const auto& w : State::workspaceState()->workspaces()) {
+        const auto WORKSPACE = w.lock();
+        if (valid(WORKSPACE) && WORKSPACE->type() == Workspace::eWorkspaceType::SPECIAL && WORKSPACE->addressableName() == ADDRESS)
+            return WORKSPACE;
+    }
+
+    return State::workspaceState()->createSpecial(ADDRESS, pMonitor.lock());
 }
 
 void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_tp& now) {

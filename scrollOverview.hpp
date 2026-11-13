@@ -117,7 +117,8 @@ class CScrollOverview : public IOverview {
     void                   hideActiveSpecialWorkspace();
     void                   renderSpecialTray(PHLMONITOR monitor, const Time::steady_tp& now);
     std::optional<size_t>  specialTrayPressed;
-    PHLWORKSPACEREF        pendingSpecialWorkspace; // shown once this overview is gone
+    // shown once this overview is gone; by name, an empty scratchpad created earlier would be cleaned up by then
+    std::string            pendingSpecialName;
     void   renderWorkspaceLive(PHLMONITOR monitor, size_t workspaceIdx, size_t activeIdx, float workspacePitch, float renderScale, int wallpaperMode, const Time::steady_tp& now);
     bool   hasVisiblePrecomputedBlurWindow(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale) const;
     void   renderWindowLive(PHLMONITOR monitor, PHLWINDOW window, const CBox& windowBox, float renderScale, const Time::steady_tp& now, const CBox* workspaceBox = nullptr,
