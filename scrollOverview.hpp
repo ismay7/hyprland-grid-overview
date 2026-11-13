@@ -114,6 +114,7 @@ class CScrollOverview : public IOverview {
     std::vector<PHLWINDOW> specialTrayWindows(const STrayCard& card) const;
     PHLWINDOW              specialTrayWindowAt(const Vector2D& pointLocal) const;
     PHLWORKSPACE           ensureSpecialWorkspace(const STrayCard& card) const;
+    void                   hideActiveSpecialWorkspace();
     void                   renderSpecialTray(PHLMONITOR monitor, const Time::steady_tp& now);
     std::optional<size_t>  specialTrayPressed;
     PHLWORKSPACEREF        pendingSpecialWorkspace; // shown once this overview is gone

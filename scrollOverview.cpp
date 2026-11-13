@@ -1125,6 +1125,12 @@ CScrollOverview::~CScrollOverview() {
     if (const auto MONITOR = pMonitor.lock())
         MONITOR->m_blurFBDirty = true;
 
+    // the tray drew scratchpad windows small: without a recalc Hyprland draws their shadows at the card for a frame
+    for (const auto& window : Desktop::windowState()->windows()) {
+        if (window && window->m_workspace && window->m_workspace->type() == Workspace::eWorkspaceType::SPECIAL)
+            OverviewWindow::forceDecoRecalc(window);
+    }
+
     // clicked in the scratchpad tray: shown only now, with the workspace animations back and Hyprland's own
     // dimming / blur behind it (shown during the close animation, the background only switched once it ended)
     if (const auto SPECIAL = pendingSpecialWorkspace.lock(); SPECIAL && valid(SPECIAL)) {
@@ -1485,6 +1491,7 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
 
             selectHoveredWorkspace();
             selectWindowAtOverviewCursor(true);
+            hideActiveSpecialWorkspace();
             closeAll();
         };
         const auto     finishWindowDragOrClick = [&](uint32_t button, bool allowClick) {
@@ -1584,6 +1591,7 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
                 contextLabelPressed.reset();
                 if (IDX < images.size()) {
                     moveViewportToWorkspace(IDX);
+                    hideActiveSpecialWorkspace();
                     closeAll();
                 }
                 return;
@@ -5765,6 +5773,12 @@ PHLWINDOW CScrollOverview::specialTrayWindowAt(const Vector2D& pointLocal) const
             return *it;
     }
     return nullptr;
+}
+
+// a click on a workspace goes there: a scratchpad that was open when the overview started would come back on top
+void CScrollOverview::hideActiveSpecialWorkspace() {
+    if (const auto MONITOR = pMonitor.lock(); MONITOR && MONITOR->m_activeSpecialWorkspace)
+        MONITOR->setSpecialWorkspace(nullptr);
 }
 
 PHLWORKSPACE CScrollOverview::ensureSpecialWorkspace(const STrayCard& card) const {
