@@ -80,6 +80,15 @@ is a complete module for that: contexts, grid keys, optional (togglable) wallpap
 continuous zoom, and all plugin options in one settings table. Save it as `~/.config/hypr/gridoverview.lua`
 and add `require("gridoverview")` to `hyprland.lua`.
 
+### Multiple monitors
+
+Workspace ids are global in Hyprland, so the grid is shared: every monitor's overview shows the contexts that
+live on it. A context belongs to the monitor a workspace rule binds its first workspace (`R1`) to; without a rule
+to the monitor that already has workspaces of it, and a context without any workspace to the monitor of
+workspace 11. Placeholders are only created for the overview's own contexts. With the example module, bind a
+context with `monitor = "HDMI-A-1"` in its entry; switching to it then moves the focus to that monitor, and new
+workspaces of a context are created on its monitor. A separate grid per monitor is not supported (yet).
+
 ### Options added by this fork
 
 | option | type | description | default |

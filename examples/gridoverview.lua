@@ -37,6 +37,10 @@ local settings = {
     --   "swww img '%s'"
     --   "dms ipc call wallpaper set '%s'"   (Dux / DankMaterialShell)
     wallpaperCommand  = "swww img '%s'",
+    -- with more than one monitor: per monitor; first %s = monitor, second %s = path, e.g.
+    --   "swww img -o '%s' '%s'"
+    --   "dms ipc call wallpaper setFor '%s' '%s'"
+    wallpaperMonitorCommand = "swww img -o '%s' '%s'",
 
     -- plugin:gridoverview options (grid, grid_orientation, grid_rows and grid_columns are set from the above)
     overview = {
@@ -108,11 +112,46 @@ local function gridSlide(style)
     end
 end
 
+-- multi-monitor: the monitor a context lives on - its monitor entry, else the monitor of its existing
+-- workspaces, else the one of workspace 11 (nil: don't care)
+local function contextMonitor(row)
+    local context = settings.contexts[row]
+    if context and context.monitor and context.monitor ~= "" then
+        return context.monitor
+    end
+    local main
+    for _, ws in ipairs(hl.get_workspaces()) do
+        if ws.id and not ws.special and ws.monitor then
+            if ws.id >= 11 and ws.id % 10 ~= 0 and math.floor(ws.id / 10) == row then
+                return ws.monitor.name
+            end
+            if ws.id == 11 then
+                main = ws.monitor.name
+            end
+        end
+    end
+    return main
+end
+
 local function gridGoto(row, col, carry, style)
     gridSlide(style)
-    local id = row * 10 + col
-    if carry and hl.get_active_window() then
-        hl.dispatch(hl.dsp.window.move({ workspace = id }))
+    local id     = row * 10 + col
+    local window = carry and hl.get_active_window()
+
+    -- Hyprland creates a new workspace on the focused monitor: focus the context's monitor first
+    if not hl.get_workspace(id) then
+        local target  = contextMonitor(row)
+        local current = hl.get_active_monitor()
+        if target and current and target ~= current.name then
+            hl.dispatch(hl.dsp.focus({ monitor = target }))
+            if window then
+                hl.dispatch(hl.dsp.focus({ workspace = id }))
+            end
+        end
+    end
+
+    if window then
+        hl.dispatch(hl.dsp.window.move({ workspace = id, window = "address:" .. window.address }))
     else
         hl.dispatch(hl.dsp.focus({ workspace = id }))
     end
@@ -182,7 +221,7 @@ end
 
 -- switch the context wallpaper
 local home         = os.getenv("HOME")
-local wallpaperRow = gridPos()
+local wallpaperRow = { [""] = gridPos() } -- per monitor with more than one monitor, else under ""
 
 local function wallpaperPath(path)
     if path:sub(1, 1) == "~" then
@@ -197,12 +236,28 @@ end
 hl.on("workspace.active", function()
     local row = gridPos()
 
-    if row ~= wallpaperRow and settings.contextWallpapers then
-        wallpaperRow = row
-        local context = settings.contexts[row]
-        if settings.wallpaperCommand and context and context.wallpaper then
-            hl.exec_cmd(string.format(settings.wallpaperCommand, wallpaperPath(context.wallpaper)))
-        end
+    if not settings.contextWallpapers then
+        return
+    end
+
+    -- with more than one monitor each monitor shows the wallpaper of its own context (wallpaperMonitorCommand)
+    local workspace    = hl.get_active_workspace()
+    local monitor      = workspace and workspace.monitor and workspace.monitor.name or ""
+    local multiMonitor = #hl.get_monitors() > 1 and settings.wallpaperMonitorCommand ~= nil
+    local key          = multiMonitor and monitor or ""
+    if row == wallpaperRow[key] then
+        return
+    end
+    wallpaperRow[key] = row
+
+    local context = settings.contexts[row]
+    if not (context and context.wallpaper) then
+        return
+    end
+    if multiMonitor then
+        hl.exec_cmd(string.format(settings.wallpaperMonitorCommand, monitor, wallpaperPath(context.wallpaper)))
+    elseif settings.wallpaperCommand then
+        hl.exec_cmd(string.format(settings.wallpaperCommand, wallpaperPath(context.wallpaper)))
     end
 end)
 
