@@ -100,6 +100,22 @@ class CScrollOverview : public IOverview {
     // where the labels were drawn last frame (pill box -> first workspace of the context), for clicks
     std::vector<std::pair<CBox, size_t>> contextLabelHitboxes;
     std::optional<size_t>            contextLabelPressed;
+    // special_tray: scratchpads as cards at the right screen edge, in screen coordinates (not zoomed / panned)
+    struct STrayCard {
+        std::string  name;      // without the "special:" prefix
+        PHLWORKSPACE workspace; // null for a configured name that does not exist yet
+        CBox         box;       // render px on this monitor
+    };
+    std::vector<STrayCard> specialTrayCards() const;
+    float                  specialTrayReserve() const; // logical px kept free right of the fitted grid
+    std::optional<size_t>  specialTrayCardAt(const Vector2D& pointLocal) const;
+    CBox                   specialTrayWindowBox(const STrayCard& card, const PHLWINDOW& window) const;
+    float                  specialTrayRenderScale(const STrayCard& card) const;
+    std::vector<PHLWINDOW> specialTrayWindows(const STrayCard& card) const;
+    PHLWINDOW              specialTrayWindowAt(const Vector2D& pointLocal) const;
+    PHLWORKSPACE           ensureSpecialWorkspace(const STrayCard& card) const;
+    void                   renderSpecialTray(PHLMONITOR monitor, const Time::steady_tp& now);
+    std::optional<size_t>  specialTrayPressed;
     void   renderWorkspaceLive(PHLMONITOR monitor, size_t workspaceIdx, size_t activeIdx, float workspacePitch, float renderScale, int wallpaperMode, const Time::steady_tp& now);
     bool   hasVisiblePrecomputedBlurWindow(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale) const;
     void   renderWindowLive(PHLMONITOR monitor, PHLWINDOW window, const CBox& windowBox, float renderScale, const Time::steady_tp& now, const CBox* workspaceBox = nullptr,

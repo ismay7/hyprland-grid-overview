@@ -1321,7 +1321,7 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
         if (dragPendingPrimary) {
             if (!dragActiveWindow && !scrollingPanPointerDown && dragStartMouseLocal.distanceSq(lastMousePosLocal) > DRAGTHRESHOLDSQ) {
                 if (!INVERT_DRAG_MODE) {
-                    beginWindowDrag(windowAtOverviewPoint(dragStartMouseLocal));
+                    beginWindowDrag(specialTrayPressed ? specialTrayWindowAt(dragStartMouseLocal) : windowAtOverviewPoint(dragStartMouseLocal));
                 } else
                     beginScrollingPanAtPoint(dragStartMouseLocal);
             }
@@ -1520,6 +1520,14 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
             lastMousePosLocal = getOverviewMousePosLocal(pMonitor.lock());
 
             if (event.state == WL_POINTER_BUTTON_STATE_PRESSED) {
+                // scratchpad card: dragging starts on the window under the pointer, a click opens the scratchpad
+                if (const auto CARD = specialTrayCardAt(lastMousePosLocal)) {
+                    specialTrayPressed  = *CARD;
+                    dragPendingPrimary  = true;
+                    dragStartMouseLocal = lastMousePosLocal;
+                    return;
+                }
+
                 // click on a context label: go to the first workspace of that context
                 if (!closing) {
                     for (const auto& [box, idx] : contextLabelHitboxes) {
@@ -1546,6 +1554,24 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
                 dragPendingPrimary  = true;
                 dragStartMouseLocal = lastMousePosLocal;
                 return;
+            }
+
+            if (specialTrayPressed) {
+                const auto IDX = *specialTrayPressed;
+                specialTrayPressed.reset();
+                if (!dragActiveWindow) {
+                    clearDragPending();
+                    const auto CARDS   = specialTrayCards();
+                    const auto MONITOR = pMonitor.lock();
+                    if (IDX < CARDS.size() && MONITOR && specialTrayCardAt(lastMousePosLocal) == IDX) {
+                        const auto SPECIAL = ensureSpecialWorkspace(CARDS[IDX]);
+                        closeOnWindow.reset();
+                        closeAll();
+                        if (SPECIAL)
+                            MONITOR->setSpecialWorkspace(SPECIAL);
+                    }
+                    return;
+                }
             }
 
             if (contextLabelPressed) {
@@ -2611,7 +2637,7 @@ CBox CScrollOverview::workspaceOverviewVisibleBox(size_t workspaceIdx, const CBo
 PHLWINDOW CScrollOverview::windowAtOverviewPoint(const Vector2D& point, size_t* hoveredWorkspaceIdx) const {
     size_t activeIdx = activeWorkspaceIndex();
     const auto MONITOR = pMonitor.lock();
-    if (!MONITOR)
+    if (!MONITOR || specialTrayCardAt(point))
         return nullptr;
 
     const auto WORKSPACEPITCH = getWorkspaceRenderedPitch(MONITOR, scale->value(), layout);
@@ -2966,7 +2992,7 @@ CDropIndicator::SDropAnchor CScrollOverview::dropAnchorAtOverviewCursorOnWorkspa
 
 PHLWORKSPACE CScrollOverview::workspaceAtOverviewPoint(const Vector2D& point, size_t* hoveredWorkspaceIdx) const {
     const auto MONITOR = pMonitor.lock();
-    if (!MONITOR)
+    if (!MONITOR || specialTrayCardAt(point))
         return nullptr;
 
     for (size_t workspaceIdx = 0; workspaceIdx < images.size(); ++workspaceIdx) {
@@ -2991,7 +3017,7 @@ PHLWORKSPACE CScrollOverview::workspaceAtOverviewPoint(const Vector2D& point, si
 
 PHLWORKSPACE CScrollOverview::workspaceAtOverviewDropPoint(const Vector2D& point, size_t* hoveredWorkspaceIdx, const PHLWINDOW& draggedWindow) const {
     const auto MONITOR = pMonitor.lock();
-    if (!MONITOR)
+    if (!MONITOR || specialTrayCardAt(point))
         return nullptr;
 
     const auto ACTIVEIDX       = activeWorkspaceIndex();
@@ -3309,6 +3335,21 @@ void CScrollOverview::beginWindowDrag(PHLWINDOW window) {
             WINDOWBOX.width > 0.0 ? snapshot.grabOffsetLocal.x / WINDOWBOX.width : 0.5,
             WINDOWBOX.height > 0.0 ? snapshot.grabOffsetLocal.y / WINDOWBOX.height : 0.5,
         };
+
+        // dragged out of a scratchpad card: grab the window where it was pressed in the card
+        if (WINDOW->m_workspace && WINDOW->m_workspace->type() == Workspace::eWorkspaceType::SPECIAL) {
+            for (const auto& card : specialTrayCards()) {
+                if (card.workspace != WINDOW->m_workspace)
+                    continue;
+                const auto TRAYBOX = specialTrayWindowBox(card, WINDOW);
+                snapshot.grabRatio = Vector2D{
+                    TRAYBOX.width > 0.0 ? std::clamp((dragStartMouseLocal.x - TRAYBOX.x) / TRAYBOX.width, 0.0, 1.0) : 0.5,
+                    TRAYBOX.height > 0.0 ? std::clamp((dragStartMouseLocal.y - TRAYBOX.y) / TRAYBOX.height, 0.0, 1.0) : 0.5,
+                };
+                snapshot.grabOffsetLocal = Vector2D{snapshot.grabRatio.x * WINDOWBOX.width, snapshot.grabRatio.y * WINDOWBOX.height};
+                break;
+            }
+        }
     }
 
     if (MONITOR && workspaceIdx < images.size())
@@ -3475,6 +3516,10 @@ void CScrollOverview::updateDragEdgeScroll() {
 
         col = MOUSE.x < MARGIN ? -1 : MOUSE.x > SIZE.x - MARGIN ? 1 : 0;
         row = MOUSE.y < MARGIN ? -1 : MOUSE.y > SIZE.y - MARGIN ? 1 : 0;
+
+        // no scrolling while the pointer is over the scratchpad tray at the right edge
+        if (const auto RESERVE = specialTrayReserve(); RESERVE > 0.F && MOUSE.x > SIZE.x - RESERVE * MONITOR->m_scale - MARGIN)
+            col = row = 0;
     }
 
     if (col == dragEdgeCol && row == dragEdgeRow)
@@ -3895,6 +3940,34 @@ void CScrollOverview::endWindowDrag() {
     CDropIndicator::SDropAnchor dropAnchor;
     std::string         dropDirection;
 
+    if (!DROPWORKSPACE && dropOverview) {
+        if (const auto CARD = dropOverview->specialTrayCardAt(DROPPOINTLOCAL)) {
+            const auto SPECIAL = dropOverview->ensureSpecialWorkspace(dropOverview->specialTrayCards()[*CARD]);
+            if (!SPECIAL || SPECIAL == WINDOW->m_workspace)
+                return;
+
+            // move only, like movetoworkspacesilent: no monitor switches workspace or shows the scratchpad
+            std::vector<std::pair<PHLMONITOR, PHLWORKSPACE>> activeBefore;
+            std::vector<std::pair<PHLMONITOR, PHLWORKSPACE>> specialBefore;
+            for (const auto& monitor : State::monitorState()->monitors()) {
+                activeBefore.emplace_back(monitor, monitor->m_activeWorkspace);
+                specialBefore.emplace_back(monitor, monitor->m_activeSpecialWorkspace);
+            }
+
+            Desktop::globalWindowController()->moveWindowToWorkspace(WINDOW, SPECIAL);
+
+            for (const auto& [monitor, workspace] : activeBefore) {
+                if (workspace && monitor->m_activeWorkspace != workspace)
+                    monitor->changeWorkspace(workspace, false, true, true);
+            }
+            for (const auto& [monitor, workspace] : specialBefore) {
+                if (monitor->m_activeSpecialWorkspace != workspace)
+                    monitor->setSpecialWorkspace(workspace, true);
+            }
+            return;
+        }
+    }
+
     if (!DROPWORKSPACE)
         return;
 
@@ -4163,7 +4236,7 @@ float CScrollOverview::gridFitScale() const {
     const auto  GAP   = sc<float>(ScrollOverview::Config::getWorkspaceGap(MONITOR));
     const auto  SIZE  = MONITOR->m_size;
     const float TOP   = gridWorkAreaTop(MONITOR) + GRID_BUTTON_BAND;
-    const float AVAILW = SIZE.x - 2.F * GRID_FIT_MARGIN;
+    const float AVAILW = SIZE.x - 2.F * GRID_FIT_MARGIN - specialTrayReserve();
     const float AVAILH = SIZE.y - TOP - GRID_FIT_MARGIN;
 
     const float FIT = std::min((AVAILW - (COUNT.x - 1) * GAP) / (COUNT.x * SIZE.x), (AVAILH - (COUNT.y - 1) * GAP) / (COUNT.y * SIZE.y));
@@ -4187,9 +4260,10 @@ Vector2D CScrollOverview::gridFitViewOffset() const {
     const auto  PITCH = MONITOR->m_size + Vector2D{GAP, GAP};
     const auto  DELTA = (minCell + maxCell) / 2.0 - workspaceGridCell(activeWorkspaceIndex());
 
-    // centre the grid in the space below the buttons: shift it down by half of that band (screen px / scale)
+    // centre the grid in the space below the buttons and left of the scratchpad tray: shift it by half of those bands
+    // (screen px / scale)
     const float TOP = gridWorkAreaTop(MONITOR) + GRID_BUTTON_BAND - GRID_FIT_MARGIN;
-    return Vector2D{DELTA.x * PITCH.x, DELTA.y * PITCH.y - TOP / 2.F / SCALE};
+    return Vector2D{DELTA.x * PITCH.x + specialTrayReserve() / 2.F / SCALE, DELTA.y * PITCH.y - TOP / 2.F / SCALE};
 }
 
 void CScrollOverview::useViewSwitchAnimation(bool viewSwitch) {
@@ -5535,6 +5609,250 @@ void CScrollOverview::renderContextLabels(PHLMONITOR monitor, size_t activeIdx, 
     }
 }
 
+static constexpr float       TRAY_MARGIN     = 24.F; // logical px: screen edge to cards, and between grid and cards
+static constexpr float       TRAY_GAP        = 20.F; // between a card's label and the next card
+static constexpr float       TRAY_LABEL      = 34.F; // band under every card for its name
+static constexpr int         TRAY_LABEL_SIZE = 15;
+static constexpr std::string_view SPECIAL_PREFIX = "special:";
+
+static std::string specialTrayName(std::string name) {
+    const auto FIRST = name.find_first_not_of(" \t");
+    const auto LAST  = name.find_last_not_of(" \t");
+    name             = FIRST == std::string::npos ? "" : name.substr(FIRST, LAST - FIRST + 1);
+    if (name.starts_with(SPECIAL_PREFIX))
+        name = name.substr(SPECIAL_PREFIX.size());
+    return name;
+}
+
+std::vector<CScrollOverview::STrayCard> CScrollOverview::specialTrayCards() const {
+    std::vector<STrayCard> cards;
+    const auto             MONITOR = pMonitor.lock();
+    if (!MONITOR || !ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray", MONITOR))
+        return cards;
+
+    std::stringstream configured(ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:special_workspaces", MONITOR));
+    for (std::string entry; std::getline(configured, entry, ',');) {
+        const auto NAME = specialTrayName(entry);
+        if (!NAME.empty() && std::ranges::none_of(cards, [&NAME](const auto& card) { return card.name == NAME; }))
+            cards.push_back({.name = NAME});
+    }
+
+    std::vector<STrayCard> others;
+    for (const auto& w : State::workspaceState()->workspaces()) {
+        const auto WORKSPACE = w.lock();
+        if (!valid(WORKSPACE) || WORKSPACE->type() != Workspace::eWorkspaceType::SPECIAL)
+            continue;
+
+        const auto NAME = specialTrayName(WORKSPACE->addressableName());
+        const auto IT   = std::ranges::find_if(cards, [&NAME](const auto& card) { return card.name == NAME; });
+        if (IT != cards.end())
+            IT->workspace = WORKSPACE;
+        else
+            others.push_back({.name = NAME, .workspace = WORKSPACE});
+    }
+    std::ranges::sort(others, {}, &STrayCard::name);
+    cards.insert(cards.end(), others.begin(), others.end());
+    if (cards.empty())
+        return cards;
+
+    // one column at the right edge, vertically centred in the work area; shrink the cards when they do not fit
+    const auto  SIZE   = MONITOR->m_size;
+    const float ASPECT = sc<float>(SIZE.y / std::max(SIZE.x, 1.0));
+    const float TOP    = gridWorkAreaTop(MONITOR) + TRAY_MARGIN;
+    const float AVAILH = sc<float>(SIZE.y) - TOP - TRAY_MARGIN;
+    const float N      = sc<float>(cards.size());
+    float       width  = sc<float>(ScrollOverview::Config::getValue<int>("plugin:gridoverview:special_tray_width", MONITOR));
+    const auto  heightFor = [&](float w) { return N * (w * ASPECT + TRAY_LABEL) + (N - 1.F) * TRAY_GAP; };
+    if (heightFor(width) > AVAILH)
+        width = std::max(20.F, (AVAILH - (N - 1.F) * TRAY_GAP - N * TRAY_LABEL) / N / ASPECT);
+
+    const float HEIGHT = width * ASPECT;
+    float       y      = TOP + std::max(0.F, (AVAILH - heightFor(width)) / 2.F);
+    const float X      = sc<float>(SIZE.x) - TRAY_MARGIN - width;
+    for (auto& card : cards) {
+        card.box = CBox{X, y, width, HEIGHT}.scale(MONITOR->m_scale).round();
+        y += HEIGHT + TRAY_LABEL + TRAY_GAP;
+    }
+
+    return cards;
+}
+
+float CScrollOverview::specialTrayReserve() const {
+    const auto MONITOR = pMonitor.lock();
+    const auto CARDS   = specialTrayCards();
+    if (!MONITOR || CARDS.empty())
+        return 0.F;
+    return sc<float>(CARDS.front().box.w) / std::max(MONITOR->m_scale, 0.01F) + TRAY_MARGIN;
+}
+
+std::optional<size_t> CScrollOverview::specialTrayCardAt(const Vector2D& pointLocal) const {
+    if (closing)
+        return std::nullopt;
+
+    const auto CARDS = specialTrayCards();
+    for (size_t i = 0; i < CARDS.size(); ++i) {
+        if (CARDS[i].box.containsPoint(pointLocal))
+            return i;
+    }
+    return std::nullopt;
+}
+
+// a card shows the scratchpad's own monitor (it can live on another one), scaled to the card
+float CScrollOverview::specialTrayRenderScale(const STrayCard& card) const {
+    const auto MONITOR = pMonitor.lock();
+    const auto SOURCE  = card.workspace && card.workspace->m_monitor ? card.workspace->m_monitor.lock() : MONITOR;
+    if (!MONITOR || !SOURCE)
+        return 0.F;
+    return sc<float>(card.box.w / (std::max(SOURCE->m_size.x, 1.0) * std::max(MONITOR->m_scale, 0.01F)));
+}
+
+CBox CScrollOverview::specialTrayWindowBox(const STrayCard& card, const PHLWINDOW& window) const {
+    const auto MONITOR = pMonitor.lock();
+    const auto SOURCE  = card.workspace && card.workspace->m_monitor ? card.workspace->m_monitor.lock() : MONITOR;
+    if (!MONITOR || !SOURCE || !window)
+        return {};
+
+    const float FACTOR = specialTrayRenderScale(card) * MONITOR->m_scale;
+    const auto  BOX    = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+    return CBox{card.box.pos() + (BOX.pos() - SOURCE->m_position) * FACTOR, BOX.size() * FACTOR}.round();
+}
+
+std::vector<PHLWINDOW> CScrollOverview::specialTrayWindows(const STrayCard& card) const {
+    std::vector<PHLWINDOW> tiled, floating;
+    if (!card.workspace)
+        return tiled;
+
+    for (const auto& w : Desktop::windowState()->windows()) {
+        const auto WINDOW = getOverviewWindowToShow(w);
+        if (!WINDOW || WINDOW->m_workspace != card.workspace || !shouldShowOverviewWindow(WINDOW))
+            continue;
+        auto& list = WINDOW->isFloating() ? floating : tiled;
+        if (std::ranges::find(list, WINDOW) == list.end())
+            list.push_back(WINDOW);
+    }
+    tiled.insert(tiled.end(), floating.begin(), floating.end());
+    return tiled;
+}
+
+PHLWINDOW CScrollOverview::specialTrayWindowAt(const Vector2D& pointLocal) const {
+    const auto IDX = specialTrayCardAt(pointLocal);
+    if (!IDX)
+        return nullptr;
+
+    const auto CARDS   = specialTrayCards();
+    const auto WINDOWS = specialTrayWindows(CARDS[*IDX]);
+    for (auto it = WINDOWS.rbegin(); it != WINDOWS.rend(); ++it) {
+        if (specialTrayWindowBox(CARDS[*IDX], *it).containsPoint(pointLocal))
+            return *it;
+    }
+    return nullptr;
+}
+
+PHLWORKSPACE CScrollOverview::ensureSpecialWorkspace(const STrayCard& card) const {
+    if (card.workspace)
+        return card.workspace;
+
+    const auto WORKSPACE = State::workspaceState()->createSpecial(std::string{SPECIAL_PREFIX} + card.name, pMonitor.lock());
+    if (WORKSPACE && WORKSPACE->m_alpha) {
+        WORKSPACE->m_alpha->setValueAndWarp(1.F);
+        *WORKSPACE->m_alpha = 1.F;
+    }
+    return WORKSPACE;
+}
+
+void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_tp& now) {
+    const auto CARDS = specialTrayCards();
+    if (CARDS.empty())
+        return;
+
+    const float PROGRESS = std::clamp((1.F - scale->value()) / (1.F - ScrollOverview::Config::getScale(monitor)), 0.F, 1.F);
+    const float ALPHA    = PROGRESS * PROGRESS * (3.F - 2.F * PROGRESS);
+    if (ALPHA <= 0.001F)
+        return;
+
+    auto*      dragOwner = g_pointerGrabOverview && g_pointerGrabOverview->dragActiveWindow ? g_pointerGrabOverview : this;
+    const auto DRAGGED   = getOverviewWindowToShow(dragOwner->dragActiveWindow.lock());
+    const auto HOVERED   = DRAGGED && isOverviewPointerOnMonitor(monitor) ? specialTrayCardAt(getOverviewMousePosLocal(monitor)) : std::nullopt;
+
+    const auto  BACKGROUND  = ScrollOverview::Config::getContextLabelBackground(monitor);
+    const float PILLPADDING = 6.F * monitor->m_scale;
+    const int   TEXTSIZE    = std::max(1, sc<int>(std::round(TRAY_LABEL_SIZE * monitor->m_scale)));
+    const auto  TEXTCOLOR   = CHyprColor{1.F, 1.F, 1.F, 0.9F};
+
+    for (size_t i = 0; i < CARDS.size(); ++i) {
+        const auto& CARD     = CARDS[i];
+        const bool  TARGET   = HOVERED == i && (!DRAGGED || DRAGGED->m_workspace != CARD.workspace);
+        const float SCALE    = specialTrayRenderScale(CARD);
+        const auto  ROUNDING = sc<int>(std::round(ScrollOverview::Config::getValue<int>("decoration:rounding") * monitor->m_scale * SCALE));
+
+        auto windows = specialTrayWindows(CARD);
+        std::erase(windows, DRAGGED);
+
+        CRectPassElement::SRectData card;
+        card.box   = CARD.box;
+        card.color = CHyprColor{0.F, 0.F, 0.F, (TARGET ? 0.55F : 0.35F) * ALPHA};
+        card.round = ROUNDING;
+        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(card));
+
+        if (windows.empty())
+            renderEmptyWorkspaceMarker(monitor, CARD.box, scale->value(), ALPHA, TARGET);
+        else {
+            const auto WORKSPACE         = CARD.workspace;
+            const bool WASVISIBLE        = WORKSPACE->visible();
+            const bool WASFORCERENDERING = WORKSPACE->m_forceRendering;
+            WORKSPACE->setVisible(true);
+            WORKSPACE->m_forceRendering = true;
+            auto restoreWorkspaceState  = Hyprutils::Utils::CScopeGuard([WORKSPACE, WASVISIBLE, WASFORCERENDERING] {
+                WORKSPACE->setVisible(WASVISIBLE);
+                WORKSPACE->m_forceRendering = WASFORCERENDERING;
+            });
+
+            for (const auto& window : windows)
+                renderWindowLive(monitor, window, specialTrayWindowBox(CARD, window), SCALE, now, &CARD.box);
+
+            if (TARGET) {
+                auto color = ScrollOverview::Config::getEmptyColor(monitor);
+                color.a    = std::min(1.F, sc<float>(color.a) * 2.F) * ALPHA;
+                Config::CGradientValueData gradient;
+                gradient.m_colors = {color};
+                gradient.updateColorsOk();
+                Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CBorderPassElement>(CBorderPassElement::SBorderData{
+                    .box        = CARD.box,
+                    .grad1      = gradient,
+                    .round      = ROUNDING,
+                    .borderSize = std::max(1, sc<int>(std::round(2.F * monitor->m_scale))),
+                }));
+            }
+        }
+
+        const auto KEY     = CARD.name + "\n" + std::to_string(TEXTSIZE) + "\ntray";
+        auto&      texture = contextLabelTextures[KEY];
+        if (!texture)
+            texture = g_pHyprRenderer->renderText(CARD.name, TEXTCOLOR, TEXTSIZE, false, "", 0, 600);
+        if (!texture || texture->m_size.x <= 0)
+            continue;
+
+        const auto TEXT  = texture->m_size;
+        const auto LABEL = CBox{CARD.box.middle().x - TEXT.x / 2.0, CARD.box.y + CARD.box.h + TRAY_LABEL * monitor->m_scale / 2.0 - TEXT.y / 2.0, TEXT.x, TEXT.y};
+        if (BACKGROUND.a > 0.F) {
+            auto pillBox = LABEL.copy().expand(PILLPADDING).round();
+            pillBox.x -= PILLPADDING;
+            pillBox.w += 2.0 * PILLPADDING;
+            CRectPassElement::SRectData pill;
+            pill.box   = pillBox;
+            pill.color = BACKGROUND.modifyA(BACKGROUND.a * ALPHA);
+            pill.round = sc<int>(pill.box.h / 2.0);
+            Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(pill));
+        }
+
+        CTexPassElement::SRenderData data;
+        data.tex = texture;
+        data.box = LABEL.copy().round();
+        data.a   = ALPHA * (CARD.workspace ? 1.F : 0.6F);
+        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CTexPassElement>(std::move(data)));
+    }
+}
+
 // window_icons: app icon on a round plate in the middle of every window (not on the one being dragged)
 void CScrollOverview::renderWindowIcons(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale) {
     if (!ScrollOverview::Config::getValue<bool>("plugin:gridoverview:window_icons", monitor))
@@ -6810,6 +7128,7 @@ void CScrollOverview::render() {
 
     renderWindowIcons(MONITOR, ACTIVEIDX, PITCH, SCALE);
     renderContextLabels(MONITOR, ACTIVEIDX, PITCH, SCALE);
+    renderSpecialTray(MONITOR, NOW);
     renderDraggedWindow(MONITOR, ACTIVEIDX, PITCH, SCALE, NOW);
     renderPinnedFloatingWindows(MONITOR, SCALE, NOW);
     renderGridModeButtons(MONITOR);

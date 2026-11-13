@@ -454,6 +454,11 @@ static void defineConfigValues() {
                                     "continuous zoom: zooming in selects the workspace under the cursor and zooms towards it", false));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:grid_all_contexts",
                                     "grid mode: every context up to grid_rows always has its first workspace in the overview", false));
+    addValue(makeShared<CBoolValue>("plugin:gridoverview:special_tray", "special workspaces (scratchpads) as cards at the right screen edge", false));
+    addValue(makeShared<CStringValue>("plugin:gridoverview:special_workspaces",
+                                      "comma-separated special workspace names always shown in the tray, also when empty", Hyprlang::STRING{""}));
+    addValue(makeShared<CIntValue>("plugin:gridoverview:special_tray_width", "width of the special workspace cards in layout px", 240,
+                                   SIntValueOptions{.min = 60, .max = 2000}));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:context_labels", "grid mode: name of every context next to its first workspace", false));
     addValue(makeShared<CGradientValue>("plugin:gridoverview:context_label_background", "pill behind the context labels", -1));
     addValue(makeShared<CStringValue>("plugin:gridoverview:context_names", "comma-separated context names (context 1, 2, ...)", Hyprlang::STRING{""}));

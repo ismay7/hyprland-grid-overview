@@ -28,6 +28,10 @@ features are additions on top of it (see [Credits](#credits)).
 - **Continuous zoom**: `overview("zoomout" | "zoomin")` (e.g. on `SUPER + CTRL + wheel`) zooms from the desktop
   into the centred view and on to the whole grid; the zoom stays where it is released and is remembered,
   zooming all the way in closes the overview.
+- **Scratchpad tray** (`special_tray = true`): special workspaces as cards at the right screen edge, outside
+  the zoomed grid. Drag windows into a card (an unused configured name is created on the fly) or out of it onto
+  any workspace; a click on a card closes the overview and shows that scratchpad. Names listed in
+  `special_workspaces` always get a card, also while empty.
 - **Hooks**: shell commands on open/close (e.g. to change a dock's auto-hide while the overview is open).
 
 ## Installation
@@ -116,6 +120,9 @@ workspaces of a context are created on its monitor. A separate grid per monitor 
 | `window_icon_size` | int | icon size on screen in layout px, independent of the zoom (at most 60 % of a window's short side incl. plate) | `64` |
 | `window_icon_plate_color` | color | plate behind the icon | `rgba(0,0,0,0.45)` |
 | `icon_theme` | string | icon theme searched before hicolor (e.g. `Papirus-Dark`); empty = hicolor only | empty |
+| `special_tray` | bool | special workspaces (scratchpads) as cards at the right screen edge; the whole-grid view keeps that space free | `false` |
+| `special_workspaces` | string | comma-separated special workspace names (without `special:`) that always get a card, also while empty | empty |
+| `special_tray_width` | int | card width in layout px (cards shrink when they do not fit the screen height) | `240` |
 | `transition_bezier` | string | bezier for moving between workspaces in the overview; empty = `windowsMove` | empty |
 | `transition_speed` | float | speed for `transition_bezier` | `4` |
 | `view_switch_bezier` | string | bezier for switching between centred and whole-grid view; empty = built-in smooth curve | empty |
