@@ -1544,6 +1544,11 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
                     dragStartMouseLocal = lastMousePosLocal;
                     return;
                 }
+                // between the cards: a click there does nothing (instead of closing on the workspace below)
+                if (specialTrayBandAt(lastMousePosLocal)) {
+                    specialTrayBandPressed = true;
+                    return;
+                }
 
                 // click on a context label: go to the first workspace of that context
                 if (!closing) {
@@ -1570,6 +1575,11 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
 
                 dragPendingPrimary  = true;
                 dragStartMouseLocal = lastMousePosLocal;
+                return;
+            }
+
+            if (specialTrayBandPressed) {
+                specialTrayBandPressed = false;
                 return;
             }
 
@@ -2658,7 +2668,7 @@ CBox CScrollOverview::workspaceOverviewVisibleBox(size_t workspaceIdx, const CBo
 PHLWINDOW CScrollOverview::windowAtOverviewPoint(const Vector2D& point, size_t* hoveredWorkspaceIdx) const {
     size_t activeIdx = activeWorkspaceIndex();
     const auto MONITOR = pMonitor.lock();
-    if (!MONITOR || specialTrayCardAt(point))
+    if (!MONITOR || specialTrayBandAt(point))
         return nullptr;
 
     const auto WORKSPACEPITCH = getWorkspaceRenderedPitch(MONITOR, scale->value(), layout);
@@ -3013,7 +3023,7 @@ CDropIndicator::SDropAnchor CScrollOverview::dropAnchorAtOverviewCursorOnWorkspa
 
 PHLWORKSPACE CScrollOverview::workspaceAtOverviewPoint(const Vector2D& point, size_t* hoveredWorkspaceIdx) const {
     const auto MONITOR = pMonitor.lock();
-    if (!MONITOR || specialTrayCardAt(point))
+    if (!MONITOR || specialTrayBandAt(point))
         return nullptr;
 
     for (size_t workspaceIdx = 0; workspaceIdx < images.size(); ++workspaceIdx) {
@@ -3038,7 +3048,7 @@ PHLWORKSPACE CScrollOverview::workspaceAtOverviewPoint(const Vector2D& point, si
 
 PHLWORKSPACE CScrollOverview::workspaceAtOverviewDropPoint(const Vector2D& point, size_t* hoveredWorkspaceIdx, const PHLWINDOW& draggedWindow) const {
     const auto MONITOR = pMonitor.lock();
-    if (!MONITOR || specialTrayCardAt(point))
+    if (!MONITOR || specialTrayBandAt(point))
         return nullptr;
 
     const auto ACTIVEIDX       = activeWorkspaceIndex();
@@ -5791,6 +5801,23 @@ void CScrollOverview::updateSpecialTrayReveal(const Vector2D& pointLocal) {
     const bool   SHOW  = isOverviewPointerOnMonitor(MONITOR) && ((pointLocal.x >= EDGE && (!DRAGGING || ATEND)) || (SHOWN && pointLocal.x >= KEEP));
     if (SHOW != SHOWN)
         *trayReveal = SHOW ? 1.F : 0.F;
+}
+
+// the whole band around the cards (gaps and labels included): nothing under it reacts while the tray is shown
+bool CScrollOverview::specialTrayBandAt(const Vector2D& pointLocal) const {
+    const auto MONITOR = pMonitor.lock();
+    if (!MONITOR || closing || (specialTrayAutohide() && trayReveal && trayReveal->goal() < 0.5F))
+        return false;
+
+    const auto CARDS = specialTrayCards();
+    if (CARDS.empty())
+        return false;
+
+    const double MARGIN = TRAY_MARGIN * MONITOR->m_scale;
+    const double LEFT   = CARDS.front().box.x - MARGIN;
+    const double TOP    = CARDS.front().box.y - MARGIN;
+    const double BOTTOM = CARDS.back().box.y + CARDS.back().box.h + TRAY_LABEL * MONITOR->m_scale + MARGIN;
+    return pointLocal.x >= LEFT && pointLocal.y >= TOP && pointLocal.y <= BOTTOM;
 }
 
 std::optional<size_t> CScrollOverview::specialTrayCardAt(const Vector2D& pointLocal) const {
