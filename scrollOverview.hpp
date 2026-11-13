@@ -131,6 +131,7 @@ class CScrollOverview : public IOverview {
     PHLWORKSPACE           ensureSpecialWorkspace(const STrayCard& card) const;
     void                   hideActiveSpecialWorkspace();
     void                   renderSpecialTray(PHLMONITOR monitor, const Time::steady_tp& now);
+    void                   renderSpecialTrayIcons(PHLMONITOR monitor, const STrayCard& card, const std::vector<PHLWINDOW>& windows, float alpha);
     std::optional<size_t>  specialTrayPressed;
     // shown once this overview is gone; by name, an empty scratchpad created earlier would be cleaned up by then
     std::string            pendingSpecialName;

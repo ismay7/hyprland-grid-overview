@@ -376,6 +376,51 @@ PHLWORKSPACE CScrollOverview::ensureSpecialWorkspace(const STrayCard& card) cons
     return State::workspaceState()->createSpecial(ADDRESS, pMonitor.lock());
 }
 
+// app icons on the bottom edge of a card, half over it, side by side from the right edge (the tray is at the right
+// screen edge), like macOS Stage Manager: one per app, the topmost window's on the right, only as many as fit
+// beside the centred name
+void CScrollOverview::renderSpecialTrayIcons(PHLMONITOR monitor, const STrayCard& card, const std::vector<PHLWINDOW>& windows, float alpha) {
+    const float ICON  = ScrollOverview::Config::getValue<int>("plugin:gridoverview:special_tray_icon_size", monitor) * monitor->m_scale;
+    const float PLATE = ICON * 1.3F;
+    const float GAP   = 6.F * monitor->m_scale;
+    const float INSET = 10.F * monitor->m_scale;
+    const int   FIT   = std::max(1, sc<int>((card.box.w / 2.0 - 50.F * monitor->m_scale - INSET) / (PLATE + GAP)));
+    const auto  THEME = ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:icon_theme", monitor);
+    auto        plate = ScrollOverview::Config::getWindowIconPlateColor(monitor);
+    plate.a *= alpha;
+
+    std::vector<std::string> apps;
+    for (auto it = windows.rbegin(); it != windows.rend() && sc<int>(apps.size()) < FIT; ++it) {
+        const auto APP = (*it)->metadata().appID();
+        if (std::ranges::find(apps, APP) == apps.end())
+            apps.push_back(APP);
+    }
+
+    float       right  = card.box.x + card.box.w - INSET;
+    const float CENTER = card.box.y + card.box.h;
+    for (const auto& app : apps) {
+        const auto TEXTURE = GridIcons::iconForAppID(app, THEME);
+        if (!TEXTURE)
+            continue;
+
+        const float MIDX = right - PLATE / 2.F;
+        if (plate.a > 0.F) {
+            CRectPassElement::SRectData data;
+            data.box   = CBox{MIDX - PLATE / 2.F, CENTER - PLATE / 2.F, PLATE, PLATE}.round();
+            data.color = plate;
+            data.round = sc<int>(PLATE / 2.F);
+            Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(data));
+        }
+
+        CTexPassElement::SRenderData data;
+        data.tex = TEXTURE;
+        data.box = CBox{MIDX - ICON / 2.F, CENTER - ICON / 2.F, ICON, ICON}.round();
+        data.a   = alpha;
+        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CTexPassElement>(std::move(data)));
+        right -= PLATE + GAP;
+    }
+}
+
 void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_tp& now) {
     const auto CARDS = specialTrayCards();
     if (CARDS.empty())
@@ -395,6 +440,7 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
     const float PILLPADDING = 6.F * monitor->m_scale;
     const int   TEXTSIZE    = std::max(1, sc<int>(std::round(TRAY_LABEL_SIZE * monitor->m_scale)));
     const auto  TEXTCOLOR   = CHyprColor{1.F, 1.F, 1.F, 0.9F};
+    const bool  ICONS       = ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray_icons", monitor);
 
     for (size_t i = 0; i < CARDS.size(); ++i) {
         const auto& CARD     = CARDS[i];
@@ -448,6 +494,9 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
                     .borderSize = std::max(1, sc<int>(std::round(2.F * monitor->m_scale))),
                 }));
             }
+
+            if (ICONS)
+                renderSpecialTrayIcons(monitor, CARD, windows, ALPHA);
         }
 
         const auto KEY     = CARD.name + "\n" + std::to_string(TEXTSIZE) + "\ntray";
