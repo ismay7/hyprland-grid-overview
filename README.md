@@ -1,42 +1,55 @@
 # hyprland-grid-overview
 
-A workspace **grid** overview for Hyprland (plugin name `gridoverview`): workspaces are arranged as a two-dimensional grid of
-*contexts* (rows) and *workspaces* (columns), e.g. row 1 = general work, row 2 = game dev,
-row 3 = communication. Workspace `R*10+C` sits in row `R`, column `C` (11–19, 21–29, …).
+**See Hyprland, then shape it.** A workspace overview plugin for Hyprland (plugin name `gridoverview`) that shows
+your workspaces, windows and scratchpads as one grid you can grab with the mouse.
+
+Hyprland can do a lot: as many workspaces as you like, scratchpads, floating windows, groups. Most of it sits behind
+keybinds you have to know first. gridoverview puts it on screen instead: open the overview and everything is
+there to drag, drop and click, so you can find out what Hyprland can do before you learn a single shortcut.
+Nothing has to be configured first; every feature works out of the box and can be refined later — names for rows,
+wallpapers, keybinds, animations. **Building up, never required.** The keyboard stays first-class: Hyprland's own
+keybinds keep working, and the overview's views and zoom have dispatchers to bind.
 
 hyprland-grid-overview is a fork of [hyprland-scroll-overview](https://github.com/yayuuu/hyprland-scroll-overview)
 by Vaxry and yayuuu, a niri-like overview plugin. Everything the original does still works; the grid
 features are additions on top of it (see [Credits](#credits)).
 
-## Features
+## Out of the box
 
-- **Grid layout** (`grid = true`): workspace `R*10+C` in row `R`, column `C`; rows can be named (contexts) but
-  work the same without. Arrow keys, the mouse wheel (`SHIFT` or horizontal wheel for columns) and the middle
-  mouse button (free 2D pan, snaps on release) move through it.
-- **Placeholders**: while the overview is open every row gets an empty workspace past its last used column,
-  plus an empty row below the last used one, so windows can be dropped there. Unused placeholders disappear
-  again, also while the overview stays open.
-- **Directional drop** for dwindle: dropping a window on the edge of another one inserts it on that side
-  (preview: the half it will take), dropping it in the middle swaps both.
-- **Edge scrolling**: holding a dragged window at a screen edge steps to the neighbouring workspace. On the right
-  the scratchpad tray comes first (it slides in with `special_tray_autohide`); pushing on to the very edge, beyond
-  its cards, and holding there scrolls on behind it.
-- **Selected-workspace highlight** (`highlight_selected = true`): only the selected workspace gets wallpaper
-  and shadow, sliding between workspaces; the others show just their windows, empty ones an outline with a
-  plus.
-- **Whole-grid view**: buttons at the top switch between the centred view and a view that fits the whole
-  grid on screen (also `overview("fit" | "center" | "togglefit")`); a slider between them zooms
-  continuously from one to the other.
-- **Continuous zoom**: `overview("zoomout" | "zoomin")` (e.g. on `SUPER + CTRL + wheel`) zooms from the desktop
-  into the centred view and on to the whole grid; the zoom stays where it is released and is remembered,
-  zooming all the way in closes the overview.
-- **Scratchpad tray** (on by default): special workspaces as cards at the right screen edge, outside
-  the zoomed grid. Drag windows into a card (an unused configured name is created on the fly) or out of it onto
-  any workspace; a click on a card closes the overview and shows that scratchpad. Names listed in
-  `special_workspaces` always get a card, also while empty. A window dropped on the "+" below the cards gets a
-  new scratchpad named after its app (`nautilus`, `kitty-2`, ...); a click on the "+" opens a new, empty one
-  (`scratch`), which Hyprland removes again once it is empty and hidden. With `special_tray_autohide` the tray
-  slides in only when the pointer touches the right edge.
+- **A free grid**: workspace `R*10+C` sits in row `R`, column `C` (11–19, 21–29, …). It grows as you need it:
+  every row gets an empty workspace past its last used one, and below the last used row there is an empty row,
+  so a window can always be dropped somewhere new. Unused ones disappear again, also while the overview stays
+  open.
+- **Drag windows anywhere**: onto another workspace, onto the edge of a window to insert it on that side (dwindle;
+  the preview shows the half it will take), onto its middle to swap both. Holding a dragged window at a screen
+  edge scrolls to the neighbouring workspace.
+- **Scratchpads at hand**: a tray at the right screen edge shows Hyprland's special workspaces as live cards,
+  starting with the default one, `special`. Drag a window into a card or out of it onto any workspace; a click
+  shows that scratchpad. Drop a window on the "+" below the cards for a new scratchpad named after its app
+  (`nautilus`, `kitty-2`, …), or click the "+" for a new, empty one. A dragged window shrinks to card size as it
+  approaches the tray; at the right edge the tray comes first, pushing on to the very edge scrolls on behind it.
+- **Two views and everything in between**: buttons at the top switch between the centred view and the whole
+  grid; the slider between them zooms continuously.
+- **Mouse everywhere**: click a workspace or window to go there, wheel through the grid (`SHIFT` or the
+  horizontal wheel for the other axis), pan freely with the middle mouse button (snaps on release).
+
+## Make it yours
+
+Everything below is optional; see [Configuration](#configuration-lua) for the options.
+
+- **Name your rows** (contexts, `context_names`, `context_labels`): labels next to the rows, which you can click,
+  and with the example Lua module a wallpaper and a monitor per context and a bar widget. Rows without a
+  name keep working the same. Contexts as columns instead of rows: `grid_orientation = "columns"`.
+- **Looks**: only the selected workspace with wallpaper and shadow (`highlight_selected`), empty workspaces always,
+  only while dragging or only under the pointer (`empty_marker`), app icons on the windows (`window_icons`), own
+  curves for moving and switching views (`transition_bezier`, `view_switch_bezier`).
+- **Scratchpad tray**: cards that are always there, also while empty (`special_workspaces`), their size
+  (`special_tray_width`), or hidden until the pointer touches the right edge, like an auto-hiding dock
+  (`special_tray_autohide`).
+- **Keys**: `overview("zoomout" | "zoomin")` (e.g. on `SUPER + CTRL + wheel`) zooms from the desktop into the
+  centred view and on to the whole grid, stays where released and is remembered; `overview("fit" | "center" |
+  "togglefit")` for the views. The example module adds keys for moving through the grid (with or without the
+  active window).
 - **Hooks**: shell commands on open/close (e.g. to change a dock's auto-hide while the overview is open).
 
 ## Installation
