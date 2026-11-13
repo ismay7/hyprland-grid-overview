@@ -1124,6 +1124,13 @@ CScrollOverview::~CScrollOverview() {
     }
     if (const auto MONITOR = pMonitor.lock())
         MONITOR->m_blurFBDirty = true;
+
+    // clicked in the scratchpad tray: shown only now, with the workspace animations back and Hyprland's own
+    // dimming / blur behind it (shown during the close animation, the background only switched once it ended)
+    if (const auto SPECIAL = pendingSpecialWorkspace.lock(); SPECIAL && valid(SPECIAL)) {
+        if (const auto MONITOR = pMonitor.lock())
+            MONITOR->setSpecialWorkspace(SPECIAL);
+    }
 }
 
 CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITOR monitor_) : startedOn(startedOn_), swipe(swipe_) {
@@ -1564,11 +1571,9 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
                     const auto CARDS   = specialTrayCards();
                     const auto MONITOR = pMonitor.lock();
                     if (IDX < CARDS.size() && MONITOR && specialTrayCardAt(lastMousePosLocal) == IDX) {
-                        const auto SPECIAL = ensureSpecialWorkspace(CARDS[IDX]);
+                        pendingSpecialWorkspace = ensureSpecialWorkspace(CARDS[IDX]);
                         closeOnWindow.reset();
                         closeAll();
-                        if (SPECIAL)
-                            MONITOR->setSpecialWorkspace(SPECIAL);
                     }
                     return;
                 }
@@ -5186,7 +5191,9 @@ void CScrollOverview::restoreWorkspaceAnimationOverrides() {
 
 void CScrollOverview::forceWorkspaceAlphaVisible() {
     for (const auto& workspace : State::workspaceState()->workspaces()) {
-        if (!workspace || !workspace->m_alpha)
+        // a hidden scratchpad at alpha 1 is drawn by Hyprland after the overview closed until it fades out again;
+        // the tray sets the alpha only while drawing its cards
+        if (!workspace || !workspace->m_alpha || workspace->type() == Workspace::eWorkspaceType::SPECIAL)
             continue;
 
         workspace->m_alpha->setValueAndWarp(1.F);
@@ -5764,12 +5771,7 @@ PHLWORKSPACE CScrollOverview::ensureSpecialWorkspace(const STrayCard& card) cons
     if (card.workspace)
         return card.workspace;
 
-    const auto WORKSPACE = State::workspaceState()->createSpecial(std::string{SPECIAL_PREFIX} + card.name, pMonitor.lock());
-    if (WORKSPACE && WORKSPACE->m_alpha) {
-        WORKSPACE->m_alpha->setValueAndWarp(1.F);
-        *WORKSPACE->m_alpha = 1.F;
-    }
-    return WORKSPACE;
+    return State::workspaceState()->createSpecial(std::string{SPECIAL_PREFIX} + card.name, pMonitor.lock());
 }
 
 void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_tp& now) {
@@ -5812,13 +5814,14 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
             const auto WORKSPACE         = CARD.workspace;
             const bool WASVISIBLE        = WORKSPACE->visible();
             const bool WASFORCERENDERING = WORKSPACE->m_forceRendering;
-            // a scratchpad that was just left fades out (workspace alpha -> 0), also after the overview opened;
-            // window contents are multiplied by it, borders are not. Only the drawn value, the fade keeps running.
+            // a scratchpad that was just left fades out (workspace alpha -> 0), also after the overview opened.
+            // Window contents follow the workspace alpha, borders and shadows the render alpha: both get the
+            // tray's own fade. Only the drawn value is replaced, Hyprland's fade keeps running.
             const float WASALPHA = WORKSPACE->m_alpha ? WORKSPACE->m_alpha->value() : 1.F;
             WORKSPACE->setVisible(true);
             WORKSPACE->m_forceRendering = true;
             if (WORKSPACE->m_alpha)
-                WORKSPACE->m_alpha->value() = 1.F;
+                WORKSPACE->m_alpha->value() = ALPHA;
             auto restoreWorkspaceState = Hyprutils::Utils::CScopeGuard([WORKSPACE, WASVISIBLE, WASFORCERENDERING, WASALPHA] {
                 WORKSPACE->setVisible(WASVISIBLE);
                 WORKSPACE->m_forceRendering = WASFORCERENDERING;
@@ -5827,7 +5830,7 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
             });
 
             for (const auto& window : windows)
-                renderWindowLive(monitor, window, specialTrayWindowBox(CARD, window), SCALE, now, &CARD.box);
+                renderWindowLive(monitor, window, specialTrayWindowBox(CARD, window), SCALE, now, &CARD.box, false, ALPHA);
 
             if (TARGET) {
                 auto color = ScrollOverview::Config::getEmptyColor(monitor);
@@ -6044,6 +6047,17 @@ void CScrollOverview::renderDraggedWindow(PHLMONITOR monitor, size_t activeIdx, 
         GLOBALBOX.size() * monitor->m_scale,
     };
 
+    // dragged out of the scratchpad tray: the contents follow the (possibly faded out) scratchpad's alpha
+    const auto  WORKSPACE = WINDOW->m_workspace;
+    const bool  SPECIAL   = WORKSPACE->type() == Workspace::eWorkspaceType::SPECIAL && WORKSPACE->m_alpha;
+    const float WASALPHA  = SPECIAL ? WORKSPACE->m_alpha->value() : 1.F;
+    if (SPECIAL)
+        WORKSPACE->m_alpha->value() = 1.F;
+    auto restoreAlpha = Hyprutils::Utils::CScopeGuard([WORKSPACE, SPECIAL, WASALPHA] {
+        if (SPECIAL)
+            WORKSPACE->m_alpha->value() = WASALPHA;
+    });
+
     renderWindowLive(monitor, WINDOW, windowBox, dragOwner->scale->value(), now, nullptr, true);
 }
 
@@ -6121,7 +6135,7 @@ void CScrollOverview::renderPinnedFloatingWindows(PHLMONITOR monitor, float over
 }
 
 void CScrollOverview::renderWindowLive(PHLMONITOR monitor, PHLWINDOW window, const CBox& windowBox, float renderScale, const Time::steady_tp& now, const CBox* workspaceBox,
-                                       bool dragged) {
+                                       bool dragged, float alpha) {
     if (!window)
         return;
 
@@ -6153,6 +6167,7 @@ void CScrollOverview::renderWindowLive(PHLMONITOR monitor, PHLWINDOW window, con
         .selected             = closeOnWindow == window,
         .dragged              = dragged,
         .pseudoFocusWindow    = PSEUDOFOCUSWINDOW,
+        .alpha                = alpha,
     });
 }
 

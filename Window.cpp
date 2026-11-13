@@ -995,7 +995,8 @@ void renderOverviewWindow(const SRenderParams& params) {
 
     const SOverviewPseudoFocusState pseudoFocusState{params.window, params.pseudoFocusWindow};
     const bool                   fullscreen   = Fullscreen::controller()->isFullscreen(params.window);
-    const SOverviewWindowMetrics metrics      = getOverviewWindowMetrics(params.monitor, params.window, params.renderScale);
+    SOverviewWindowMetrics       metrics      = getOverviewWindowMetrics(params.monitor, params.window, params.renderScale);
+    metrics.targetOpacity *= params.alpha;
 
     auto& ctx = g_pHyprRenderer->context();
     SP<SBackdropScope> backdropScope;
