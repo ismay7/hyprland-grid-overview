@@ -1467,6 +1467,8 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
         const uint32_t RESIZE_BUTTON      = LEFT_HANDED ? BTN_LEFT : BTN_RIGHT;
         const bool     INVERT_DRAG_MODE   = ScrollOverview::Config::getDragMode(pMonitor.lock()) == 1;
         const uint32_t SECONDARY_DRAG_BUTTON = BTN_MIDDLE;
+        const float    DRAGTHRESHOLD      = ScrollOverview::Config::getDragThreshold(pMonitor.lock()) * (pMonitor ? pMonitor->m_scale : 1.F);
+        const float    DRAGTHRESHOLDSQ    = std::pow(DRAGTHRESHOLD, 2);
         const auto     clearSubmapMouseClickPending = [&]() {
             submapMouseClickPending = false;
             submapMouseClickButton  = 0;
@@ -1650,6 +1652,12 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
                 if (beginSubmapMouseClickPending(event.button))
                     return;
 
+                // a middle click without moving closes the window under the pointer (like a browser tab)
+                middleClickWindow = specialTrayWindowAt(lastMousePosLocal);
+                if (!middleClickWindow)
+                    middleClickWindow = windowAtOverviewPoint(lastMousePosLocal);
+                middleClickStart = lastMousePosLocal;
+
                 const auto WORKSPACE = workspaceAtPanPoint(lastMousePosLocal);
 
                 if (!isWorkspaceScrolling(WORKSPACE)) {
@@ -1663,8 +1671,18 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
                 return;
             }
 
+            const auto closeOnMiddleClick = [&] {
+                const auto WINDOW = getOverviewWindowToShow(middleClickWindow.lock());
+                middleClickWindow.reset();
+                if (!shouldShowOverviewWindow(WINDOW) || middleClickStart.distanceSq(lastMousePosLocal) > DRAGTHRESHOLDSQ)
+                    return;
+                WINDOW->sendClose();
+                damage();
+            };
+
             if (gridPanActive) {
                 endGridPan();
+                closeOnMiddleClick();
                 return;
             }
 
@@ -1678,11 +1696,13 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
                 else
                     clearSubmapMouseClickPending();
 
+                middleClickWindow.reset();
                 return;
             }
 
             if (scrollingPanPointerDown)
                 endScrollingPan();
+            closeOnMiddleClick();
             return;
         }
 

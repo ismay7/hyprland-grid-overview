@@ -89,7 +89,7 @@ class Input:
         from evdev import UInput, ecodes as e
 
         self.e = e
-        keys = [e.BTN_LEFT, e.BTN_RIGHT, e.KEY_ESC]
+        keys = [e.BTN_LEFT, e.BTN_RIGHT, e.BTN_MIDDLE, e.KEY_ESC]
         self.ui = UInput({e.EV_KEY: keys, e.EV_REL: [e.REL_X, e.REL_Y]}, name="gridoverview-selftest")
         time.sleep(1.0)
 
@@ -119,6 +119,17 @@ class Input:
     def click(self):
         self.button(True)
         self.button(False)
+
+    def middle(self, down):
+        self.ui.write(self.e.EV_KEY, self.e.BTN_MIDDLE, 1 if down else 0)
+        self.ui.syn()
+        time.sleep(0.08)
+
+    def middle_click(self):
+        for value in (1, 0):
+            self.ui.write(self.e.EV_KEY, self.e.BTN_MIDDLE, value)
+            self.ui.syn()
+            time.sleep(0.08)
 
     def escape(self):
         self.ui.write(self.e.EV_KEY, self.e.KEY_ESC, 1)
@@ -330,6 +341,31 @@ class SelfTest:
             dispatch(f'hl.dsp.workspace.toggle_special("{special_open()[8:]}")')
             time.sleep(0.6)
 
+    def test_middle_drag(self):
+        self.open_overview()
+        x, y, _ = self.monitor_center()
+        self.input.warp(x, y)
+        self.input.nudge()
+        self.input.middle(True)
+        self.input.rel_x(400, steps=40)
+        self.input.middle(False)
+        time.sleep(0.8)
+        self.check("middle drag pans without closing the window", test_window() is not None)
+        self.close_overview()
+
+    def test_middle_click(self):
+        if active_workspace() != str(self.args.workspace):
+            dispatch(f"hl.dsp.focus({{ workspace = {self.args.workspace} }})")
+            time.sleep(0.6)
+        self.open_overview()
+        x, y, _ = self.monitor_center()
+        self.input.warp(x, y)
+        self.input.nudge()
+        self.input.middle_click()
+        closed = wait_for(lambda: test_window() is None, timeout=3.0)
+        self.check("middle click closes the window under the pointer", bool(closed))
+        self.close_overview()
+
     def run(self):
         if not self.preflight():
             return 2
@@ -341,6 +377,8 @@ class SelfTest:
             self.test_views()
             self.test_drag_cancel()
             self.test_tray()
+            self.test_middle_drag()
+            self.test_middle_click()
         finally:
             try:
                 self.teardown()
@@ -360,7 +398,7 @@ def main():
     args = parser.parse_args()
     if args.list:
         print("keys (example Lua module), views and zoom, cancelled drag, tray: reveal, drop on +, emptied scratchpad, "
-              "card click; at the end: your windows unchanged, back on the start workspace")
+              "card click, middle drag pans, middle click closes a window; at the end: your windows unchanged, back on the start workspace")
         return 0
     if args.workspace < 11 or args.workspace % 10 == 0 or args.workspace // 10 < 2:
         parser.error("--workspace must be a grid workspace below the first row, e.g. 91")

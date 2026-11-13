@@ -31,7 +31,8 @@ features are additions on top of it (see [Credits](#credits)).
 - **Two views and everything in between**: buttons at the top switch between the centred view and the whole
   grid; the slider between them zooms continuously.
 - **Mouse everywhere**: click a workspace or window to go there, wheel through the grid (`SHIFT` or the
-  horizontal wheel for the other axis), pan freely with the middle mouse button (snaps on release).
+  horizontal wheel for the other axis), pan freely with the middle mouse button (snaps on release); a middle
+  click without moving closes the window under the pointer, like a browser tab (also in the scratchpad tray).
 
 ## Make it yours
 
@@ -156,7 +157,7 @@ The options, dispatchers, gestures and submaps of the original are documented in
 `python3 scripts/selftest.py` runs a self-test in the current Hyprland session: it drives a virtual mouse and
 keyboard (python-evdev, write access to `/dev/uinput`) on its own test window on workspace 91 (`--workspace`) and
 checks keys of the example module, views and zoom, a cancelled drag and the scratchpad tray (reveal, drop on "+",
-card click). Your windows stay where they are; exit code 0 when everything passed. For scripts,
+card click, middle click closing a window). Your windows stay where they are; exit code 0 when everything passed. For scripts,
 `hl.plugin.gridoverview.tray_layout()` returns the tray of the overview under the pointer as JSON.
 
 ## Known limitations

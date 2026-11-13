@@ -118,6 +118,8 @@ class CScrollOverview : public IOverview {
     bool                   specialTrayBandAt(const Vector2D& pointLocal) const;
     CBox                   specialTrayBandBox() const;
     bool                   specialTrayBandPressed = false;
+    PHLWINDOWREF           middleClickWindow; // pressed with the middle button: closed if released without moving
+    Vector2D               middleClickStart;
     CBox                   specialTrayAddBox(const std::vector<STrayCard>& cards) const;
     bool                   specialTrayAddAt(const Vector2D& pointLocal) const;
     bool                   specialTrayAddPressed = false;
