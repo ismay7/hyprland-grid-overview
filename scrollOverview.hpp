@@ -40,6 +40,7 @@ class CScrollOverview : public IOverview {
     bool         shouldAllowRealtimePreviewSchedule() override;
     bool         shouldSuppressRenderDamage() const override;
     void         onPreRender() override;
+    std::string  specialTrayLayoutJson() const; // hl.plugin.gridoverview.tray_layout()
 
     void         setClosing(bool closing) override;
 

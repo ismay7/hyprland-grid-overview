@@ -1,4 +1,5 @@
 #include "Config.hpp"
+#include "SpecialTray.hpp"
 
 #include <algorithm>
 #include <config/shared/complex/ComplexDataType.hpp>
@@ -395,6 +396,7 @@ static void registerLuaFunctions() {
 
     HyprlandAPI::addLuaFunction(SCROLLOVERVIEW_HANDLE, "gridoverview", "_dispatch", ::runDispatcherActionLua);
     HyprlandAPI::addLuaFunction(SCROLLOVERVIEW_HANDLE, "gridoverview", "configure", ::configureLua);
+    HyprlandAPI::addLuaFunction(SCROLLOVERVIEW_HANDLE, "gridoverview", "tray_layout", ::trayLayoutLua);
 }
 
 static void defineConfigValues() {

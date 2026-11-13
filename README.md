@@ -151,6 +151,14 @@ workspaces of a context are created on its monitor. A separate grid per monitor 
 The options, dispatchers, gestures and submaps of the original are documented in [docs/wiki](docs/wiki)
 (adapted to the `gridoverview` names).
 
+## Testing
+
+`python3 scripts/selftest.py` runs a self-test in the current Hyprland session: it drives a virtual mouse and
+keyboard (python-evdev, write access to `/dev/uinput`) on its own test window on workspace 91 (`--workspace`) and
+checks keys of the example module, views and zoom, a cancelled drag and the scratchpad tray (reveal, drop on "+",
+card click). Your windows stay where they are; exit code 0 when everything passed. For scripts,
+`hl.plugin.gridoverview.tray_layout()` returns the tray of the overview under the pointer as JSON.
+
 ## Known limitations
 
 - Options changed at runtime with `hyprctl eval 'hl.config({ plugin = { gridoverview = { ... } } })'` reach the

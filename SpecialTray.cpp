@@ -79,6 +79,7 @@
 #include "OverviewRender.hpp"
 #include "Window.hpp"
 #include "ScrollOverviewInternal.hpp"
+#include "SpecialTray.hpp"
 #include <sstream>
 
 static constexpr float       TRAY_MARGIN     = 24.F; // logical px: screen edge to cards, and between grid and cards
@@ -513,4 +514,48 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
         plus.round = sc<int>(THICK / 2.F);
         Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(plus));
     }
+}
+
+static std::string jsonString(const std::string& text) {
+    std::string out = "\"";
+    for (const char C : text) {
+        if (C == '"' || C == '\\')
+            out += '\\';
+        out += C;
+    }
+    return out + "\"";
+}
+
+std::string CScrollOverview::specialTrayLayoutJson() const {
+    const auto MONITOR = pMonitor.lock();
+    if (!MONITOR)
+        return "{\"open\": false}";
+
+    const float SCALE  = std::max(MONITOR->m_scale, 0.01F);
+    const auto  global = [&](const CBox& box) {
+        return std::format("{{\"x\": {:.0f}, \"y\": {:.0f}, \"w\": {:.0f}, \"h\": {:.0f}}}", box.x / SCALE + MONITOR->m_position.x, box.y / SCALE + MONITOR->m_position.y,
+                           box.w / SCALE, box.h / SCALE);
+    };
+
+    const auto  CARDS = specialTrayCards();
+    std::string cards;
+    for (const auto& card : CARDS) {
+        if (!cards.empty())
+            cards += ", ";
+        auto box = global(card.box);
+        box.insert(1, std::format("\"name\": {}, \"exists\": {}, ", jsonString(card.name), card.workspace ? "true" : "false"));
+        cards += box;
+    }
+
+    const bool SHOWN = !CARDS.empty() && !(specialTrayAutohide() && trayReveal && trayReveal->goal() < 0.5F);
+    return std::format("{{\"open\": {}, \"monitor\": {}, \"shown\": {}, \"cards\": [{}], \"add\": {}}}", closing ? "false" : "true", jsonString(MONITOR->m_name),
+                       SHOWN ? "true" : "false", cards, CARDS.empty() ? "null" : global(specialTrayAddBox(CARDS)));
+}
+
+int trayLayoutLua(lua_State* L) {
+    const auto  OVERVIEW = g_pInputManager ? scrollOverviewAt(g_pInputManager->getMouseCoordsInternal()) : SP<IOverview>{};
+    const auto* TRAY     = OVERVIEW ? dynamic_cast<CScrollOverview*>(OVERVIEW.get()) : nullptr;
+    const auto  JSON     = TRAY ? TRAY->specialTrayLayoutJson() : std::string{"{\"open\": false}"};
+    lua_pushstring(L, JSON.c_str());
+    return 1;
 }
