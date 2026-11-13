@@ -151,6 +151,14 @@ workspaces of a context are created on its monitor. A separate grid per monitor 
 The options, dispatchers, gestures and submaps of the original are documented in [docs/wiki](docs/wiki)
 (adapted to the `gridoverview` names).
 
+## Known limitations
+
+- Options changed at runtime with `hyprctl eval 'hl.config({ plugin = { gridoverview = { ... } } })'` reach the
+  plugin only if they are already set in the config file (and for strings not even then); after a config reload
+  everything applies.
+- Dragging windows across monitors (`cross_monitor_drag`, from the original) has not been tested together with the
+  scratchpad tray.
+
 ## Credits
 
 hyprland-grid-overview is based on [hyprland-scroll-overview](https://github.com/yayuuu/hyprland-scroll-overview)
