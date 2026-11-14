@@ -316,10 +316,12 @@ class SelfTest:
         window = wait_for(lambda: (lambda w: w if w and w["workspace"]["name"] == TEST_SPECIAL else None)(test_window()), timeout=2.0)
         self.check("drop on + creates a scratchpad named after the app", bool(window), (test_window() or {}).get("workspace", {}).get("name", "-"))
         self.close_overview()
+        if window:
+            self.test_tray_icon(window["address"])
 
         # back to its workspace: the emptied scratchpad disappears
         window = test_window()
-        if window:
+        if window and window["workspace"]["name"] == TEST_SPECIAL:
             dispatch(f'hl.dsp.window.move({{ workspace = {self.args.workspace}, follow = false, window = "address:{window["address"]}" }})')
             time.sleep(0.8)
         self.check("emptied scratchpad disappears", TEST_SPECIAL not in workspaces())
@@ -339,6 +341,58 @@ class SelfTest:
         self.check(f"click on a card shows its scratchpad ({card['name']})", bool(shown), special_open() or "-")
         if special_open():
             dispatch(f'hl.dsp.workspace.toggle_special("{special_open()[8:]}")')
+            time.sleep(0.6)
+
+    def tray_icon(self, address):
+        layout = self.reveal_tray()
+        for card in layout.get("cards", []):
+            for icon in card.get("icons", []):
+                if icon["window"] == address:
+                    return icon
+        return None
+
+    def test_tray_icon(self, address):
+        """The test window sits alone in its scratchpad: its icon opens it focused, a drag takes it out."""
+        if "true" not in sh("hyprctl getoption plugin:gridoverview:special_tray_icons"):
+            print("SKIP tray icons (special_tray_icons off)")
+            return
+
+        self.open_overview()
+        icon = self.tray_icon(address)
+        if not self.check("tray shows an icon for the window", bool(icon)):
+            self.close_overview()
+            return
+        self.input.warp(icon["x"] + icon["w"] / 2, icon["y"] + icon["h"] * 0.75)
+        self.input.nudge()
+        time.sleep(0.3)
+        self.input.click()
+        shown = wait_for(lambda: special_open() == TEST_SPECIAL, timeout=2.5)
+        focused = wait_for(lambda: json.loads(sh("hyprctl activewindow -j") or "{}").get("address") == address, timeout=1.5)
+        self.check("click on an icon shows its scratchpad, window focused", bool(shown and focused), special_open() or "-")
+        if special_open():
+            dispatch(f'hl.dsp.workspace.toggle_special("{special_open()[8:]}")')
+            time.sleep(0.6)
+
+        self.open_overview()
+        icon = self.tray_icon(address)
+        if not icon:
+            self.close_overview()
+            return
+        ix, iy = icon["x"] + icon["w"] / 2, icon["y"] + icon["h"] * 0.75
+        x, y, _ = self.monitor_center()
+        self.input.warp(ix, iy)
+        self.input.nudge()
+        time.sleep(0.3)
+        self.input.button(True)
+        self.input.glide(ix, iy, x, y)
+        time.sleep(0.4)
+        self.input.button(False)
+        moved = wait_for(lambda: (lambda w: w if w and w["workspace"]["name"] != TEST_SPECIAL else None)(test_window()), timeout=2.0)
+        self.check("drag on an icon takes the window out", bool(moved), (test_window() or {}).get("workspace", {}).get("name", "-"))
+        self.close_overview()
+        window = test_window()
+        if window and window["workspace"]["name"] != str(self.args.workspace):
+            dispatch(f'hl.dsp.window.move({{ workspace = {self.args.workspace}, follow = false, window = "address:{window["address"]}" }})')
             time.sleep(0.6)
 
     def test_middle_drag(self):
@@ -397,8 +451,8 @@ def main():
     parser.add_argument("--list", action="store_true", help="list the tests and exit")
     args = parser.parse_args()
     if args.list:
-        print("keys (example Lua module), views and zoom, cancelled drag, tray: reveal, drop on +, emptied scratchpad, "
-              "card click, middle drag pans, middle click closes a window; at the end: your windows unchanged, back on the start workspace")
+        print("keys (example Lua module), views and zoom, cancelled drag, tray: reveal, drop on +, icon click and drag, "
+              "emptied scratchpad, card click, middle drag pans, middle click closes a window; at the end: your windows unchanged, back on the start workspace")
         return 0
     if args.workspace < 11 or args.workspace % 10 == 0 or args.workspace // 10 < 2:
         parser.error("--workspace must be a grid workspace below the first row, e.g. 91")

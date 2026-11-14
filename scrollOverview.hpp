@@ -133,10 +133,20 @@ class CScrollOverview : public IOverview {
     PHLWORKSPACE           ensureSpecialWorkspace(const STrayCard& card) const;
     void                   hideActiveSpecialWorkspace();
     void                   renderSpecialTray(PHLMONITOR monitor, const Time::steady_tp& now);
+    struct STrayIcon {
+        PHLWINDOW            window; // the app's topmost window on the card
+        SP<Render::ITexture> texture;
+        CBox                 plate; // render px
+        CBox                 icon;
+    };
+    std::vector<STrayIcon> specialTrayIcons(const STrayCard& card, const std::vector<PHLWINDOW>& windows) const;
+    std::optional<std::pair<size_t, PHLWINDOW>> specialTrayIconAt(const Vector2D& pointLocal) const;
     void                   renderSpecialTrayIcons(PHLMONITOR monitor, const STrayCard& card, const std::vector<PHLWINDOW>& windows, float alpha);
     std::optional<size_t>  specialTrayPressed;
+    PHLWINDOWREF           specialTrayIconPressed;
     // shown once this overview is gone; by name, an empty scratchpad created earlier would be cleaned up by then
     std::string            pendingSpecialName;
+    PHLWINDOWREF           pendingSpecialWindow; // focused there (clicked by its icon)
     void   renderWorkspaceLive(PHLMONITOR monitor, size_t workspaceIdx, size_t activeIdx, float workspacePitch, float renderScale, int wallpaperMode, const Time::steady_tp& now);
     bool   hasVisiblePrecomputedBlurWindow(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale) const;
     void   renderWindowLive(PHLMONITOR monitor, PHLWINDOW window, const CBox& windowBox, float renderScale, const Time::steady_tp& now, const CBox* workspaceBox = nullptr,

@@ -359,6 +359,9 @@ std::vector<PHLWINDOW> CScrollOverview::specialTrayWindows(const STrayCard& card
 }
 
 PHLWINDOW CScrollOverview::specialTrayWindowAt(const Vector2D& pointLocal) const {
+    if (const auto ICON = specialTrayIconAt(pointLocal))
+        return ICON->second;
+
     const auto IDX = specialTrayCardAt(pointLocal);
     if (!IDX)
         return nullptr;
@@ -395,45 +398,94 @@ PHLWORKSPACE CScrollOverview::ensureSpecialWorkspace(const STrayCard& card) cons
 // app icons on the bottom edge of a card, half over it, side by side from the right edge (the tray is at the right
 // screen edge), like macOS Stage Manager: one per app, the topmost window's on the right, as many as fit (the name
 // sits below them, see specialTrayLabelOffset)
-void CScrollOverview::renderSpecialTrayIcons(PHLMONITOR monitor, const STrayCard& card, const std::vector<PHLWINDOW>& windows, float alpha) {
-    const float ICON  = ScrollOverview::Config::getValue<int>("plugin:gridoverview:special_tray_icon_size", monitor) * monitor->m_scale;
+// an app without an icon still gets something to take it by: its first letter
+static SP<Render::ITexture> appLetterTexture(const std::string& appID, int sizePx) {
+    static std::unordered_map<std::string, SP<Render::ITexture>> cache;
+
+    const auto NAME   = appID.substr(appID.find_last_of('.') == std::string::npos ? 0 : appID.find_last_of('.') + 1);
+    const auto LETTER = NAME.empty() || !std::isalnum(sc<unsigned char>(NAME.front())) ? std::string{"?"} : std::string(1, sc<char>(std::toupper(sc<unsigned char>(NAME.front()))));
+    auto&      texture = cache[LETTER + "\n" + std::to_string(sizePx)];
+    if (!texture)
+        texture = g_pHyprRenderer->renderText(LETTER, CHyprColor{1.F, 1.F, 1.F, 0.9F}, std::max(1, sizePx), false, "", 0, 700);
+    return texture;
+}
+
+std::vector<CScrollOverview::STrayIcon> CScrollOverview::specialTrayIcons(const STrayCard& card, const std::vector<PHLWINDOW>& windows) const {
+    const auto MONITOR = pMonitor.lock();
+    if (!MONITOR)
+        return {};
+
+    const float ICON  = ScrollOverview::Config::getValue<int>("plugin:gridoverview:special_tray_icon_size", MONITOR) * MONITOR->m_scale;
     const float PLATE = ICON * TRAY_ICON_PLATE;
-    const float GAP   = 6.F * monitor->m_scale;
-    const float INSET = 10.F * monitor->m_scale;
+    const float GAP   = 6.F * MONITOR->m_scale;
+    const float INSET = 10.F * MONITOR->m_scale;
     const int   FIT   = std::max(1, sc<int>((card.box.w - 2.F * INSET + GAP) / (PLATE + GAP)));
-    const auto  THEME = ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:icon_theme", monitor);
-    auto        plate = ScrollOverview::Config::getWindowIconPlateColor(monitor);
-    plate.a *= alpha;
+    const auto  THEME = ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:icon_theme", MONITOR);
 
     std::vector<std::string> apps;
-    for (auto it = windows.rbegin(); it != windows.rend() && sc<int>(apps.size()) < FIT; ++it) {
+    std::vector<STrayIcon>   icons;
+    float                    right  = card.box.x + card.box.w - INSET;
+    const float              CENTER = card.box.y + card.box.h;
+    for (auto it = windows.rbegin(); it != windows.rend() && sc<int>(icons.size()) < FIT; ++it) {
         const auto APP = (*it)->metadata().appID();
-        if (std::ranges::find(apps, APP) == apps.end())
-            apps.push_back(APP);
-    }
+        if (std::ranges::find(apps, APP) != apps.end())
+            continue;
+        apps.push_back(APP);
 
-    float       right  = card.box.x + card.box.w - INSET;
-    const float CENTER = card.box.y + card.box.h;
-    for (const auto& app : apps) {
-        const auto TEXTURE = GridIcons::iconForAppID(app, THEME);
-        if (!TEXTURE)
+        auto       texture = GridIcons::iconForAppID(APP, THEME);
+        const bool LETTER  = !texture;
+        if (LETTER)
+            texture = appLetterTexture(APP, sc<int>(ICON * 0.6F));
+        if (!texture || texture->m_size.x <= 0)
             continue;
 
-        const float MIDX = right - PLATE / 2.F;
+        const float    MIDX = right - PLATE / 2.F;
+        const Vector2D SIZE = LETTER ? texture->m_size : Vector2D{ICON, ICON};
+        icons.push_back({
+            .window  = *it,
+            .texture = texture,
+            .plate   = CBox{MIDX - PLATE / 2.F, CENTER - PLATE / 2.F, PLATE, PLATE}.round(),
+            .icon    = CBox{MIDX - SIZE.x / 2.0, CENTER - SIZE.y / 2.0, SIZE.x, SIZE.y}.round(),
+        });
+        right -= PLATE + GAP;
+    }
+    return icons;
+}
+
+// an icon picks its app's window out of a crowded card: a drag takes it, a click opens the scratchpad on it
+std::optional<std::pair<size_t, PHLWINDOW>> CScrollOverview::specialTrayIconAt(const Vector2D& pointLocal) const {
+    if (closing || (specialTrayAutohide() && trayReveal && trayReveal->goal() < 0.5F) ||
+        !ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray_icons", pMonitor.lock()))
+        return std::nullopt;
+
+    const auto CARDS = specialTrayCards();
+    for (size_t i = 0; i < CARDS.size(); ++i) {
+        for (const auto& icon : specialTrayIcons(CARDS[i], specialTrayWindows(CARDS[i]))) {
+            if (icon.plate.containsPoint(pointLocal))
+                return std::pair{i, icon.window};
+        }
+    }
+    return std::nullopt;
+}
+
+void CScrollOverview::renderSpecialTrayIcons(PHLMONITOR monitor, const STrayCard& card, const std::vector<PHLWINDOW>& windows, float alpha) {
+    auto plate = ScrollOverview::Config::getWindowIconPlateColor(monitor);
+    plate.a *= alpha;
+
+    for (const auto& icon : specialTrayIcons(card, windows)) {
         if (plate.a > 0.F) {
             CRectPassElement::SRectData data;
-            data.box   = CBox{MIDX - PLATE / 2.F, CENTER - PLATE / 2.F, PLATE, PLATE}.round();
+            data.box   = icon.plate;
             data.color = plate;
-            data.round = sc<int>(PLATE * 0.25F);
+            data.round = sc<int>(icon.plate.w * 0.25F);
             Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(data));
         }
 
         CTexPassElement::SRenderData data;
-        data.tex = TEXTURE;
-        data.box = CBox{MIDX - ICON / 2.F, CENTER - ICON / 2.F, ICON, ICON}.round();
+        data.tex = icon.texture;
+        data.box = icon.icon;
         data.a   = alpha;
         Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CTexPassElement>(std::move(data)));
-        right -= PLATE + GAP;
     }
 }
 
@@ -608,8 +660,18 @@ std::string CScrollOverview::specialTrayLayoutJson() const {
     for (const auto& card : CARDS) {
         if (!cards.empty())
             cards += ", ";
+        std::string icons;
+        if (ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray_icons", MONITOR)) {
+            for (const auto& icon : specialTrayIcons(card, specialTrayWindows(card))) {
+                if (!icons.empty())
+                    icons += ", ";
+                auto iconBox = global(icon.plate);
+                iconBox.insert(1, std::format("\"window\": \"0x{:x}\", ", rc<uintptr_t>(icon.window.get())));
+                icons += iconBox;
+            }
+        }
         auto box = global(card.box);
-        box.insert(1, std::format("\"name\": {}, \"exists\": {}, ", jsonString(card.name), card.workspace ? "true" : "false"));
+        box.insert(1, std::format("\"name\": {}, \"exists\": {}, \"icons\": [{}], ", jsonString(card.name), card.workspace ? "true" : "false", icons));
         cards += box;
     }
 

@@ -25,7 +25,8 @@ features are additions on top of it (see [Credits](#credits)).
   edge scrolls to the neighbouring workspace.
 - **Scratchpads at hand**: a tray at the right screen edge shows Hyprland's special workspaces as live cards
   with the icons of their apps, starting with the default one, `special`. Drag a window into a card or out of it onto any workspace; a click
-  shows that scratchpad. Drop a window on the "+" below the cards for a new scratchpad named after its app
+  shows that scratchpad. In a crowded card, take a window by its app icon: drag the icon to move that window, click
+  it to show the scratchpad with that window in front (apps without an icon get their first letter). Drop a window on the "+" below the cards for a new scratchpad named after its app
   (`nautilus`, `kitty-2`, …), or click the "+" for a new, empty one. A dragged window shrinks to card size as it
   approaches the tray; at the right edge the tray comes first, pushing on to the very edge scrolls on behind it.
 - **Two views and everything in between**: buttons at the top switch between the centred view and the whole
@@ -140,7 +141,7 @@ workspaces of a context are created on its monitor. A separate grid per monitor 
 | `window_icon_plate_color` | color | plate behind the icon | `rgba(0,0,0,0.45)` |
 | `icon_theme` | string | icon theme searched before hicolor (e.g. `Papirus-Dark`); empty = hicolor only | empty |
 | `special_tray` | bool | special workspaces (scratchpads) as cards at the right screen edge; the whole-grid view keeps that space free | `true` |
-| `special_tray_icons` | bool | app icons on the bottom edge of the cards, right-aligned like macOS Stage Manager (one per app, as many as fit, the name moves below them; theme and plate colour from `icon_theme` / `window_icon_plate_color`) | `true` |
+| `special_tray_icons` | bool | app icons on the bottom edge of the cards, right-aligned like macOS Stage Manager (one per app, as many as fit, the name moves below them; drag an icon to move the app's topmost window, click it to show the scratchpad with that window focused; theme and plate colour from `icon_theme` / `window_icon_plate_color`) | `true` |
 | `special_tray_icon_size` | int | size of those icons in layout px | `36` |
 | `special_tray_autohide` | bool | hide the tray until the pointer touches the right screen edge, like an auto-hiding dock; it stays while the pointer is over it, also while a window is dragged. The whole-grid view keeps no space free | `false` |
 | `special_workspaces` | string | comma-separated special workspace names (without `special:`) that always get a card, also while empty; `special` is Hyprland's unnamed scratchpad (`toggle_special` without a name) | `special` |
@@ -159,7 +160,7 @@ The options, dispatchers, gestures and submaps of the original are documented in
 `python3 scripts/selftest.py` runs a self-test in the current Hyprland session: it drives a virtual mouse and
 keyboard (python-evdev, write access to `/dev/uinput`) on its own test window on workspace 91 (`--workspace`) and
 checks keys of the example module, views and zoom, a cancelled drag and the scratchpad tray (reveal, drop on "+",
-card click, middle click closing a window). Your windows stay where they are; exit code 0 when everything passed. For scripts,
+icon click and drag, card click, middle click closing a window). Your windows stay where they are; exit code 0 when everything passed. For scripts,
 `hl.plugin.gridoverview.tray_layout()` returns the tray of the overview under the pointer as JSON.
 
 ## Known limitations

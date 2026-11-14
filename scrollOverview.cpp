@@ -1135,8 +1135,14 @@ CScrollOverview::~CScrollOverview() {
     // clicked in the scratchpad tray: shown only now, with the workspace animations back and Hyprland's own
     // dimming / blur behind it (shown during the close animation, the background only switched once it ended)
     if (const auto MONITOR = pMonitor.lock(); MONITOR && !pendingSpecialName.empty()) {
-        if (const auto SPECIAL = ensureSpecialWorkspace(STrayCard{.name = pendingSpecialName}))
+        if (const auto SPECIAL = ensureSpecialWorkspace(STrayCard{.name = pendingSpecialName})) {
             MONITOR->setSpecialWorkspace(SPECIAL);
+            if (const auto WINDOW = pendingSpecialWindow.lock(); WINDOW && WINDOW->m_workspace == SPECIAL) {
+                Desktop::focusState()->fullWindowFocus(WINDOW, Desktop::FOCUS_REASON_DESKTOP_STATE_CHANGE);
+                if (WINDOW->isFloating())
+                    Desktop::windowState()->raise(WINDOW);
+            }
+        }
     }
 }
 
@@ -1541,8 +1547,11 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
 
             if (event.state == WL_POINTER_BUTTON_STATE_PRESSED) {
                 // scratchpad card: dragging starts on the window under the pointer, a click opens the scratchpad
-                if (const auto CARD = specialTrayCardAt(lastMousePosLocal)) {
-                    specialTrayPressed  = *CARD;
+                // (an app icon takes its window, also over the card's edge)
+                const auto ICON = specialTrayIconAt(lastMousePosLocal);
+                if (const auto CARD = ICON ? std::optional{ICON->first} : specialTrayCardAt(lastMousePosLocal)) {
+                    specialTrayPressed     = *CARD;
+                    specialTrayIconPressed = ICON ? ICON->second : PHLWINDOW{};
                     dragPendingPrimary  = true;
                     dragStartMouseLocal = lastMousePosLocal;
                     return;
@@ -1602,14 +1611,18 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
             }
 
             if (specialTrayPressed) {
-                const auto IDX = *specialTrayPressed;
+                const auto IDX  = *specialTrayPressed;
+                const auto ICON = specialTrayIconPressed.lock();
                 specialTrayPressed.reset();
+                specialTrayIconPressed.reset();
                 if (!dragActiveWindow) {
                     clearDragPending();
                     const auto CARDS   = specialTrayCards();
                     const auto MONITOR = pMonitor.lock();
-                    if (IDX < CARDS.size() && MONITOR && specialTrayCardAt(lastMousePosLocal) == IDX) {
-                        pendingSpecialName = CARDS[IDX].name;
+                    const bool HIT     = ICON ? specialTrayWindowAt(lastMousePosLocal) == ICON : specialTrayCardAt(lastMousePosLocal) == IDX;
+                    if (IDX < CARDS.size() && MONITOR && HIT) {
+                        pendingSpecialName   = CARDS[IDX].name;
+                        pendingSpecialWindow = ICON;
                         closeOnWindow.reset();
                         closeAll();
                     }
@@ -3430,7 +3443,8 @@ void CScrollOverview::beginWindowDrag(PHLWINDOW window) {
                 if (card.workspace != WINDOW->m_workspace)
                     continue;
                 const auto TRAYBOX = specialTrayWindowBox(card, WINDOW);
-                snapshot.grabRatio = Vector2D{
+                // taken by its icon: held in the middle, the icon is not over the window
+                snapshot.grabRatio = specialTrayIconAt(dragStartMouseLocal) ? Vector2D{0.5, 0.5} : Vector2D{
                     TRAYBOX.width > 0.0 ? std::clamp((dragStartMouseLocal.x - TRAYBOX.x) / TRAYBOX.width, 0.0, 1.0) : 0.5,
                     TRAYBOX.height > 0.0 ? std::clamp((dragStartMouseLocal.y - TRAYBOX.y) / TRAYBOX.height, 0.0, 1.0) : 0.5,
                 };
