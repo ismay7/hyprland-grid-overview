@@ -140,7 +140,7 @@ workspaces of a context are created on its monitor. A separate grid per monitor 
 | `window_icon_plate_color` | color | plate behind the icon | `rgba(0,0,0,0.45)` |
 | `icon_theme` | string | icon theme searched before hicolor (e.g. `Papirus-Dark`); empty = hicolor only | empty |
 | `special_tray` | bool | special workspaces (scratchpads) as cards at the right screen edge; the whole-grid view keeps that space free | `true` |
-| `special_tray_icons` | bool | app icons on the bottom edge of the cards, right-aligned like macOS Stage Manager (one per app, as many as fit beside the name; theme and plate from `icon_theme` / `window_icon_plate_color`) | `true` |
+| `special_tray_icons` | bool | app icons on the bottom edge of the cards, right-aligned like macOS Stage Manager (one per app, as many as fit, the name moves below them; theme and plate colour from `icon_theme` / `window_icon_plate_color`) | `true` |
 | `special_tray_icon_size` | int | size of those icons in layout px | `36` |
 | `special_tray_autohide` | bool | hide the tray until the pointer touches the right screen edge, like an auto-hiding dock; it stays while the pointer is over it, also while a window is dragged. The whole-grid view keeps no space free | `false` |
 | `special_workspaces` | string | comma-separated special workspace names (without `special:`) that always get a card, also while empty; `special` is Hyprland's unnamed scratchpad (`toggle_special` without a name) | `special` |

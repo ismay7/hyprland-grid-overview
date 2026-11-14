@@ -85,6 +85,8 @@
 static constexpr float       TRAY_MARGIN     = 24.F; // logical px: screen edge to cards, and between grid and cards
 static constexpr float       TRAY_GAP        = 20.F; // between a card's label and the next card
 static constexpr float       TRAY_LABEL      = 50.F; // band under every card for its name (centred in it)
+static constexpr float       TRAY_ICON_PLATE = 1.3F; // icon plate size relative to the icon
+static constexpr float       TRAY_PILL       = 32.F; // height of the name pill (15 px text + padding)
 static constexpr int         TRAY_LABEL_SIZE = 15;
 static constexpr float       TRAY_ADD_HEIGHT = 56.F; // the "+" box below the cards
 static constexpr std::string_view SPECIAL_PREFIX = "special:";
@@ -96,6 +98,19 @@ static std::string specialTrayName(std::string name) {
     if (name.starts_with(SPECIAL_PREFIX))
         name = name.substr(SPECIAL_PREFIX.size());
     return name;
+}
+
+// logical px from a card's bottom edge to the middle of its name: below the app icons when they are shown
+float CScrollOverview::specialTrayLabelOffset() const {
+    if (!ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray_icons", pMonitor.lock()))
+        return TRAY_LABEL / 2.F;
+    const float ICONHALF = ScrollOverview::Config::getValue<int>("plugin:gridoverview:special_tray_icon_size", pMonitor.lock()) * TRAY_ICON_PLATE / 2.F;
+    return std::max(TRAY_LABEL / 2.F, ICONHALF + 6.F + TRAY_PILL / 2.F);
+}
+
+// logical px of the band under every card (name, and the lower half of the icons)
+float CScrollOverview::specialTrayLabelBand() const {
+    return std::max(TRAY_LABEL, specialTrayLabelOffset() + TRAY_PILL / 2.F + 4.F);
 }
 
 std::vector<CScrollOverview::STrayCard> CScrollOverview::specialTrayCards() const {
@@ -137,7 +152,8 @@ std::vector<CScrollOverview::STrayCard> CScrollOverview::specialTrayCards() cons
     const float N      = sc<float>(cards.size());
     float       width  = sc<float>(ScrollOverview::Config::getValue<int>("plugin:gridoverview:special_tray_width", MONITOR));
     // the cards, then the "+" box (new scratchpad) below the last one
-    const float EXTRA     = N * TRAY_LABEL + N * TRAY_GAP + TRAY_ADD_HEIGHT;
+    const float BAND      = specialTrayLabelBand();
+    const float EXTRA     = N * BAND + N * TRAY_GAP + TRAY_ADD_HEIGHT;
     const auto  heightFor = [&](float w) { return N * w * ASPECT + EXTRA; };
     if (heightFor(width) > AVAILH)
         width = std::max(20.F, (AVAILH - EXTRA) / N / ASPECT);
@@ -149,7 +165,7 @@ std::vector<CScrollOverview::STrayCard> CScrollOverview::specialTrayCards() cons
     const float X      = sc<float>(SIZE.x) - TRAY_MARGIN - width + HIDDEN;
     for (auto& card : cards) {
         card.box = CBox{X, y, width, HEIGHT}.scale(MONITOR->m_scale).round();
-        y += HEIGHT + TRAY_LABEL + TRAY_GAP;
+        y += HEIGHT + BAND + TRAY_GAP;
     }
 
     return cards;
@@ -247,7 +263,7 @@ CBox CScrollOverview::specialTrayAddBox(const std::vector<STrayCard>& cards) con
     if (!MONITOR || cards.empty())
         return {};
     const auto& LAST = cards.back().box;
-    return CBox{LAST.x, LAST.y + LAST.h + (TRAY_LABEL + TRAY_GAP) * MONITOR->m_scale, LAST.w, TRAY_ADD_HEIGHT * MONITOR->m_scale}.round();
+    return CBox{LAST.x, LAST.y + LAST.h + (specialTrayLabelBand() + TRAY_GAP) * MONITOR->m_scale, LAST.w, TRAY_ADD_HEIGHT * MONITOR->m_scale}.round();
 }
 
 bool CScrollOverview::specialTrayAddAt(const Vector2D& pointLocal) const {
@@ -377,14 +393,14 @@ PHLWORKSPACE CScrollOverview::ensureSpecialWorkspace(const STrayCard& card) cons
 }
 
 // app icons on the bottom edge of a card, half over it, side by side from the right edge (the tray is at the right
-// screen edge), like macOS Stage Manager: one per app, the topmost window's on the right, only as many as fit
-// beside the centred name
+// screen edge), like macOS Stage Manager: one per app, the topmost window's on the right, as many as fit (the name
+// sits below them, see specialTrayLabelOffset)
 void CScrollOverview::renderSpecialTrayIcons(PHLMONITOR monitor, const STrayCard& card, const std::vector<PHLWINDOW>& windows, float alpha) {
     const float ICON  = ScrollOverview::Config::getValue<int>("plugin:gridoverview:special_tray_icon_size", monitor) * monitor->m_scale;
-    const float PLATE = ICON * 1.3F;
+    const float PLATE = ICON * TRAY_ICON_PLATE;
     const float GAP   = 6.F * monitor->m_scale;
     const float INSET = 10.F * monitor->m_scale;
-    const int   FIT   = std::max(1, sc<int>((card.box.w / 2.0 - 50.F * monitor->m_scale - INSET) / (PLATE + GAP)));
+    const int   FIT   = std::max(1, sc<int>((card.box.w - 2.F * INSET + GAP) / (PLATE + GAP)));
     const auto  THEME = ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:icon_theme", monitor);
     auto        plate = ScrollOverview::Config::getWindowIconPlateColor(monitor);
     plate.a *= alpha;
@@ -408,7 +424,7 @@ void CScrollOverview::renderSpecialTrayIcons(PHLMONITOR monitor, const STrayCard
             CRectPassElement::SRectData data;
             data.box   = CBox{MIDX - PLATE / 2.F, CENTER - PLATE / 2.F, PLATE, PLATE}.round();
             data.color = plate;
-            data.round = sc<int>(PLATE / 2.F);
+            data.round = sc<int>(PLATE * 0.25F);
             Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(data));
         }
 
@@ -441,6 +457,7 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
     const int   TEXTSIZE    = std::max(1, sc<int>(std::round(TRAY_LABEL_SIZE * monitor->m_scale)));
     const auto  TEXTCOLOR   = CHyprColor{1.F, 1.F, 1.F, 0.9F};
     const bool  ICONS       = ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray_icons", monitor);
+    const float LABELOFFSET = specialTrayLabelOffset() * monitor->m_scale;
 
     for (size_t i = 0; i < CARDS.size(); ++i) {
         const auto& CARD     = CARDS[i];
@@ -507,7 +524,7 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
             continue;
 
         const auto TEXT  = texture->m_size;
-        const auto LABEL = CBox{CARD.box.middle().x - TEXT.x / 2.0, CARD.box.y + CARD.box.h + TRAY_LABEL * monitor->m_scale / 2.0 - TEXT.y / 2.0, TEXT.x, TEXT.y};
+        const auto LABEL = CBox{CARD.box.middle().x - TEXT.x / 2.0, CARD.box.y + CARD.box.h + LABELOFFSET - TEXT.y / 2.0, TEXT.x, TEXT.y};
         if (BACKGROUND.a > 0.F) {
             auto pillBox = LABEL.copy().expand(PILLPADDING).round();
             pillBox.x -= PILLPADDING;
