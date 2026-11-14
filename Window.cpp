@@ -1015,7 +1015,7 @@ void renderOverviewWindow(const SRenderParams& params) {
             g_pHyprRenderer->endBackdropScope(ctx, backdropScope);
     });
 
-    if (!fullscreen)
+    if (!fullscreen && params.shadow)
         renderOverviewWindowShadow(params.monitor, params.window, params.windowBox, metrics, params.selected);
 
     if (renderOverviewCustomDecorations(params.monitor, params.window, params.workspaceBox ? *params.workspaceBox : CBox{}, params.windowBox, metrics, DECORATION_LAYER_UNDER))

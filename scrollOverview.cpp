@@ -6011,7 +6011,7 @@ void CScrollOverview::renderPinnedFloatingWindows(PHLMONITOR monitor, float over
 }
 
 void CScrollOverview::renderWindowLive(PHLMONITOR monitor, PHLWINDOW window, const CBox& windowBox, float renderScale, const Time::steady_tp& now, const CBox* workspaceBox,
-                                       bool dragged, float alpha) {
+                                       bool dragged, float alpha, bool shadow) {
     if (!window)
         return;
 
@@ -6044,6 +6044,7 @@ void CScrollOverview::renderWindowLive(PHLMONITOR monitor, PHLWINDOW window, con
         .dragged              = dragged,
         .pseudoFocusWindow    = PSEUDOFOCUSWINDOW,
         .alpha                = alpha,
+        .shadow               = shadow,
     });
 }
 

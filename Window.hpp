@@ -25,6 +25,7 @@ struct SRenderParams {
     PHLWINDOW             pseudoFocusWindow;
     // multiplies borders, shadows and decorations; the contents follow the workspace alpha
     float                 alpha                = 1.F;
+    bool                  shadow               = true;
 };
 
 void renderOverviewWindow(const SRenderParams& params);

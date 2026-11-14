@@ -89,6 +89,8 @@ static constexpr float       TRAY_ICON_PLATE = 1.3F; // icon plate size relative
 static constexpr float       TRAY_PILL       = 32.F; // height of the name pill (15 px text + padding)
 static constexpr int         TRAY_LABEL_SIZE = 15;
 static constexpr float       TRAY_ADD_HEIGHT = 56.F; // the "+" box below the cards
+static constexpr float       TRAY_DOCK_PAD   = 14.F; // dock around the cards (within TRAY_MARGIN)
+static constexpr float       TRAY_DOCK_ROUNDING = 18.F;
 static constexpr std::string_view SPECIAL_PREFIX = "special:";
 
 static std::string specialTrayName(std::string name) {
@@ -511,6 +513,17 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
     const bool  ICONS       = ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray_icons", monitor);
     const float LABELOFFSET = specialTrayLabelOffset() * monitor->m_scale;
 
+    // one dock behind all cards and the "+": the windows sit on it directly, without card backgrounds or shadows
+    const auto  ADD  = specialTrayAddBox(CARDS);
+    const float PAD  = TRAY_DOCK_PAD * monitor->m_scale;
+    const auto& TOP  = CARDS.front().box;
+    const auto  DOCK = CBox{TOP.x - PAD, TOP.y - PAD, TOP.w + 2.F * PAD, ADD.y + ADD.h + PAD - (TOP.y - PAD)}.round();
+    CRectPassElement::SRectData dock;
+    dock.box   = DOCK;
+    dock.color = CHyprColor{0.F, 0.F, 0.F, 0.5F * ALPHA};
+    dock.round = sc<int>(std::round(TRAY_DOCK_ROUNDING * monitor->m_scale));
+    Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(dock));
+
     for (size_t i = 0; i < CARDS.size(); ++i) {
         const auto& CARD     = CARDS[i];
         const bool  TARGET   = HOVERED == i && (!DRAGGED || DRAGGED->m_workspace != CARD.workspace);
@@ -520,11 +533,13 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
         auto windows = specialTrayWindows(CARD);
         std::erase(windows, DRAGGED);
 
-        CRectPassElement::SRectData card;
-        card.box   = CARD.box;
-        card.color = CHyprColor{0.F, 0.F, 0.F, (TARGET ? 0.55F : 0.35F) * ALPHA};
-        card.round = ROUNDING;
-        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(card));
+        if (TARGET) {
+            CRectPassElement::SRectData card;
+            card.box   = CARD.box;
+            card.color = CHyprColor{1.F, 1.F, 1.F, 0.08F * ALPHA};
+            card.round = ROUNDING;
+            Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(card));
+        }
 
         if (windows.empty())
             renderEmptyWorkspaceMarker(monitor, CARD.box, scale->value(), ALPHA, TARGET);
@@ -548,7 +563,7 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
             });
 
             for (const auto& window : windows)
-                renderWindowLive(monitor, window, specialTrayWindowBox(CARD, window), SCALE, now, &CARD.box, false, ALPHA);
+                renderWindowLive(monitor, window, specialTrayWindowBox(CARD, window), SCALE, now, &CARD.box, false, ALPHA, false);
 
             if (TARGET) {
                 auto color = ScrollOverview::Config::getEmptyColor(monitor);
@@ -596,7 +611,6 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
     }
 
     // "+" box: new scratchpad (drop a window on it, or click it); brighter under the pointer or a dragged window
-    const auto ADD = specialTrayAddBox(CARDS);
     if (ADD.empty())
         return;
 
@@ -604,11 +618,13 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
     const bool ADDTARGET  = ADDHOVERED && DRAGGED;
     const auto UNIT       = monitor->m_scale;
 
-    CRectPassElement::SRectData addBackground;
-    addBackground.box   = ADD;
-    addBackground.color = CHyprColor{0.F, 0.F, 0.F, (ADDHOVERED ? 0.5F : 0.3F) * ALPHA};
-    addBackground.round = sc<int>(ADD.h / 2.0);
-    Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(addBackground));
+    if (ADDHOVERED) {
+        CRectPassElement::SRectData addBackground;
+        addBackground.box   = ADD;
+        addBackground.color = CHyprColor{1.F, 1.F, 1.F, 0.08F * ALPHA};
+        addBackground.round = sc<int>(ADD.h / 2.0);
+        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(addBackground));
+    }
 
     auto color = ScrollOverview::Config::getEmptyColor(monitor);
     color.a    = std::min(1.F, sc<float>(color.a) * (ADDHOVERED ? 2.F : 1.F)) * ALPHA;
