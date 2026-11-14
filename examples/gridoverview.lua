@@ -76,6 +76,8 @@ local settings = {
         special_tray = true,
         special_workspaces = "special", -- always shown, also while empty (comma-separated); "special" = the unnamed one
         special_tray_width = 300,  -- card width in layout px
+        special_tray_icons = true, -- app icons on the bottom edge of the cards
+        special_tray_icon_size = 36,
         special_tray_autohide = false, -- true: hidden until the pointer touches the right edge (also while dragging)
         transition_bezier = "",    -- e.g. a bezier defined in your config; empty = windowsMove animation
         transition_speed = 3.0,
