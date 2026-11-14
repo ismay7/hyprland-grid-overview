@@ -518,10 +518,13 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
     const float PAD  = TRAY_DOCK_PAD * monitor->m_scale;
     const auto& TOP  = CARDS.front().box;
     const auto  DOCK = CBox{TOP.x - PAD, TOP.y - PAD, TOP.w + 2.F * PAD, ADD.y + ADD.h + PAD - (TOP.y - PAD)}.round();
+    const bool  BLUR = ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray_blur", monitor) && ScrollOverview::Config::getValue<int>("decoration:blur:enabled");
     CRectPassElement::SRectData dock;
     dock.box   = DOCK;
-    dock.color = CHyprColor{0.F, 0.F, 0.F, 0.5F * ALPHA};
+    dock.color = CHyprColor{0.F, 0.F, 0.F, (BLUR ? 0.4F : 0.5F) * ALPHA};
     dock.round = sc<int>(std::round(TRAY_DOCK_ROUNDING * monitor->m_scale));
+    dock.blur  = BLUR;
+    dock.blurA = ALPHA;
     Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(dock));
 
     for (size_t i = 0; i < CARDS.size(); ++i) {

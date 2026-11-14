@@ -458,6 +458,7 @@ static void defineConfigValues() {
                                     "grid mode: every named context (context_names) always has its first workspace in the overview", false));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:special_tray", "special workspaces (scratchpads) as cards at the right screen edge", true));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:special_tray_icons", "app icons on the bottom edge of the scratchpad cards", true));
+    addValue(makeShared<CBoolValue>("plugin:gridoverview:special_tray_blur", "blur behind the scratchpad tray (Hyprland's decoration:blur settings)", true));
     addValue(makeShared<CIntValue>("plugin:gridoverview:special_tray_icon_size", "size of the scratchpad card icons in layout px", 36,
                                    SIntValueOptions{.min = 8, .max = 256}));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:special_tray_autohide",
