@@ -5731,7 +5731,7 @@ void CScrollOverview::renderContextLabels(PHLMONITOR monitor, size_t activeIdx, 
     }
 }
 
-// window_icons: app icon on a round plate in the middle of every window (not on the one being dragged)
+// window_icons: app icon on a rounded plate in the middle of every window (not on the one being dragged)
 void CScrollOverview::renderWindowIcons(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale) {
     if (!ScrollOverview::Config::getValue<bool>("plugin:gridoverview:window_icons", monitor))
         return;
@@ -5774,7 +5774,7 @@ void CScrollOverview::renderWindowIcons(PHLMONITOR monitor, size_t activeIdx, fl
                 CRectPassElement::SRectData data;
                 data.box   = CBox{MID.x - PLATE / 2.F, MID.y - PLATE / 2.F, PLATE, PLATE}.round();
                 data.color = plate;
-                data.round = sc<int>(PLATE / 2.F);
+                data.round = sc<int>(PLATE * 0.25F);
                 Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(data));
             }
 

@@ -135,7 +135,7 @@ workspaces of a context are created on its monitor. A separate grid per monitor 
 | `context_label_size` | int | label font size in layout px, independent of the zoom | `20` |
 | `context_label_background` | color | pill behind the labels | `rgba(0,0,0,0.45)` |
 | `context_label_color` | color | label colour (the current context's label is fully opaque, others dimmed) | `rgba(255,255,255,0.9)` |
-| `window_icons` | bool | app icon on a round plate in the middle of every window | `false` |
+| `window_icons` | bool | app icon on a rounded plate in the middle of every window | `false` |
 | `window_icon_size` | int | icon size on screen in layout px, independent of the zoom (at most 60 % of a window's short side incl. plate) | `64` |
 | `window_icon_plate_color` | color | plate behind the icon | `rgba(0,0,0,0.45)` |
 | `icon_theme` | string | icon theme searched before hicolor (e.g. `Papirus-Dark`); empty = hicolor only | empty |
