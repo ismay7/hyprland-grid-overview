@@ -80,6 +80,7 @@
 #include "OverviewRender.hpp"
 #include "Window.hpp"
 #include "ScrollOverviewInternal.hpp"
+#include "SpecialTray.hpp"
 
 static PHLWINDOW getOverviewFullscreenVisibilityWindow(const PHLWORKSPACE& workspace, const PHLWINDOW& fallback = {});
 static constexpr const char* OVERVIEW_SUBMAP = "gridoverview";
@@ -1083,6 +1084,7 @@ static void moveOverviewTargetNextToWindow(const SP<Layout::ITarget>& target, co
 }
 
 CScrollOverview::~CScrollOverview() {
+    cancelSpecialTrayRenameIfAny(this);
     if (closeRemovalIdle)
         wl_event_source_remove(closeRemovalIdle);
     if (dragEdgeTimer && g_pEventLoopManager)
@@ -1550,6 +1552,7 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
             lastMousePosLocal = getOverviewMousePosLocal(pMonitor.lock());
 
             if (event.state == WL_POINTER_BUTTON_STATE_PRESSED) {
+                // rename prompt owns the keyboard; do not start other tray actions under it
                 if (specialTrayRenameBusy)
                     return;
                 // × on the card: close windows and remove the card from the persistent tray roster
@@ -1999,7 +2002,16 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
                 break;
             case XKB_KEY_Return:
             case XKB_KEY_KP_Enter:
-            case XKB_KEY_Escape: closeAll(); break;
+                closeAll();
+                break;
+            case XKB_KEY_Escape:
+                if (specialTrayRenameBusy) {
+                    cancelSpecialTrayRenameIfAny(this);
+                    damage();
+                    break;
+                }
+                closeAll();
+                break;
             default: return;
         }
 
@@ -2027,6 +2039,12 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
     dragKeyboardKeyHook = Event::bus()->m_events.input.keyboard.key.listen([this](IKeyboard::SKeyEvent event, Event::SCallbackInfo& info) {
         if (closing || event.state != WL_KEYBOARD_KEY_STATE_PRESSED || getOverviewKeysym(event) != XKB_KEY_Escape)
             return;
+        if (specialTrayRenameBusy) {
+            info.cancelled = true;
+            cancelSpecialTrayRenameIfAny(this);
+            damage();
+            return;
+        }
         if (specialTrayReorderFrom) {
             info.cancelled = true;
             finishSpecialTrayReorder(false);

@@ -84,9 +84,13 @@
 #include <sstream>
 #include <fstream>
 #include <filesystem>
+#include <atomic>
 #include <cctype>
+#include <csignal>
 #include <cstdio>
 #include <thread>
+#include <unistd.h>
+#include <sys/wait.h>
 #include <hyprland/src/input/Keys.hpp>
 
 static constexpr float       TRAY_MARGIN     = 24.F; // logical px: screen edge to cards, and between grid and cards
@@ -694,6 +698,39 @@ static bool applySpecialTrayRename(const std::string& oldName, const std::string
     return true;
 }
 
+// tofi (or special_tray_rename_cmd) must not outlive the overview: it keeps an exclusive keyboard grab and
+// kitty / other clients get no input until it exits
+static std::atomic<pid_t> g_renamePromptPid{0};
+
+static void cancelSpecialTrayRenamePrompt() {
+    const pid_t PID = g_renamePromptPid.exchange(0);
+    if (PID <= 0)
+        return;
+    // kill the whole process group (shell + timeout + tofi) so nothing keeps the keyboard grab
+    kill(-PID, SIGTERM);
+    kill(PID, SIGTERM);
+    for (int i = 0; i < 20; ++i) {
+        if (waitpid(PID, nullptr, WNOHANG) != 0)
+            return;
+        usleep(10000);
+    }
+    kill(-PID, SIGKILL);
+    kill(PID, SIGKILL);
+    waitpid(PID, nullptr, WNOHANG);
+}
+
+void cancelSpecialTrayRenameIfAny(CScrollOverview* overview) {
+    if (overview)
+        overview->cancelSpecialTrayRename();
+    else
+        cancelSpecialTrayRenamePrompt();
+}
+
+void CScrollOverview::cancelSpecialTrayRename() {
+    cancelSpecialTrayRenamePrompt();
+    specialTrayRenameBusy = false;
+}
+
 void CScrollOverview::beginSpecialTrayRename(size_t index) {
     if (specialTrayRenameBusy || closing)
         return;
@@ -704,7 +741,8 @@ void CScrollOverview::beginSpecialTrayRename(size_t index) {
     const auto OLD = CARDS[index].name;
     auto       cmd = ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:special_tray_rename_cmd", pMonitor.lock());
     if (cmd.empty())
-        cmd = "tofi --require-match=false --prompt-text=\"Name \" --width=360 --height=48 --anchor=center";
+        // timeout: never leave a keyboard-grabbing overlay around forever if something goes wrong
+        cmd = "timeout 120 tofi --require-match=false --prompt-text=\"Name \" --width=360 --height=48 --anchor=center";
     // $NAME -> current name (for prompts that show or pre-fill it)
     for (size_t pos = 0; (pos = cmd.find("$NAME", pos)) != std::string::npos;)
         cmd.replace(pos, 5, OLD);
@@ -712,15 +750,57 @@ void CScrollOverview::beginSpecialTrayRename(size_t index) {
     specialTrayRenameBusy = true;
     damage();
 
-    // run off the compositor thread so the overlay can take keyboard focus; apply on the main loop
+    // fork+pipe so we know the pid and can kill the prompt when the overview closes
     std::thread([OLD, cmd] {
-        std::string result;
-        if (FILE* pipe = popen(cmd.c_str(), "r")) {
-            char buf[256];
-            while (fgets(buf, sizeof(buf), pipe))
-                result += buf;
-            pclose(pipe);
+        auto clearBusy = [] {
+            if (!g_pEventLoopManager)
+                return;
+            g_pEventLoopManager->doLater([] {
+                if (auto* tray = dynamic_cast<CScrollOverview*>(activeScrollOverview().get()))
+                    tray->cancelSpecialTrayRename();
+            });
+        };
+
+        int pipefd[2] = {-1, -1};
+        if (pipe(pipefd) != 0) {
+            clearBusy();
+            return;
         }
+
+        const pid_t CHILD = fork();
+        if (CHILD < 0) {
+            ::close(pipefd[0]);
+            ::close(pipefd[1]);
+            clearBusy();
+            return;
+        }
+
+        if (CHILD == 0) {
+            setpgid(0, 0);
+            ::close(pipefd[0]);
+            dup2(pipefd[1], STDOUT_FILENO);
+            ::close(pipefd[1]);
+            execl("/bin/sh", "sh", "-c", cmd.c_str(), static_cast<char*>(nullptr));
+            _exit(127);
+        }
+
+        setpgid(CHILD, CHILD);
+        ::close(pipefd[1]);
+        g_renamePromptPid.store(CHILD);
+
+        std::string result;
+        char        buf[256];
+        while (true) {
+            const ssize_t N = read(pipefd[0], buf, sizeof(buf));
+            if (N <= 0)
+                break;
+            result.append(buf, sc<size_t>(N));
+        }
+        ::close(pipefd[0]);
+        waitpid(CHILD, nullptr, 0);
+        pid_t expected = CHILD;
+        g_renamePromptPid.compare_exchange_strong(expected, 0);
+
         while (!result.empty() && (result.back() == '\n' || result.back() == '\r'))
             result.pop_back();
 
@@ -729,8 +809,7 @@ void CScrollOverview::beginSpecialTrayRename(size_t index) {
         g_pEventLoopManager->doLater([OLD, result] {
             if (!result.empty())
                 applySpecialTrayRename(OLD, result);
-            const auto OVERVIEW = activeScrollOverview();
-            if (auto* tray = OVERVIEW ? dynamic_cast<CScrollOverview*>(OVERVIEW.get()) : nullptr) {
+            if (auto* tray = dynamic_cast<CScrollOverview*>(activeScrollOverview().get())) {
                 tray->specialTrayRenameBusy = false;
                 tray->rebuildPending        = true;
                 tray->damage();
