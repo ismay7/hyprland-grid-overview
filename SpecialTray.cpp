@@ -94,9 +94,9 @@ static constexpr int         TRAY_LABEL_SIZE = 15;
 static constexpr float       TRAY_ADD_HEIGHT = 56.F; // the "+" box below the cards
 static constexpr float       TRAY_DOCK_PAD   = 14.F; // dock around the cards (within TRAY_MARGIN)
 static constexpr float       TRAY_DOCK_ROUNDING = 18.F;
-static constexpr float       TRAY_GRIP_WIDTH  = 14.F; // grip on the right of the name pill
-static constexpr float       TRAY_CLOSE_WIDTH = 14.F; // × between the name and the grip
-static constexpr float       TRAY_GRIP_GAP    = 8.F;  // between chrome parts
+static constexpr float       TRAY_GRIP_WIDTH = 16.F; // grip on the right of the name pill
+static constexpr float       TRAY_GRIP_GAP   = 8.F;  // between the name and the grip
+static constexpr float       TRAY_CLOSE_SIZE = 28.F; // × hitbox; centre sits on the card's top-right corner
 static constexpr std::string_view SPECIAL_PREFIX = "special:";
 
 static std::string specialTrayName(std::string name) {
@@ -448,7 +448,7 @@ std::optional<size_t> CScrollOverview::specialTrayCardAt(const Vector2D& pointLo
     return std::nullopt;
 }
 
-// name pill under the card: text, × (remove), grip (reorder); room for a later pencil / menu
+// name pill under the card: text + grip (reorder); room for a later pencil / menu
 CScrollOverview::STrayPill CScrollOverview::specialTrayPill(const STrayCard& card, const Vector2D& textSize) const {
     const auto MONITOR = pMonitor.lock();
     STrayPill  out;
@@ -458,17 +458,24 @@ CScrollOverview::STrayPill CScrollOverview::specialTrayPill(const STrayCard& car
     const float UNIT    = MONITOR->m_scale;
     const float PAD     = 6.F * UNIT;
     const float GRIP    = TRAY_GRIP_WIDTH * UNIT;
-    const float CLOSE   = TRAY_CLOSE_WIDTH * UNIT;
     const float GAP     = TRAY_GRIP_GAP * UNIT;
     const float HEIGHT  = std::max(TRAY_PILL * UNIT, sc<float>(textSize.y) + 2.F * PAD);
-    const float WIDTH   = textSize.x + GAP + CLOSE + GAP + GRIP + 2.F * PAD + 2.F * PAD;
+    const float WIDTH   = textSize.x + GAP + GRIP + 2.F * PAD + 2.F * PAD;
     const float CENTERX = card.box.middle().x;
     const float CENTERY = card.box.y + card.box.h + specialTrayLabelOffset() * UNIT;
     out.pill            = CBox{CENTERX - WIDTH / 2.F, CENTERY - HEIGHT / 2.F, WIDTH, HEIGHT}.round();
     out.text            = CBox{out.pill.x + PAD + PAD, CENTERY - textSize.y / 2.F, textSize.x, textSize.y}.round();
     out.grip            = CBox{out.pill.x + out.pill.w - PAD - PAD - GRIP, out.pill.y, GRIP + PAD, out.pill.h}.round();
-    out.close           = CBox{out.grip.x - GAP - CLOSE, out.pill.y, CLOSE, out.pill.h}.round();
     return out;
+}
+
+// × centred on the card's top-right corner (half inside the card, half outside)
+CBox CScrollOverview::specialTrayCloseBox(const STrayCard& card) const {
+    const auto MONITOR = pMonitor.lock();
+    if (!MONITOR)
+        return {};
+    const float SIZE = TRAY_CLOSE_SIZE * MONITOR->m_scale;
+    return CBox{card.box.x + card.box.w - SIZE / 2.F, card.box.y - SIZE / 2.F, SIZE, SIZE}.round();
 }
 
 std::optional<size_t> CScrollOverview::specialTrayGripAt(const Vector2D& pointLocal) const {
@@ -495,17 +502,12 @@ std::optional<size_t> CScrollOverview::specialTrayCloseAt(const Vector2D& pointL
     if (closing || (specialTrayAutohide() && trayReveal && trayReveal->goal() < 0.5F))
         return std::nullopt;
 
-    const auto MONITOR = pMonitor.lock();
-    if (!MONITOR)
-        return std::nullopt;
-
-    const int  TEXTSIZE = std::max(1, sc<int>(std::round(TRAY_LABEL_SIZE * MONITOR->m_scale)));
-    const auto CARDS    = specialTrayCards();
+    const auto CARDS = specialTrayCards();
     for (size_t i = 0; i < CARDS.size(); ++i) {
-        const auto KEY     = CARDS[i].name + "\n" + std::to_string(TEXTSIZE) + "\ntray";
-        const auto TEXTURE = contextLabelTextures.contains(KEY) ? contextLabelTextures.at(KEY) : SP<Render::ITexture>{};
-        const auto SIZE    = TEXTURE && TEXTURE->m_size.x > 0 ? TEXTURE->m_size : Vector2D{TRAY_LABEL_SIZE * 4.0 * MONITOR->m_scale, TRAY_LABEL_SIZE * MONITOR->m_scale};
-        if (specialTrayPill(CARDS[i], SIZE).close.containsPoint(pointLocal))
+        auto card = CARDS[i];
+        if (specialTrayReorderActive && specialTrayReorderFrom == i)
+            card.box.y += lastMousePosLocal.y - dragStartMouseLocal.y;
+        if (specialTrayCloseBox(card).containsPoint(pointLocal))
             return i;
     }
     return std::nullopt;
@@ -884,59 +886,64 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
                 renderSpecialTrayIcons(monitor, CARD, windows, CARDALPHA);
         }
 
-        const auto KEY     = CARD.name + "\n" + std::to_string(TEXTSIZE) + "\ntray";
-        auto&      texture = contextLabelTextures[KEY];
+        const float CHROME_A = CARDALPHA * (CARD.workspace ? 1.F : 0.6F);
+        const auto  KEY      = CARD.name + "\n" + std::to_string(TEXTSIZE) + "\ntray";
+        auto&       texture  = contextLabelTextures[KEY];
         if (!texture)
             texture = g_pHyprRenderer->renderText(CARD.name, CHROME, TEXTSIZE, false, "", 0, 600);
-        if (!texture || texture->m_size.x <= 0)
-            continue;
+        if (texture && texture->m_size.x > 0) {
+            const auto pillGeom  = specialTrayPill(CARD, texture->m_size);
+            auto       pillColor = BACKGROUND.a > 0.F ? BACKGROUND : CHyprColor{0.F, 0.F, 0.F, 0.45F};
+            CRectPassElement::SRectData pill;
+            pill.box   = pillGeom.pill;
+            pill.color = pillColor.modifyA(pillColor.a * CARDALPHA);
+            pill.round = sc<int>(pill.box.h / 2.0);
+            Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(pill));
 
-        const auto pillGeom   = specialTrayPill(CARD, texture->m_size);
-        const float CHROME_A  = CARDALPHA * (CARD.workspace ? 1.F : 0.6F);
-        auto        pillColor = BACKGROUND.a > 0.F ? BACKGROUND : CHyprColor{0.F, 0.F, 0.F, 0.45F};
-        CRectPassElement::SRectData pill;
-        pill.box   = pillGeom.pill;
-        pill.color = pillColor.modifyA(pillColor.a * CARDALPHA);
-        pill.round = sc<int>(pill.box.h / 2.0);
-        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(pill));
+            CTexPassElement::SRenderData data;
+            data.tex = texture;
+            data.box = pillGeom.text;
+            data.a   = CHROME_A;
+            Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CTexPassElement>(std::move(data)));
 
-        CTexPassElement::SRenderData data;
-        data.tex = texture;
-        data.box = pillGeom.text;
-        data.a   = CHROME_A;
-        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CTexPassElement>(std::move(data)));
-
-        auto chrome = CHROME;
-        chrome.a *= CHROME_A;
-
-        // × between the name and the grip (two diagonals, same colour as the name)
-        const auto  CMID = pillGeom.close.middle();
-        const float SPAN = 5.F * monitor->m_scale;
-        const float DOTX = std::max(1.4F, 1.7F * monitor->m_scale);
-        for (float t = -SPAN; t <= SPAN + 0.01F; t += DOTX * 0.85F) {
-            for (const auto& P : {Vector2D{CMID.x + t, CMID.y + t}, Vector2D{CMID.x + t, CMID.y - t}}) {
-                CRectPassElement::SRectData d;
-                d.box   = CBox{P.x - DOTX / 2.F, P.y - DOTX / 2.F, DOTX, DOTX}.round();
-                d.color = chrome;
-                d.round = sc<int>(DOTX);
-                Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(d));
+            // two vertical bars as grip (same colour as the name)
+            auto chrome = CHROME;
+            chrome.a *= CHROME_A;
+            const float BAR_W = std::max(2.5F, 3.F * monitor->m_scale);
+            const float BAR_H = std::max(12.F, sc<float>(pillGeom.grip.h) * 0.5F);
+            const float GX    = pillGeom.grip.middle().x;
+            const float GY    = pillGeom.grip.middle().y;
+            const float GAPX  = 4.F * monitor->m_scale;
+            for (const float OX : {-GAPX, GAPX}) {
+                CRectPassElement::SRectData bar;
+                bar.box   = CBox{GX + OX - BAR_W / 2.F, GY - BAR_H / 2.F, BAR_W, BAR_H}.round();
+                bar.color = chrome;
+                bar.round = sc<int>(BAR_W / 2.F);
+                Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(bar));
             }
         }
 
-        // six-dot grip on the right of the pill (same colour as the name)
-        const float DOT = std::max(1.5F, 2.2F * monitor->m_scale);
-        const float GX  = pillGeom.grip.middle().x;
-        const float GY  = pillGeom.grip.middle().y;
-        const float DX  = 3.2F * monitor->m_scale;
-        const float DY  = 4.2F * monitor->m_scale;
-        for (int col : {-1, 1}) {
-            for (int row : {-1, 0, 1}) {
-                CRectPassElement::SRectData dot;
-                dot.box   = CBox{GX + col * DX - DOT / 2.F, GY + row * DY - DOT / 2.F, DOT, DOT}.round();
-                dot.color = chrome;
-                dot.round = sc<int>(DOT);
-                Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(dot));
-            }
+        // × centred on the card's top-right corner (after windows so it stays on top); full chrome colour
+        const auto CLOSEBOX  = specialTrayCloseBox(CARD);
+        const int  CLOSESIZE = std::max(22, TEXTSIZE + 10);
+        const auto CLOSEKEY  = std::string{"×\n"} + std::to_string(CLOSESIZE) + "\ntray-close";
+        auto&      closeTex  = contextLabelTextures[CLOSEKEY];
+        if (!closeTex)
+            closeTex = g_pHyprRenderer->renderText("×", CHROME, CLOSESIZE, false, "", 0, 700);
+        if (closeTex && closeTex->m_size.x > 0) {
+            // dark plate behind the × so it stays readable on wallpaper and on window content
+            CRectPassElement::SRectData plate;
+            plate.box   = CLOSEBOX.copy().scaleFromCenter(0.85).round();
+            plate.color = CHyprColor{0.F, 0.F, 0.F, 0.55F * CARDALPHA};
+            plate.round = sc<int>(plate.box.h / 2.0);
+            Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(plate));
+
+            CTexPassElement::SRenderData closeData;
+            closeData.tex = closeTex;
+            closeData.box =
+                CBox{CLOSEBOX.middle().x - closeTex->m_size.x / 2.0, CLOSEBOX.middle().y - closeTex->m_size.y / 2.0, closeTex->m_size.x, closeTex->m_size.y}.round();
+            closeData.a = CARDALPHA; // same brightness as an occupied name, not dimmed for empty cards
+            Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CTexPassElement>(std::move(closeData)));
         }
     }
 
@@ -1042,7 +1049,7 @@ std::string CScrollOverview::specialTrayLayoutJson() const {
         const auto PILL     = specialTrayPill(card, SIZE);
         auto       box      = global(card.box);
         box.insert(1, std::format("\"name\": {}, \"exists\": {}, \"icons\": [{}], \"close\": {}, \"grip\": {}, ", jsonString(card.name),
-                                  card.workspace ? "true" : "false", icons, global(PILL.close), global(PILL.grip)));
+                                  card.workspace ? "true" : "false", icons, global(specialTrayCloseBox(card)), global(PILL.grip)));
         cards += box;
     }
 
