@@ -1550,6 +1550,11 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
             lastMousePosLocal = getOverviewMousePosLocal(pMonitor.lock());
 
             if (event.state == WL_POINTER_BUTTON_STATE_PRESSED) {
+                // × on the name pill: close the scratchpad's windows and hide the card
+                if (const auto CLOSE = specialTrayCloseAt(lastMousePosLocal)) {
+                    removeSpecialTrayCard(*CLOSE);
+                    return;
+                }
                 // grip on the name pill, or ALT+card: reorder the scratchpad cards
                 if (const auto GRIP = specialTrayGripAt(lastMousePosLocal)) {
                     beginSpecialTrayReorder(*GRIP);

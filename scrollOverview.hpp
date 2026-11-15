@@ -110,7 +110,8 @@ class CScrollOverview : public IOverview {
     struct STrayPill {
         CBox pill;
         CBox text;
-        CBox grip; // reorder handle at the right of the name pill
+        CBox close; // remove the scratchpad (close its windows, hide the card)
+        CBox grip;  // reorder handle at the right of the name pill
     };
     std::vector<STrayCard> specialTrayCards() const;
     float                  specialTrayLabelOffset() const;
@@ -148,11 +149,13 @@ class CScrollOverview : public IOverview {
     std::optional<std::pair<size_t, PHLWINDOW>> specialTrayIconAt(const Vector2D& pointLocal) const;
     STrayPill              specialTrayPill(const STrayCard& card, const Vector2D& textSize) const;
     std::optional<size_t>  specialTrayGripAt(const Vector2D& pointLocal) const;
+    std::optional<size_t>  specialTrayCloseAt(const Vector2D& pointLocal) const;
     size_t                 specialTrayReorderInsertAt(const Vector2D& pointLocal, size_t from) const;
     void                   beginSpecialTrayReorder(size_t index);
     void                   updateSpecialTrayReorder();
     void                   finishSpecialTrayReorder(bool apply);
     void                   applySpecialTrayOrder(std::vector<std::string> order);
+    void                   removeSpecialTrayCard(size_t index);
     void                   renderSpecialTrayIcons(PHLMONITOR monitor, const STrayCard& card, const std::vector<PHLWINDOW>& windows, float alpha);
     std::optional<size_t>  specialTrayPressed;
     PHLWINDOWREF           specialTrayIconPressed;

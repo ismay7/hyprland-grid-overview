@@ -233,6 +233,11 @@ class SelfTest:
         if window:
             dispatch(f'hl.dsp.window.close({{ window = "address:{window["address"]}" }})')
             wait_for(lambda: test_window() is None, timeout=3.0)
+        # drop the selftest name from tray_hidden if the × test wrote it
+        hidden = os.path.expanduser("~/.local/state/gridoverview/tray_hidden")
+        if os.path.isfile(hidden):
+            names = [n for n in open(hidden).read().strip().split(",") if n and n != TEST_CLASS]
+            open(hidden, "w").write(",".join(names))
         if active_workspace() != self.start_workspace:
             dispatch(f"hl.dsp.focus({{ workspace = {self.start_workspace} }})")
             time.sleep(0.6)
@@ -315,9 +320,49 @@ class SelfTest:
         self.input.button(False)
         window = wait_for(lambda: (lambda w: w if w and w["workspace"]["name"] == TEST_SPECIAL else None)(test_window()), timeout=2.0)
         self.check("drop on + creates a scratchpad named after the app", bool(window), (test_window() or {}).get("workspace", {}).get("name", "-"))
-        self.close_overview()
+
+        # × on the name pill closes the windows and hides the card persistently (before icon drag takes it out)
         if window:
-            self.test_tray_icon(window["address"])
+            if not self.tray().get("open"):
+                self.open_overview()
+            layout = self.reveal_tray()
+            card = next((c for c in layout.get("cards", []) if c["name"] == TEST_CLASS), None)
+            if card and card.get("close"):
+                close = card["close"]
+                self.input.warp(close["x"] + close["w"] / 2, close["y"] + close["h"] / 2)
+                self.input.nudge()
+                time.sleep(0.2)
+                self.input.click()
+                gone = wait_for(lambda: TEST_CLASS not in [c["name"] for c in (self.tray().get("cards") or [])], timeout=2.0)
+                closed = wait_for(lambda: test_window() is None, timeout=2.0)
+                self.check("× on the pill closes the scratchpad and hides the card", bool(gone and closed))
+                self.close_overview()
+                self.open_overview()
+                layout = self.reveal_tray()
+                still = TEST_CLASS not in [c["name"] for c in layout.get("cards", [])]
+                self.check("removed scratchpad stays hidden after reopen", still)
+                self.close_overview()
+            else:
+                print("SKIP tray remove (no close hitbox)")
+                self.close_overview()
+
+            if active_workspace() != str(self.args.workspace):
+                dispatch(f"hl.dsp.focus({{ workspace = {self.args.workspace} }})")
+                time.sleep(0.6)
+            command = {"kitty": f"kitty --class {TEST_CLASS}", "foot": f"foot --app-id {TEST_CLASS}",
+                       "alacritty": f"alacritty --class {TEST_CLASS}"}[os.path.basename(self.args.terminal)]
+            dispatch(f'hl.dsp.exec_cmd("{command}")')
+            window = wait_for(test_window, timeout=6.0)
+            self.check("test window reopens after tray remove", bool(window))
+            time.sleep(0.4)
+
+        # icon click/drag need the window on the scratchpad again (hyprctl: reliable after × hid the card)
+        if window:
+            dispatch(f'hl.dsp.window.move({{ workspace = "{TEST_SPECIAL}", follow = false, window = "address:{window["address"]}" }})')
+            window = wait_for(lambda: (lambda w: w if w and w["workspace"]["name"] == TEST_SPECIAL else None)(test_window()), timeout=2.0)
+            self.check("window moved back to scratchpad for icon tests", bool(window))
+            if window:
+                self.test_tray_icon(window["address"])
 
         # back to its workspace: the emptied scratchpad disappears
         window = test_window()
@@ -499,7 +544,7 @@ def main():
     args = parser.parse_args()
     if args.list:
         print("keys (example Lua module), views and zoom, cancelled drag, tray: reveal, drop on +, icon click and drag, "
-              "card reorder by grip, emptied scratchpad, card click, middle drag pans, middle click closes a window; at the end: your windows unchanged, back on the start workspace")
+              "pill × removes scratchpad, card reorder by grip, emptied scratchpad, card click, middle drag pans, middle click closes a window; at the end: your windows unchanged, back on the start workspace")
         return 0
     if args.workspace < 11 or args.workspace % 10 == 0 or args.workspace // 10 < 2:
         parser.error("--workspace must be a grid workspace below the first row, e.g. 91")
