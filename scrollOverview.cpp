@@ -1560,7 +1560,7 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
                     removeSpecialTrayCard(*CLOSE);
                     return;
                 }
-                // pencil on the name pill: rename via tofi (or special_tray_rename_cmd)
+                // pencil on the name pill: centred rename field
                 if (const auto PENCIL = specialTrayPencilAt(lastMousePosLocal)) {
                     beginSpecialTrayRename(*PENCIL);
                     return;
@@ -1975,6 +1975,13 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
         const auto KEYSYM = getOverviewKeysym(event);
         if (activeScrollOverview().get() != this || isTopLayerFocused(pMonitor.lock()))
             return;
+
+        if (specialTrayRenameBusy) {
+            info.cancelled = true;
+            handleSpecialTrayRenameKey(KEYSYM);
+            return;
+        }
+
         const auto IGNOREDMODS = Input::HL_MODIFIER_CAPS | Input::HL_MODIFIER_MOD2;
         const auto MODS = sc<Input::ModifierMask>(sc<uint8_t>(g_pInputManager->getModsFromAllKBs()) & ~sc<uint8_t>(IGNOREDMODS));
 
@@ -2002,14 +2009,7 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
                 break;
             case XKB_KEY_Return:
             case XKB_KEY_KP_Enter:
-                closeAll();
-                break;
             case XKB_KEY_Escape:
-                if (specialTrayRenameBusy) {
-                    cancelSpecialTrayRenameIfAny(this);
-                    damage();
-                    break;
-                }
                 closeAll();
                 break;
             default: return;
@@ -2036,15 +2036,18 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
     if (!usesSubmapKeybinds)
         keyboardKeyHook = Event::bus()->m_events.input.keyboard.key.listen(onKeyboardKey);
 
+    // always on (also with a gridoverview submap): rename field + Escape cancels
     dragKeyboardKeyHook = Event::bus()->m_events.input.keyboard.key.listen([this](IKeyboard::SKeyEvent event, Event::SCallbackInfo& info) {
-        if (closing || event.state != WL_KEYBOARD_KEY_STATE_PRESSED || getOverviewKeysym(event) != XKB_KEY_Escape)
+        if (closing || event.state != WL_KEYBOARD_KEY_STATE_PRESSED)
             return;
+        const auto KEYSYM = getOverviewKeysym(event);
         if (specialTrayRenameBusy) {
             info.cancelled = true;
-            cancelSpecialTrayRename();
-            damage();
+            handleSpecialTrayRenameKey(KEYSYM);
             return;
         }
+        if (KEYSYM != XKB_KEY_Escape)
+            return;
         if (specialTrayReorderFrom) {
             info.cancelled = true;
             finishSpecialTrayReorder(false);

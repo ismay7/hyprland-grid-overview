@@ -16,6 +16,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <xkbcommon/xkbcommon.h>
 
 #include "Config.hpp"
 #include "DropIndicator.hpp"
@@ -41,7 +42,7 @@ class CScrollOverview : public IOverview {
     bool         shouldSuppressRenderDamage() const override;
     void         onPreRender() override;
     std::string  specialTrayLayoutJson() const; // hl.plugin.gridoverview.tray_layout()
-    void         cancelSpecialTrayRename();    // kill tofi/prompt; must not leave a keyboard grab behind
+    void         cancelSpecialTrayRename(); // dismiss the centred rename field
 
     void         setClosing(bool closing) override;
 
@@ -160,8 +161,13 @@ class CScrollOverview : public IOverview {
     void                   applySpecialTrayOrder(std::vector<std::string> order);
     void                   removeSpecialTrayCard(size_t index);
     void                   beginSpecialTrayRename(size_t index);
+    void                   finishSpecialTrayRename(); // Enter: apply text
+    bool                   handleSpecialTrayRenameKey(xkb_keysym_t keysym); // true = consumed
+    void                   renderSpecialTrayRenameOverlay(PHLMONITOR monitor, float alpha);
     void                   renameSpecialTrayCard(const std::string& oldName, const std::string& newName);
     bool                   specialTrayRenameBusy = false;
+    std::string            specialTrayRenameOld;  // Hyprland name being edited
+    std::string            specialTrayRenameText; // field contents
     void                   renderSpecialTrayIcons(PHLMONITOR monitor, const STrayCard& card, const std::vector<PHLWINDOW>& windows, float alpha);
     std::optional<size_t>  specialTrayPressed;
     PHLWINDOWREF           specialTrayIconPressed;

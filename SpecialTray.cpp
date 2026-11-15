@@ -84,14 +84,9 @@
 #include <sstream>
 #include <fstream>
 #include <filesystem>
-#include <atomic>
 #include <cctype>
-#include <csignal>
-#include <cstdio>
-#include <thread>
-#include <unistd.h>
-#include <sys/wait.h>
 #include <hyprland/src/input/Keys.hpp>
+#include <xkbcommon/xkbcommon.h>
 
 static constexpr float       TRAY_MARGIN     = 24.F; // logical px: screen edge to cards, and between grid and cards
 static constexpr float       TRAY_GAP        = 20.F; // between a card's label and the next card
@@ -698,37 +693,15 @@ static bool applySpecialTrayRename(const std::string& oldName, const std::string
     return true;
 }
 
-// tofi (or special_tray_rename_cmd) must not outlive the overview: it keeps an exclusive keyboard grab and
-// kitty / other clients get no input until it exits
-static std::atomic<pid_t> g_renamePromptPid{0};
-
-static void cancelSpecialTrayRenamePrompt() {
-    const pid_t PID = g_renamePromptPid.exchange(0);
-    if (PID <= 0)
-        return;
-    // kill the whole process group (shell + timeout + tofi) so nothing keeps the keyboard grab
-    kill(-PID, SIGTERM);
-    kill(PID, SIGTERM);
-    for (int i = 0; i < 20; ++i) {
-        if (waitpid(PID, nullptr, WNOHANG) != 0)
-            return;
-        usleep(10000);
-    }
-    kill(-PID, SIGKILL);
-    kill(PID, SIGKILL);
-    waitpid(PID, nullptr, WNOHANG);
-}
-
 void cancelSpecialTrayRenameIfAny(CScrollOverview* overview) {
     if (overview)
         overview->cancelSpecialTrayRename();
-    else
-        cancelSpecialTrayRenamePrompt();
 }
 
 void CScrollOverview::cancelSpecialTrayRename() {
-    cancelSpecialTrayRenamePrompt();
     specialTrayRenameBusy = false;
+    specialTrayRenameOld.clear();
+    specialTrayRenameText.clear();
 }
 
 void CScrollOverview::beginSpecialTrayRename(size_t index) {
@@ -738,84 +711,134 @@ void CScrollOverview::beginSpecialTrayRename(size_t index) {
     if (index >= CARDS.size())
         return;
 
-    const auto OLD = CARDS[index].name;
-    auto       cmd = ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:special_tray_rename_cmd", pMonitor.lock());
-    if (cmd.empty())
-        // timeout: never leave a keyboard-grabbing overlay around forever if something goes wrong
-        cmd = "timeout 120 tofi --require-match=false --prompt-text=\"Name \" --width=360 --height=48 --anchor=center";
-    // $NAME -> current name (for prompts that show or pre-fill it)
-    for (size_t pos = 0; (pos = cmd.find("$NAME", pos)) != std::string::npos;)
-        cmd.replace(pos, 5, OLD);
-
+    specialTrayRenameOld  = CARDS[index].name;
+    // anonymous cards start empty; named ones keep the current name for editing
+    specialTrayRenameText = isAnonymousTrayName(CARDS[index].name) ? "" : CARDS[index].name;
     specialTrayRenameBusy = true;
     damage();
+}
 
-    // fork+pipe so we know the pid and can kill the prompt when the overview closes
-    std::thread([OLD, cmd] {
-        auto clearBusy = [] {
-            if (!g_pEventLoopManager)
-                return;
-            g_pEventLoopManager->doLater([] {
-                if (auto* tray = dynamic_cast<CScrollOverview*>(activeScrollOverview().get()))
-                    tray->cancelSpecialTrayRename();
-            });
-        };
+void CScrollOverview::finishSpecialTrayRename() {
+    if (!specialTrayRenameBusy)
+        return;
+    const auto OLD  = specialTrayRenameOld;
+    const auto TEXT = specialTrayRenameText;
+    cancelSpecialTrayRename();
+    if (!TEXT.empty())
+        renameSpecialTrayCard(OLD, TEXT);
+    else
+        damage();
+}
 
-        int pipefd[2] = {-1, -1};
-        if (pipe(pipefd) != 0) {
-            clearBusy();
-            return;
+bool CScrollOverview::handleSpecialTrayRenameKey(xkb_keysym_t keysym) {
+    if (!specialTrayRenameBusy || closing)
+        return false;
+
+    if (keysym == XKB_KEY_Escape) {
+        cancelSpecialTrayRename();
+        damage();
+        return true;
+    }
+    if (keysym == XKB_KEY_Return || keysym == XKB_KEY_KP_Enter) {
+        finishSpecialTrayRename();
+        return true;
+    }
+    if (keysym == XKB_KEY_BackSpace) {
+        if (!specialTrayRenameText.empty()) {
+            // erase one UTF-8 codepoint from the end
+            do {
+                specialTrayRenameText.pop_back();
+            } while (!specialTrayRenameText.empty() && (sc<unsigned char>(specialTrayRenameText.back()) & 0xC0) == 0x80);
+            damage();
         }
+        return true;
+    }
 
-        const pid_t CHILD = fork();
-        if (CHILD < 0) {
-            ::close(pipefd[0]);
-            ::close(pipefd[1]);
-            clearBusy();
-            return;
-        }
-
-        if (CHILD == 0) {
-            setpgid(0, 0);
-            ::close(pipefd[0]);
-            dup2(pipefd[1], STDOUT_FILENO);
-            ::close(pipefd[1]);
-            execl("/bin/sh", "sh", "-c", cmd.c_str(), static_cast<char*>(nullptr));
-            _exit(127);
-        }
-
-        setpgid(CHILD, CHILD);
-        ::close(pipefd[1]);
-        g_renamePromptPid.store(CHILD);
-
-        std::string result;
-        char        buf[256];
-        while (true) {
-            const ssize_t N = read(pipefd[0], buf, sizeof(buf));
-            if (N <= 0)
-                break;
-            result.append(buf, sc<size_t>(N));
-        }
-        ::close(pipefd[0]);
-        waitpid(CHILD, nullptr, 0);
-        pid_t expected = CHILD;
-        g_renamePromptPid.compare_exchange_strong(expected, 0);
-
-        while (!result.empty() && (result.back() == '\n' || result.back() == '\r'))
-            result.pop_back();
-
-        if (!g_pEventLoopManager)
-            return;
-        g_pEventLoopManager->doLater([OLD, result] {
-            if (!result.empty())
-                applySpecialTrayRename(OLD, result);
-            if (auto* tray = dynamic_cast<CScrollOverview*>(activeScrollOverview().get())) {
-                tray->specialTrayRenameBusy = false;
-                tray->rebuildPending        = true;
-                tray->damage();
+    char utf8[8] = {};
+    const int N  = xkb_keysym_to_utf8(keysym, utf8, sizeof(utf8));
+    // N includes the trailing NUL; only keep name-safe characters (same set as sanitizeTrayName)
+    if (N > 1) {
+        for (int i = 0; i < N - 1; ++i) {
+            const char C = sc<char>(std::tolower(sc<unsigned char>(utf8[i])));
+            if (std::isalnum(sc<unsigned char>(C)) || C == '_' || C == '-') {
+                if (specialTrayRenameText.size() < 48)
+                    specialTrayRenameText.push_back(C);
             }
-        });
-    }).detach();
+        }
+        damage();
+        return true;
+    }
+    return true; // swallow other keys while the field is open
+}
+
+void CScrollOverview::renderSpecialTrayRenameOverlay(PHLMONITOR monitor, float alpha) {
+    if (!specialTrayRenameBusy || !monitor || alpha <= 0.001F || !g_pHyprRenderer)
+        return;
+
+    const auto  SIZE   = monitor->m_size * monitor->m_scale;
+    const float UNIT   = monitor->m_scale;
+    const float BOX_W  = 420.F * UNIT;
+    const float BOX_H  = 64.F * UNIT;
+    const float BOX_X  = (SIZE.x - BOX_W) / 2.F;
+    const float BOX_Y  = (SIZE.y - BOX_H) / 2.F;
+    const auto  FIELD  = CBox{BOX_X, BOX_Y, BOX_W, BOX_H}.round();
+
+    // dim the overview a bit so the field reads as a modal
+    CRectPassElement::SRectData dim;
+    dim.box   = CBox{0, 0, SIZE.x, SIZE.y};
+    dim.color = CHyprColor{0.F, 0.F, 0.F, 0.35F * alpha};
+    Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(dim));
+
+    const auto BACKGROUND = ScrollOverview::Config::getContextLabelBackground(monitor);
+    CRectPassElement::SRectData plate;
+    plate.box   = FIELD;
+    plate.color = (BACKGROUND.a > 0.F ? BACKGROUND : CHyprColor{0.F, 0.F, 0.F, 0.75F}).modifyA(std::min(1.F, (BACKGROUND.a > 0.F ? sc<float>(BACKGROUND.a) : 0.75F) * alpha));
+    plate.round = sc<int>(FIELD.h / 2.0);
+    Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(plate));
+
+    auto borderColor = ScrollOverview::Config::getEmptyColor(monitor);
+    borderColor.a    = std::min(1.F, sc<float>(borderColor.a) * 2.F) * alpha;
+    Config::CGradientValueData gradient;
+    gradient.m_colors = {borderColor};
+    gradient.updateColorsOk();
+    Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CBorderPassElement>(CBorderPassElement::SBorderData{
+        .box        = FIELD,
+        .grad1      = gradient,
+        .round      = sc<int>(FIELD.h / 2.0),
+        .borderSize = std::max(1, sc<int>(std::round(2.F * UNIT))),
+    }));
+
+    const auto  CHROME   = ScrollOverview::Config::getContextLabelColor(monitor);
+    const int   TEXTSIZE = std::max(1, sc<int>(std::round(18.F * UNIT)));
+    const float PAD      = 18.F * UNIT;
+    // show a placeholder when empty
+    const bool  PLACEHOLDER = specialTrayRenameText.empty();
+    const auto  DISPLAY     = PLACEHOLDER ? std::string{"Name"} : specialTrayRenameText;
+    const auto  KEY         = DISPLAY + "\n" + std::to_string(TEXTSIZE) + (PLACEHOLDER ? "\nrename-ph" : "\nrename");
+    auto&       texture     = contextLabelTextures[KEY];
+    if (!texture)
+        texture = g_pHyprRenderer->renderText(DISPLAY, PLACEHOLDER ? CHROME.modifyA(0.35F) : CHROME, TEXTSIZE, false, "", 0, 600);
+    if (texture && texture->m_size.x > 0) {
+        const double MAX_W = FIELD.w - 2.0 * PAD - 8.0 * UNIT;
+        double       tw    = texture->m_size.x;
+        double       th    = texture->m_size.y;
+        // if the name is long, keep the right end (caret side) visible
+        double       tx    = FIELD.x + PAD;
+        if (tw > MAX_W)
+            tx = FIELD.x + FIELD.w - PAD - tw;
+        CTexPassElement::SRenderData data;
+        data.tex = texture;
+        data.box = CBox{tx, FIELD.middle().y - th / 2.0, tw, th}.round();
+        data.a   = alpha * (PLACEHOLDER ? 0.45F : 1.F);
+        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CTexPassElement>(std::move(data)));
+
+        // caret at the end of the text (or at the placeholder start)
+        const double CARET_X = PLACEHOLDER ? FIELD.x + PAD : std::min(tx + tw + 2.0 * UNIT, FIELD.x + FIELD.w - PAD);
+        CRectPassElement::SRectData caret;
+        caret.box   = CBox{CARET_X, FIELD.middle().y - th / 2.0, std::max(2.0, 2.0 * UNIT), th}.round();
+        caret.color = CHROME.modifyA(alpha);
+        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(caret));
+    }
 }
 
 void CScrollOverview::renameSpecialTrayCard(const std::string& oldName, const std::string& rawNew) {
@@ -1280,6 +1303,8 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
 
     const float PLUS = 22.F * UNIT;
     GridIcons::drawUiIcon("plus", CBox{ADD.middle().x - PLUS / 2.F, ADD.middle().y - PLUS / 2.F, PLUS, PLUS}, 1.F, color);
+
+    renderSpecialTrayRenameOverlay(monitor, ALPHA);
 }
 
 static std::string jsonString(const std::string& text) {

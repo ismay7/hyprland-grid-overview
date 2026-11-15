@@ -26,7 +26,7 @@ features are additions on top of it (see [Credits](#credits)).
 - **Scratchpads at hand**: a tray at the right screen edge shows Hyprland's special workspaces as live cards
   with the icons of their apps, starting with the default one, `special`. Drag a window into a card or out of it onto any workspace; a click
   shows that scratchpad. New cards are anonymous by default (`scratch`, `scratch-2`, … — no name in the pill); the
-  pencil renames them (tofi overlay, or `special_tray_rename_cmd`). × closes their windows and removes them from the
+  pencil opens a centred rename field (Enter confirms, Escape cancels). × closes their windows and removes them from the
   persistent roster (`~/.local/state/gridoverview/special_workspaces`; config `special_workspaces` only seeds it once).
   The "+" stays when every card is gone. The grip reorders (or Alt+drag; order in `tray_order`). Drop on "+" can
   auto-name by app or desktop category via `special_tray_auto_name` (default `off`). UI icons are SVGs under
@@ -151,7 +151,6 @@ workspaces of a context are created on its monitor. A separate grid per monitor 
 | `special_tray_autohide` | bool | hide the tray until the pointer touches the right screen edge, like an auto-hiding dock; it stays while the pointer is over it, also while a window is dragged. The whole-grid view keeps no space free | `false` |
 | `special_workspaces` | string | seeds the persistent tray roster once (`~/.local/state/gridoverview/special_workspaces`); afterwards × / + / rename edit that file. `special` is Hyprland's unnamed scratchpad | `special` |
 | `special_tray_auto_name` | string | name when dropping a window on +: `off` (anonymous `scratch-N`, default), `category` (desktop `Categories=`, else app), or `app` | `off` |
-| `special_tray_rename_cmd` | string | shell command for the rename prompt (stdout = new name); `$NAME` is the current name; empty = built-in tofi | empty (tofi) |
 | `special_tray_width` | int | card width in layout px (cards shrink when they do not fit the screen height) | `300` |
 | `transition_bezier` | string | bezier for moving between workspaces in the overview; empty = `windowsMove` | empty |
 | `transition_speed` | float | speed for `transition_bezier` | `4` |

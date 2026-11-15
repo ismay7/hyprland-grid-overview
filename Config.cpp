@@ -472,9 +472,6 @@ static void defineConfigValues() {
                                       "name for a new scratchpad when dropping a window on +: off (anonymous scratch-N, default), category "
                                       "(desktop Categories=, else app), or app",
                                       Hyprlang::STRING{"off"}));
-    addValue(makeShared<CStringValue>("plugin:gridoverview:special_tray_rename_cmd",
-                                      "shell command for the rename prompt (stdout = new name); $NAME is replaced with the current name; empty = built-in tofi",
-                                      Hyprlang::STRING{""}));
     addValue(makeShared<CIntValue>("plugin:gridoverview:special_tray_width", "width of the special workspace cards in layout px", 300,
                                    SIntValueOptions{.min = 60, .max = 2000}));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:context_labels", "grid mode: name of every context next to its first workspace", false));
