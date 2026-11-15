@@ -4582,7 +4582,7 @@ void CScrollOverview::renderGridModeButtons(PHLMONITOR monitor) {
 
         rect(BOX, ACTIVE ? ACCENT.modifyA(0.55F * ALPHA) : CHyprColor{0.F, 0.F, 0.F, 0.45F * ALPHA}, sc<int>(BOX.height / 2.0));
 
-        const float ICON = std::min(BOX.width, BOX.height) * 0.55F;
+        const float ICON = std::min(BOX.width, BOX.height) * 0.72F;
         GridIcons::drawUiIcon(button == 0 ? "view-center" : "view-grid", CBox{BOX.middle().x - ICON / 2.F, BOX.middle().y - ICON / 2.F, ICON, ICON},
                               (ACTIVE ? 0.95F : 0.7F) * ALPHA);
     }

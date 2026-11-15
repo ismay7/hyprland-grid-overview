@@ -233,11 +233,6 @@ class SelfTest:
         if window:
             dispatch(f'hl.dsp.window.close({{ window = "address:{window["address"]}" }})')
             wait_for(lambda: test_window() is None, timeout=3.0)
-        # drop the selftest name from tray_hidden if the × test wrote it
-        hidden = os.path.expanduser("~/.local/state/gridoverview/tray_hidden")
-        if os.path.isfile(hidden):
-            names = [n for n in open(hidden).read().strip().split(",") if n and n != TEST_CLASS]
-            open(hidden, "w").write(",".join(names))
         if active_workspace() != self.start_workspace:
             dispatch(f"hl.dsp.focus({{ workspace = {self.start_workspace} }})")
             time.sleep(0.6)
@@ -336,11 +331,14 @@ class SelfTest:
                 gone = wait_for(lambda: TEST_CLASS not in [c["name"] for c in (self.tray().get("cards") or [])], timeout=2.0)
                 closed = wait_for(lambda: test_window() is None, timeout=2.0)
                 self.check("× on the pill closes the scratchpad and hides the card", bool(gone and closed))
+                has_add = bool((self.tray().get("add") or {}))
+                self.check("tray keeps the + after the last scratchpad was closed", has_add or bool(self.tray().get("cards")))
                 self.close_overview()
                 self.open_overview()
                 layout = self.reveal_tray()
                 still = TEST_CLASS not in [c["name"] for c in layout.get("cards", [])]
                 self.check("removed scratchpad stays hidden after reopen", still)
+                self.check("tray still has + after reopen", bool(layout.get("add")))
                 self.close_overview()
             else:
                 print("SKIP tray remove (no close hitbox)")

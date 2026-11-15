@@ -96,7 +96,7 @@ static constexpr float       TRAY_DOCK_PAD   = 14.F; // dock around the cards (w
 static constexpr float       TRAY_DOCK_ROUNDING = 18.F;
 static constexpr float       TRAY_GRIP_WIDTH = 16.F; // grip on the right of the name pill
 static constexpr float       TRAY_GRIP_GAP   = 8.F;  // between the name and the grip
-static constexpr float       TRAY_CLOSE_SIZE = 28.F; // × hitbox; centre sits on the card's top-right corner
+static constexpr float       TRAY_CLOSE_SIZE = 36.F; // × hitbox; centre sits on the card's top-right corner
 static constexpr std::string_view SPECIAL_PREFIX = "special:";
 
 static std::string specialTrayName(std::string name) {
@@ -108,10 +108,10 @@ static std::string specialTrayName(std::string name) {
     return name;
 }
 
-// remembered card order / hidden empty placeholders (comma lists under XDG_STATE_HOME/gridoverview/)
+// remembered card order (disk) / hidden names for this session only (config placeholders return after restart)
 static std::vector<std::string> g_trayOrder;
 static std::vector<std::string> g_trayHidden;
-static bool                     g_trayStateLoaded = false;
+static bool                     g_trayOrderLoaded = false;
 
 static std::filesystem::path trayStateDir() {
     if (const char* state = std::getenv("XDG_STATE_HOME"); state && *state)
@@ -149,54 +149,42 @@ static void writeNameList(const std::filesystem::path& path, const std::vector<s
     }
 }
 
-static void loadTrayState() {
-    // re-read when the files change (also after an external edit without reloading the plugin)
-    static std::filesystem::file_time_type orderTime{}, hiddenTime{};
-    const auto                             ORDER  = trayStateDir() / "tray_order";
-    const auto                             HIDDEN = trayStateDir() / "tray_hidden";
+static void loadTrayOrder() {
+    // re-read when the file changes (also after an external edit without reloading the plugin)
+    static std::filesystem::file_time_type orderTime{};
+    const auto                             ORDER = trayStateDir() / "tray_order";
     std::error_code                        ec;
     const auto                             ot = std::filesystem::exists(ORDER, ec) ? std::filesystem::last_write_time(ORDER, ec) : std::filesystem::file_time_type{};
-    const auto                             ht = std::filesystem::exists(HIDDEN, ec) ? std::filesystem::last_write_time(HIDDEN, ec) : std::filesystem::file_time_type{};
-    if (g_trayStateLoaded && ot == orderTime && ht == hiddenTime)
+    if (g_trayOrderLoaded && ot == orderTime)
         return;
-    g_trayStateLoaded = true;
+    g_trayOrderLoaded = true;
     orderTime         = ot;
-    hiddenTime        = ht;
     g_trayOrder       = readNameList(ORDER);
-    g_trayHidden      = readNameList(HIDDEN);
 }
 
 static void saveTrayOrder() {
     writeNameList(trayStateDir() / "tray_order", g_trayOrder);
 }
 
-static void saveTrayHidden() {
-    writeNameList(trayStateDir() / "tray_hidden", g_trayHidden);
-}
-
 static bool trayNameHidden(const std::string& name) {
-    loadTrayState();
     return std::ranges::find(g_trayHidden, name) != g_trayHidden.end();
 }
 
 static void hideTrayName(const std::string& name) {
-    loadTrayState();
     if (std::ranges::find(g_trayHidden, name) == g_trayHidden.end())
         g_trayHidden.push_back(name);
+    loadTrayOrder();
     std::erase(g_trayOrder, name);
-    saveTrayHidden();
     saveTrayOrder();
 }
 
 static void unhideTrayName(const std::string& name) {
-    loadTrayState();
-    if (std::erase(g_trayHidden, name))
-        saveTrayHidden();
+    std::erase(g_trayHidden, name);
 }
 
 template <typename TCard>
 static void applyTrayOrder(std::vector<TCard>& cards) {
-    loadTrayState();
+    loadTrayOrder();
     if (cards.empty())
         return;
 
@@ -245,7 +233,7 @@ std::vector<CScrollOverview::STrayCard> CScrollOverview::specialTrayCards() cons
     std::stringstream configured(ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:special_workspaces", MONITOR));
     for (std::string entry; std::getline(configured, entry, ',');) {
         const auto NAME = specialTrayName(entry);
-        // tray_hidden suppresses empty placeholders from special_workspaces until the scratchpad has windows again
+        // session-hidden names skip empty placeholders from special_workspaces (cleared on Hyprland restart)
         if (NAME.empty() || trayNameHidden(NAME) || std::ranges::any_of(cards, [&NAME](const auto& card) { return card.name == NAME; }))
             continue;
         cards.push_back({.name = NAME});
@@ -316,18 +304,25 @@ bool CScrollOverview::specialTrayAutohide() const {
 float CScrollOverview::specialTrayDragScale(const Vector2D& cursorGlobal, float gridScale) const {
     static constexpr float RANGE = 300.F; // logical px left of the cards
     const auto             MONITOR = pMonitor.lock();
-    const auto             CARDS   = specialTrayCards();
-    if (!MONITOR || CARDS.empty() || closing)
+    if (!MONITOR || closing)
         return 1.F;
 
+    const auto CARDS = specialTrayCards();
+    const auto ADD   = specialTrayAddBox(CARDS);
+    if (ADD.empty())
+        return 1.F;
+
+    const double EDGE_X   = CARDS.empty() ? ADD.x : CARDS.front().box.x;
     const double X        = (cursorGlobal.x - MONITOR->m_position.x) * MONITOR->m_scale;
-    const double START    = CARDS.front().box.x - RANGE * MONITOR->m_scale;
-    float        progress = std::clamp(sc<float>((X - START) / (CARDS.front().box.x - START)), 0.F, 1.F);
+    const double START    = EDGE_X - RANGE * MONITOR->m_scale;
+    float        progress = std::clamp(sc<float>((X - START) / (EDGE_X - START)), 0.F, 1.F);
     progress              = progress * progress * (3.F - 2.F * progress);
     if (specialTrayAutohide() && trayReveal)
         progress *= trayReveal->value();
 
-    const float CARDSCALE = specialTrayRenderScale(CARDS.front()) / std::max(gridScale, 0.01F);
+    const float CARDSCALE = (CARDS.empty() ? sc<float>(ADD.w) / sc<float>(std::max(MONITOR->m_size.x, 1.0) * MONITOR->m_scale)
+                                           : specialTrayRenderScale(CARDS.front())) /
+                            std::max(gridScale, 0.01F);
     return 1.F + (CARDSCALE - 1.F) * progress;
 }
 
@@ -335,10 +330,13 @@ float CScrollOverview::specialTrayShownWidth() const {
     if (specialTrayAutohide() && trayReveal && trayReveal->goal() < 0.5F)
         return 0.F;
     const auto MONITOR = pMonitor.lock();
-    const auto CARDS   = specialTrayCards();
-    if (!MONITOR || CARDS.empty())
+    if (!MONITOR || !ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray", MONITOR))
         return 0.F;
-    return sc<float>(CARDS.front().box.w) / std::max(MONITOR->m_scale, 0.01F) + TRAY_MARGIN;
+    const auto CARDS = specialTrayCards();
+    if (!CARDS.empty())
+        return sc<float>(CARDS.front().box.w) / std::max(MONITOR->m_scale, 0.01F) + TRAY_MARGIN;
+    // no cards left: still keep the column for the lone "+"
+    return sc<float>(ScrollOverview::Config::getValue<int>("plugin:gridoverview:special_tray_width", MONITOR)) + TRAY_MARGIN;
 }
 
 // a hidden (autohide) tray lies over the grid when shown instead of keeping space free
@@ -353,14 +351,17 @@ void CScrollOverview::updateSpecialTrayReveal(const Vector2D& pointLocal) {
     const auto MONITOR = pMonitor.lock();
     if (!MONITOR || !trayReveal || closing || !specialTrayAutohide())
         return;
+    if (!ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray", MONITOR))
+        return;
 
     const auto CARDS = specialTrayCards();
-    if (CARDS.empty())
+    const auto ADD   = specialTrayAddBox(CARDS);
+    if (ADD.empty())
         return;
 
     const auto   SIZE     = MONITOR->m_size * MONITOR->m_scale;
     const double RIGHT    = SIZE.x;
-    const double KEEP     = RIGHT - (CARDS.front().box.w + 2.0 * TRAY_MARGIN * MONITOR->m_scale);
+    const double KEEP     = RIGHT - (ADD.w + 2.0 * TRAY_MARGIN * MONITOR->m_scale);
     const bool   DRAGGING = dragActiveWindow || (g_pointerGrabOverview && g_pointerGrabOverview->dragActiveWindow);
     // dragging: the edge scrolling zone of updateDragEdgeScroll()
     const double EDGE  = DRAGGING ? RIGHT - std::min(SIZE.x, SIZE.y) * 0.04 : RIGHT - 2.0 * MONITOR->m_scale;
@@ -378,13 +379,13 @@ CBox CScrollOverview::specialTrayBandBox() const {
         return {};
 
     const auto CARDS = specialTrayCards();
-    if (CARDS.empty())
+    const auto ADD   = specialTrayAddBox(CARDS);
+    if (ADD.empty())
         return {};
 
     const double MARGIN = TRAY_MARGIN * MONITOR->m_scale;
-    const double LEFT   = CARDS.front().box.x - MARGIN;
-    const double TOP    = CARDS.front().box.y - MARGIN;
-    const auto   ADD    = specialTrayAddBox(CARDS);
+    const double LEFT   = ADD.x - MARGIN;
+    const double TOP    = (CARDS.empty() ? ADD.y : CARDS.front().box.y) - MARGIN;
     return CBox{LEFT, TOP, MONITOR->m_size.x * MONITOR->m_scale - LEFT, ADD.y + ADD.h + MARGIN - TOP};
 }
 
@@ -393,13 +394,26 @@ bool CScrollOverview::specialTrayBandAt(const Vector2D& pointLocal) const {
     return !BAND.empty() && BAND.containsPoint(pointLocal);
 }
 
-// the "+" box below the last card: drop a window there for a new scratchpad named after its app, or click it
+// the "+" box below the last card (or alone when every scratchpad was closed): drop / click for a new one
 CBox CScrollOverview::specialTrayAddBox(const std::vector<STrayCard>& cards) const {
     const auto MONITOR = pMonitor.lock();
-    if (!MONITOR || cards.empty())
+    if (!MONITOR || !ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray", MONITOR))
         return {};
-    const auto& LAST = cards.back().box;
-    return CBox{LAST.x, LAST.y + LAST.h + (specialTrayLabelBand() + TRAY_GAP) * MONITOR->m_scale, LAST.w, TRAY_ADD_HEIGHT * MONITOR->m_scale}.round();
+
+    if (!cards.empty()) {
+        const auto& LAST = cards.back().box;
+        return CBox{LAST.x, LAST.y + LAST.h + (specialTrayLabelBand() + TRAY_GAP) * MONITOR->m_scale, LAST.w, TRAY_ADD_HEIGHT * MONITOR->m_scale}.round();
+    }
+
+    // no cards: a lone "+" in the tray column, vertically centred
+    const auto  SIZE   = MONITOR->m_size;
+    const float TOP    = gridWorkAreaTop(MONITOR) + TRAY_MARGIN;
+    const float AVAILH = sc<float>(SIZE.y) - TOP - TRAY_MARGIN;
+    float       width  = sc<float>(ScrollOverview::Config::getValue<int>("plugin:gridoverview:special_tray_width", MONITOR));
+    const float HIDDEN = specialTrayAutohide() && trayReveal ? (1.F - trayReveal->value()) * (width + 2.F * TRAY_MARGIN) : 0.F;
+    const float X      = sc<float>(SIZE.x) - TRAY_MARGIN - width + HIDDEN;
+    const float Y      = TOP + std::max(0.F, (AVAILH - TRAY_ADD_HEIGHT) / 2.F);
+    return CBox{X, Y, width, TRAY_ADD_HEIGHT}.scale(MONITOR->m_scale).round();
 }
 
 bool CScrollOverview::specialTrayAddAt(const Vector2D& pointLocal) const {
@@ -594,8 +608,8 @@ void CScrollOverview::updateSpecialTrayReorder() {
 }
 
 void CScrollOverview::applySpecialTrayOrder(std::vector<std::string> order) {
-    loadTrayState();
-    g_trayOrder = std::move(order);
+    g_trayOrderLoaded = true;
+    g_trayOrder       = std::move(order);
     saveTrayOrder();
     damage();
 }
@@ -795,8 +809,12 @@ void CScrollOverview::renderSpecialTrayIcons(PHLMONITOR monitor, const STrayCard
 }
 
 void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_tp& now) {
+    if (!ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray", monitor))
+        return;
+
     const auto CARDS = specialTrayCards();
-    if (CARDS.empty())
+    const auto ADD   = specialTrayAddBox(CARDS);
+    if (ADD.empty())
         return;
 
     const float PROGRESS = std::clamp((1.F - scale->value()) / (1.F - ScrollOverview::Config::getScale(monitor)), 0.F, 1.F);
@@ -815,11 +833,10 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
     const auto  CHROME     = ScrollOverview::Config::getContextLabelColor(monitor);
     const bool  ICONS      = ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray_icons", monitor);
 
-    // one dock behind all cards and the "+": the windows sit on it directly, without card backgrounds or shadows
-    const auto  ADD  = specialTrayAddBox(CARDS);
+    // one dock behind all cards and the "+" (or the "+" alone when every scratchpad was closed)
     const float PAD  = TRAY_DOCK_PAD * monitor->m_scale;
-    const auto& TOP  = CARDS.front().box;
-    const auto  DOCK = CBox{TOP.x - PAD, TOP.y - PAD, TOP.w + 2.F * PAD, ADD.y + ADD.h + PAD - (TOP.y - PAD)}.round();
+    const auto  TOPY = CARDS.empty() ? ADD.y : CARDS.front().box.y;
+    const auto  DOCK = CBox{ADD.x - PAD, TOPY - PAD, ADD.w + 2.F * PAD, ADD.y + ADD.h + PAD - (TOPY - PAD)}.round();
     const bool  BLUR = ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray_blur", monitor) && ScrollOverview::Config::getValue<int>("decoration:blur:enabled");
     CRectPassElement::SRectData dock;
     dock.box   = DOCK;
@@ -925,13 +942,13 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
         // × centred on the card's top-right corner (after windows so it stays on top)
         const auto CLOSEBOX = specialTrayCloseBox(CARD);
         CRectPassElement::SRectData plate;
-        plate.box   = CLOSEBOX.copy().scaleFromCenter(0.85).round();
+        plate.box   = CLOSEBOX.copy().scaleFromCenter(0.92).round();
         plate.color = CHyprColor{0.F, 0.F, 0.F, 0.55F * CARDALPHA};
         plate.round = sc<int>(plate.box.h / 2.0);
         Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(plate));
         auto closeColor = CHROME;
         closeColor.a    = 1.F;
-        GridIcons::drawUiIcon("close", CLOSEBOX.copy().scaleFromCenter(0.7), CARDALPHA, closeColor);
+        GridIcons::drawUiIcon("close", CLOSEBOX.copy().scaleFromCenter(0.78), CARDALPHA, closeColor);
     }
 
     // drop line while reordering
@@ -953,10 +970,7 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
         Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(line));
     }
 
-    // "+" box: new scratchpad (drop a window on it, or click it); brighter under the pointer or a dragged window
-    if (ADD.empty())
-        return;
-
+    // "+" box: new scratchpad (drop a window on it, or click it); also the sole tray content when every card was closed
     const bool ADDHOVERED = isOverviewPointerOnMonitor(monitor) && specialTrayAddAt(getOverviewMousePosLocal(monitor));
     const bool ADDTARGET  = ADDHOVERED && DRAGGED;
     const auto UNIT       = monitor->m_scale;
@@ -1032,9 +1046,10 @@ std::string CScrollOverview::specialTrayLayoutJson() const {
         cards += box;
     }
 
-    const bool SHOWN = !CARDS.empty() && !(specialTrayAutohide() && trayReveal && trayReveal->goal() < 0.5F);
+    const auto ADD   = specialTrayAddBox(CARDS);
+    const bool SHOWN = !ADD.empty() && !(specialTrayAutohide() && trayReveal && trayReveal->goal() < 0.5F);
     return std::format("{{\"open\": {}, \"monitor\": {}, \"shown\": {}, \"cards\": [{}], \"add\": {}}}", closing ? "false" : "true", jsonString(MONITOR->m_name),
-                       SHOWN ? "true" : "false", cards, CARDS.empty() ? "null" : global(specialTrayAddBox(CARDS)));
+                       SHOWN ? "true" : "false", cards, ADD.empty() ? "null" : global(ADD));
 }
 
 int trayLayoutLua(lua_State* L) {
