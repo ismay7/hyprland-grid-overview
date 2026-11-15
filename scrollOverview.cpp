@@ -2041,7 +2041,7 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
             return;
         if (specialTrayRenameBusy) {
             info.cancelled = true;
-            cancelSpecialTrayRenameIfAny(this);
+            cancelSpecialTrayRename();
             damage();
             return;
         }

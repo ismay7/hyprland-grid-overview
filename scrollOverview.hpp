@@ -41,6 +41,7 @@ class CScrollOverview : public IOverview {
     bool         shouldSuppressRenderDamage() const override;
     void         onPreRender() override;
     std::string  specialTrayLayoutJson() const; // hl.plugin.gridoverview.tray_layout()
+    void         cancelSpecialTrayRename();    // kill tofi/prompt; must not leave a keyboard grab behind
 
     void         setClosing(bool closing) override;
 
@@ -160,7 +161,6 @@ class CScrollOverview : public IOverview {
     void                   removeSpecialTrayCard(size_t index);
     void                   beginSpecialTrayRename(size_t index);
     void                   renameSpecialTrayCard(const std::string& oldName, const std::string& newName);
-    void                   cancelSpecialTrayRename(); // kills a running tofi/prompt; clears specialTrayRenameBusy
     bool                   specialTrayRenameBusy = false;
     void                   renderSpecialTrayIcons(PHLMONITOR monitor, const STrayCard& card, const std::vector<PHLWINDOW>& windows, float alpha);
     std::optional<size_t>  specialTrayPressed;
