@@ -326,6 +326,53 @@ class SelfTest:
             time.sleep(0.8)
         self.check("emptied scratchpad disappears", TEST_SPECIAL not in workspaces())
 
+        # reorder by the grip on the name pill, then put the order back
+        if active_workspace() != str(self.args.workspace):
+            dispatch(f"hl.dsp.focus({{ workspace = {self.args.workspace} }})")
+            time.sleep(0.6)
+        self.open_overview()
+        layout = self.reveal_tray()
+        cards = layout.get("cards") or []
+        if len(cards) >= 2 and cards[0].get("grip"):
+            before = [c["name"] for c in cards]
+            grip = cards[0]["grip"]
+            gx, gy = grip["x"] + grip["w"] / 2, grip["y"] + grip["h"] / 2
+            target = cards[1]
+            ty = target["y"] + target["h"] + 20
+            self.input.warp(gx, gy)
+            self.input.nudge()
+            time.sleep(0.2)
+            self.input.button(True)
+            self.input.glide(gx, gy, gx, ty)
+            time.sleep(0.3)
+            self.input.button(False)
+            time.sleep(0.6)
+            after = [c["name"] for c in (self.tray().get("cards") or [])]
+            moved = after == before[1:2] + before[:1] + before[2:] or (after and after[0] != before[0])
+            self.check("grip drag reorders scratchpad cards", bool(moved), f"{before} -> {after}")
+            # restore: drag the moved card back up by its grip
+            layout = self.tray()
+            cards = layout.get("cards") or []
+            if cards and cards[0].get("grip") and before:
+                # find the card that should be first again
+                idx = next((i for i, c in enumerate(cards) if c["name"] == before[0]), None)
+                if idx is not None:
+                    grip = cards[idx]["grip"]
+                    gx, gy = grip["x"] + grip["w"] / 2, grip["y"] + grip["h"] / 2
+                    top = cards[0]["y"] - 20
+                    self.input.warp(gx, gy)
+                    self.input.nudge()
+                    self.input.button(True)
+                    self.input.glide(gx, gy, gx, top)
+                    time.sleep(0.3)
+                    self.input.button(False)
+                    time.sleep(0.5)
+            restored = [c["name"] for c in (self.tray().get("cards") or [])]
+            self.check("tray order restored after test", restored == before, f"{restored}")
+        else:
+            print("SKIP tray reorder (need ≥2 cards with grip)")
+        self.close_overview()
+
         # a click on the first card shows that scratchpad
         if active_workspace() != str(self.args.workspace):
             dispatch(f"hl.dsp.focus({{ workspace = {self.args.workspace} }})")
@@ -452,7 +499,7 @@ def main():
     args = parser.parse_args()
     if args.list:
         print("keys (example Lua module), views and zoom, cancelled drag, tray: reveal, drop on +, icon click and drag, "
-              "emptied scratchpad, card click, middle drag pans, middle click closes a window; at the end: your windows unchanged, back on the start workspace")
+              "card reorder by grip, emptied scratchpad, card click, middle drag pans, middle click closes a window; at the end: your windows unchanged, back on the start workspace")
         return 0
     if args.workspace < 11 or args.workspace % 10 == 0 or args.workspace // 10 < 2:
         parser.error("--workspace must be a grid workspace below the first row, e.g. 91")

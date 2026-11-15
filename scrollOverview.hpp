@@ -107,6 +107,11 @@ class CScrollOverview : public IOverview {
         PHLWORKSPACE workspace; // null for a configured name that does not exist yet
         CBox         box;       // render px on this monitor
     };
+    struct STrayPill {
+        CBox pill;
+        CBox text;
+        CBox grip; // reorder handle at the right of the name pill
+    };
     std::vector<STrayCard> specialTrayCards() const;
     float                  specialTrayLabelOffset() const;
     float                  specialTrayLabelBand() const;
@@ -141,9 +146,19 @@ class CScrollOverview : public IOverview {
     };
     std::vector<STrayIcon> specialTrayIcons(const STrayCard& card, const std::vector<PHLWINDOW>& windows) const;
     std::optional<std::pair<size_t, PHLWINDOW>> specialTrayIconAt(const Vector2D& pointLocal) const;
+    STrayPill              specialTrayPill(const STrayCard& card, const Vector2D& textSize) const;
+    std::optional<size_t>  specialTrayGripAt(const Vector2D& pointLocal) const;
+    size_t                 specialTrayReorderInsertAt(const Vector2D& pointLocal, size_t from) const;
+    void                   beginSpecialTrayReorder(size_t index);
+    void                   updateSpecialTrayReorder();
+    void                   finishSpecialTrayReorder(bool apply);
+    void                   applySpecialTrayOrder(std::vector<std::string> order);
     void                   renderSpecialTrayIcons(PHLMONITOR monitor, const STrayCard& card, const std::vector<PHLWINDOW>& windows, float alpha);
     std::optional<size_t>  specialTrayPressed;
     PHLWINDOWREF           specialTrayIconPressed;
+    std::optional<size_t>  specialTrayReorderFrom; // grip or ALT+card: reorder pending / active
+    std::optional<size_t>  specialTrayReorderInsert;
+    bool                   specialTrayReorderActive = false;
     // shown once this overview is gone; by name, an empty scratchpad created earlier would be cleaned up by then
     std::string            pendingSpecialName;
     PHLWINDOWREF           pendingSpecialWindow; // focused there (clicked by its icon)

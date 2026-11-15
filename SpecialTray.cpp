@@ -81,6 +81,9 @@
 #include "ScrollOverviewInternal.hpp"
 #include "SpecialTray.hpp"
 #include <sstream>
+#include <fstream>
+#include <filesystem>
+#include <hyprland/src/input/Keys.hpp>
 
 static constexpr float       TRAY_MARGIN     = 24.F; // logical px: screen edge to cards, and between grid and cards
 static constexpr float       TRAY_GAP        = 20.F; // between a card's label and the next card
@@ -91,6 +94,8 @@ static constexpr int         TRAY_LABEL_SIZE = 15;
 static constexpr float       TRAY_ADD_HEIGHT = 56.F; // the "+" box below the cards
 static constexpr float       TRAY_DOCK_PAD   = 14.F; // dock around the cards (within TRAY_MARGIN)
 static constexpr float       TRAY_DOCK_ROUNDING = 18.F;
+static constexpr float       TRAY_GRIP_WIDTH = 14.F; // grip on the right of the name pill
+static constexpr float       TRAY_GRIP_GAP   = 8.F;  // between the name and the grip
 static constexpr std::string_view SPECIAL_PREFIX = "special:";
 
 static std::string specialTrayName(std::string name) {
@@ -100,6 +105,78 @@ static std::string specialTrayName(std::string name) {
     if (name.starts_with(SPECIAL_PREFIX))
         name = name.substr(SPECIAL_PREFIX.size());
     return name;
+}
+
+// remembered card order (comma list); special_workspaces still decides which empty cards always appear
+static std::vector<std::string> g_trayOrder;
+static bool                     g_trayOrderLoaded = false;
+
+static std::filesystem::path trayOrderPath() {
+    if (const char* state = std::getenv("XDG_STATE_HOME"); state && *state)
+        return std::filesystem::path{state} / "gridoverview" / "tray_order";
+    const char* home = std::getenv("HOME");
+    return std::filesystem::path{home && *home ? home : "."} / ".local" / "state" / "gridoverview" / "tray_order";
+}
+
+static void loadTrayOrder() {
+    if (g_trayOrderLoaded)
+        return;
+    g_trayOrderLoaded = true;
+    g_trayOrder.clear();
+    std::ifstream file{trayOrderPath()};
+    if (!file)
+        return;
+    std::string line;
+    std::getline(file, line);
+    std::stringstream ss{line};
+    for (std::string entry; std::getline(ss, entry, ',');) {
+        const auto NAME = specialTrayName(entry);
+        if (!NAME.empty() && std::ranges::find(g_trayOrder, NAME) == g_trayOrder.end())
+            g_trayOrder.push_back(NAME);
+    }
+}
+
+static void saveTrayOrder() {
+    const auto PATH = trayOrderPath();
+    std::error_code ec;
+    std::filesystem::create_directories(PATH.parent_path(), ec);
+    std::ofstream file{PATH, std::ios::trunc};
+    if (!file)
+        return;
+    for (size_t i = 0; i < g_trayOrder.size(); ++i) {
+        if (i)
+            file << ',';
+        file << g_trayOrder[i];
+    }
+}
+
+template <typename TCard>
+static void applyTrayOrder(std::vector<TCard>& cards) {
+    loadTrayOrder();
+    if (cards.empty())
+        return;
+
+    if (g_trayOrder.empty()) {
+        for (const auto& card : cards)
+            g_trayOrder.push_back(card.name);
+        return;
+    }
+
+    std::vector<TCard> ordered;
+    ordered.reserve(cards.size());
+    for (const auto& name : g_trayOrder) {
+        const auto IT = std::ranges::find_if(cards, [&name](const auto& card) { return card.name == name; });
+        if (IT == cards.end())
+            continue;
+        ordered.push_back(*IT);
+        cards.erase(IT);
+    }
+    ordered.insert(ordered.end(), cards.begin(), cards.end());
+    for (const auto& card : ordered) {
+        if (std::ranges::find(g_trayOrder, card.name) == g_trayOrder.end())
+            g_trayOrder.push_back(card.name);
+    }
+    cards = std::move(ordered);
 }
 
 // logical px from a card's bottom edge to the middle of its name: below the app icons when they are shown
@@ -145,6 +222,8 @@ std::vector<CScrollOverview::STrayCard> CScrollOverview::specialTrayCards() cons
     cards.insert(cards.end(), others.begin(), others.end());
     if (cards.empty())
         return cards;
+
+    applyTrayOrder(cards);
 
     // one column at the right edge, vertically centred in the work area; shrink the cards when they do not fit
     const auto  SIZE   = MONITOR->m_size;
@@ -321,6 +400,132 @@ std::optional<size_t> CScrollOverview::specialTrayCardAt(const Vector2D& pointLo
             return i;
     }
     return std::nullopt;
+}
+
+// name pill under the card, extended to the right for the reorder grip (room for a later pencil / menu)
+CScrollOverview::STrayPill CScrollOverview::specialTrayPill(const STrayCard& card, const Vector2D& textSize) const {
+    const auto MONITOR = pMonitor.lock();
+    STrayPill  out;
+    if (!MONITOR || textSize.x <= 0)
+        return out;
+
+    const float UNIT    = MONITOR->m_scale;
+    const float PAD     = 6.F * UNIT;
+    const float GRIP    = TRAY_GRIP_WIDTH * UNIT;
+    const float GAP     = TRAY_GRIP_GAP * UNIT;
+    const float HEIGHT  = std::max(TRAY_PILL * UNIT, sc<float>(textSize.y) + 2.F * PAD);
+    const float WIDTH   = textSize.x + GAP + GRIP + 2.F * PAD + 2.F * PAD; // extra side pad like the old pills
+    const float CENTERX = card.box.middle().x;
+    const float CENTERY = card.box.y + card.box.h + specialTrayLabelOffset() * UNIT;
+    out.pill            = CBox{CENTERX - WIDTH / 2.F, CENTERY - HEIGHT / 2.F, WIDTH, HEIGHT}.round();
+    out.text            = CBox{out.pill.x + PAD + PAD, CENTERY - textSize.y / 2.F, textSize.x, textSize.y}.round();
+    out.grip            = CBox{out.pill.x + out.pill.w - PAD - PAD - GRIP, out.pill.y, GRIP + PAD, out.pill.h}.round();
+    return out;
+}
+
+std::optional<size_t> CScrollOverview::specialTrayGripAt(const Vector2D& pointLocal) const {
+    if (closing || (specialTrayAutohide() && trayReveal && trayReveal->goal() < 0.5F))
+        return std::nullopt;
+
+    const auto MONITOR = pMonitor.lock();
+    if (!MONITOR)
+        return std::nullopt;
+
+    const int  TEXTSIZE = std::max(1, sc<int>(std::round(TRAY_LABEL_SIZE * MONITOR->m_scale)));
+    const auto CARDS    = specialTrayCards();
+    for (size_t i = 0; i < CARDS.size(); ++i) {
+        const auto KEY     = CARDS[i].name + "\n" + std::to_string(TEXTSIZE) + "\ntray";
+        const auto TEXTURE = contextLabelTextures.contains(KEY) ? contextLabelTextures.at(KEY) : SP<Render::ITexture>{};
+        const auto SIZE    = TEXTURE && TEXTURE->m_size.x > 0 ? TEXTURE->m_size : Vector2D{TRAY_LABEL_SIZE * 4.0 * MONITOR->m_scale, TRAY_LABEL_SIZE * MONITOR->m_scale};
+        if (specialTrayPill(CARDS[i], SIZE).grip.containsPoint(pointLocal))
+            return i;
+    }
+    return std::nullopt;
+}
+
+size_t CScrollOverview::specialTrayReorderInsertAt(const Vector2D& pointLocal, size_t from) const {
+    const auto CARDS = specialTrayCards();
+    if (CARDS.empty())
+        return 0;
+
+    size_t best = CARDS.size();
+    double bestDist = std::numeric_limits<double>::max();
+    for (size_t slot = 0; slot <= CARDS.size(); ++slot) {
+        double y = 0;
+        if (slot == 0)
+            y = CARDS.front().box.y;
+        else if (slot == CARDS.size())
+            y = CARDS.back().box.y + CARDS.back().box.h;
+        else
+            y = (CARDS[slot - 1].box.y + CARDS[slot - 1].box.h + CARDS[slot].box.y) / 2.0;
+        const double DIST = std::abs(pointLocal.y - y);
+        if (DIST < bestDist) {
+            bestDist = DIST;
+            best     = slot;
+        }
+    }
+
+    // same visual place as "before self" / "after self" is a no-op once applied
+    if (best == from || best == from + 1)
+        return from;
+    return best;
+}
+
+void CScrollOverview::beginSpecialTrayReorder(size_t index) {
+    specialTrayReorderFrom   = index;
+    specialTrayReorderInsert = index;
+    specialTrayReorderActive = false;
+    dragStartMouseLocal      = lastMousePosLocal;
+    if (Pointer::Cursor::overrideController)
+        Pointer::Cursor::overrideController->setOverride("grab", Pointer::Cursor::CURSOR_OVERRIDE_SPECIAL_ACTION);
+}
+
+void CScrollOverview::updateSpecialTrayReorder() {
+    if (!specialTrayReorderFrom)
+        return;
+    static constexpr float DRAGTHRESHOLD = 6.F;
+    if (!specialTrayReorderActive && lastMousePosLocal.distanceSq(dragStartMouseLocal) > DRAGTHRESHOLD * DRAGTHRESHOLD) {
+        specialTrayReorderActive = true;
+        if (Pointer::Cursor::overrideController)
+            Pointer::Cursor::overrideController->setOverride("grabbing", Pointer::Cursor::CURSOR_OVERRIDE_SPECIAL_ACTION);
+    }
+    if (!specialTrayReorderActive)
+        return;
+    specialTrayReorderInsert = specialTrayReorderInsertAt(lastMousePosLocal, *specialTrayReorderFrom);
+    damage();
+}
+
+void CScrollOverview::applySpecialTrayOrder(std::vector<std::string> order) {
+    g_trayOrderLoaded = true;
+    g_trayOrder       = std::move(order);
+    saveTrayOrder();
+    damage();
+}
+
+void CScrollOverview::finishSpecialTrayReorder(bool apply) {
+    if (apply && specialTrayReorderActive && specialTrayReorderFrom && specialTrayReorderInsert) {
+        auto       cards = specialTrayCards();
+        const auto FROM  = *specialTrayReorderFrom;
+        auto       TO    = *specialTrayReorderInsert;
+        if (FROM < cards.size()) {
+            std::vector<std::string> order;
+            order.reserve(cards.size());
+            for (const auto& card : cards)
+                order.push_back(card.name);
+            const auto NAME = order[FROM];
+            order.erase(order.begin() + sc<long>(FROM));
+            if (TO > FROM)
+                --TO;
+            TO = std::min(TO, order.size());
+            order.insert(order.begin() + sc<long>(TO), NAME);
+            applySpecialTrayOrder(std::move(order));
+        }
+    }
+    specialTrayReorderFrom.reset();
+    specialTrayReorderInsert.reset();
+    specialTrayReorderActive = false;
+    if (Pointer::Cursor::overrideController)
+        Pointer::Cursor::overrideController->unsetOverride(Pointer::Cursor::CURSOR_OVERRIDE_SPECIAL_ACTION);
 }
 
 // a card shows the scratchpad's own monitor (it can live on another one), scaled to the card
@@ -506,12 +711,10 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
     const auto DRAGGED   = getOverviewWindowToShow(dragOwner->dragActiveWindow.lock());
     const auto HOVERED   = DRAGGED && isOverviewPointerOnMonitor(monitor) ? specialTrayCardAt(getOverviewMousePosLocal(monitor)) : std::nullopt;
 
-    const auto  BACKGROUND  = ScrollOverview::Config::getContextLabelBackground(monitor);
-    const float PILLPADDING = 6.F * monitor->m_scale;
-    const int   TEXTSIZE    = std::max(1, sc<int>(std::round(TRAY_LABEL_SIZE * monitor->m_scale)));
-    const auto  TEXTCOLOR   = CHyprColor{1.F, 1.F, 1.F, 0.9F};
-    const bool  ICONS       = ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray_icons", monitor);
-    const float LABELOFFSET = specialTrayLabelOffset() * monitor->m_scale;
+    const auto  BACKGROUND = ScrollOverview::Config::getContextLabelBackground(monitor);
+    const int   TEXTSIZE   = std::max(1, sc<int>(std::round(TRAY_LABEL_SIZE * monitor->m_scale)));
+    const auto  TEXTCOLOR  = CHyprColor{1.F, 1.F, 1.F, 0.9F};
+    const bool  ICONS      = ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray_icons", monitor);
 
     // one dock behind all cards and the "+": the windows sit on it directly, without card backgrounds or shadows
     const auto  ADD  = specialTrayAddBox(CARDS);
@@ -527,25 +730,32 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
     dock.blurA = ALPHA;
     Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(dock));
 
+    const bool  REORDERING = specialTrayReorderActive && specialTrayReorderFrom;
+    const double REORDERY  = REORDERING ? lastMousePosLocal.y - dragStartMouseLocal.y : 0.0;
+
     for (size_t i = 0; i < CARDS.size(); ++i) {
-        const auto& CARD     = CARDS[i];
-        const bool  TARGET   = HOVERED == i && (!DRAGGED || DRAGGED->m_workspace != CARD.workspace);
+        auto        CARD     = CARDS[i];
+        const bool  MOVING   = REORDERING && *specialTrayReorderFrom == i;
+        if (MOVING)
+            CARD.box.y += REORDERY;
+        const bool  TARGET   = !REORDERING && HOVERED == i && (!DRAGGED || DRAGGED->m_workspace != CARD.workspace);
         const float SCALE    = specialTrayRenderScale(CARD);
         const auto  ROUNDING = sc<int>(std::round(ScrollOverview::Config::getValue<int>("decoration:rounding") * monitor->m_scale * SCALE));
+        const float CARDALPHA = ALPHA * (MOVING ? 0.85F : REORDERING ? 0.55F : 1.F);
 
         auto windows = specialTrayWindows(CARD);
         std::erase(windows, DRAGGED);
 
-        if (TARGET) {
+        if (TARGET || MOVING) {
             CRectPassElement::SRectData card;
             card.box   = CARD.box;
-            card.color = CHyprColor{1.F, 1.F, 1.F, 0.08F * ALPHA};
+            card.color = CHyprColor{1.F, 1.F, 1.F, (MOVING ? 0.12F : 0.08F) * CARDALPHA};
             card.round = ROUNDING;
             Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(card));
         }
 
         if (windows.empty())
-            renderEmptyWorkspaceMarker(monitor, CARD.box, scale->value(), ALPHA, TARGET);
+            renderEmptyWorkspaceMarker(monitor, CARD.box, scale->value(), CARDALPHA, TARGET || MOVING);
         else {
             const auto WORKSPACE         = CARD.workspace;
             const bool WASVISIBLE        = WORKSPACE->visible();
@@ -557,7 +767,7 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
             WORKSPACE->setVisible(true);
             WORKSPACE->m_forceRendering = true;
             if (WORKSPACE->m_alpha)
-                WORKSPACE->m_alpha->value() = ALPHA;
+                WORKSPACE->m_alpha->value() = CARDALPHA;
             auto restoreWorkspaceState = Hyprutils::Utils::CScopeGuard([WORKSPACE, WASVISIBLE, WASFORCERENDERING, WASALPHA] {
                 WORKSPACE->setVisible(WASVISIBLE);
                 WORKSPACE->m_forceRendering = WASFORCERENDERING;
@@ -566,11 +776,11 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
             });
 
             for (const auto& window : windows)
-                renderWindowLive(monitor, window, specialTrayWindowBox(CARD, window), SCALE, now, &CARD.box, false, ALPHA, false);
+                renderWindowLive(monitor, window, specialTrayWindowBox(CARD, window), SCALE, now, &CARD.box, false, CARDALPHA, false);
 
-            if (TARGET) {
+            if (TARGET || MOVING) {
                 auto color = ScrollOverview::Config::getEmptyColor(monitor);
-                color.a    = std::min(1.F, sc<float>(color.a) * 2.F) * ALPHA;
+                color.a    = std::min(1.F, sc<float>(color.a) * 2.F) * CARDALPHA;
                 Config::CGradientValueData gradient;
                 gradient.m_colors = {color};
                 gradient.updateColorsOk();
@@ -583,7 +793,7 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
             }
 
             if (ICONS)
-                renderSpecialTrayIcons(monitor, CARD, windows, ALPHA);
+                renderSpecialTrayIcons(monitor, CARD, windows, CARDALPHA);
         }
 
         const auto KEY     = CARD.name + "\n" + std::to_string(TEXTSIZE) + "\ntray";
@@ -593,24 +803,58 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
         if (!texture || texture->m_size.x <= 0)
             continue;
 
-        const auto TEXT  = texture->m_size;
-        const auto LABEL = CBox{CARD.box.middle().x - TEXT.x / 2.0, CARD.box.y + CARD.box.h + LABELOFFSET - TEXT.y / 2.0, TEXT.x, TEXT.y};
-        if (BACKGROUND.a > 0.F) {
-            auto pillBox = LABEL.copy().expand(PILLPADDING).round();
-            pillBox.x -= PILLPADDING;
-            pillBox.w += 2.0 * PILLPADDING;
-            CRectPassElement::SRectData pill;
-            pill.box   = pillBox;
-            pill.color = BACKGROUND.modifyA(BACKGROUND.a * ALPHA);
-            pill.round = sc<int>(pill.box.h / 2.0);
-            Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(pill));
+        auto       pillGeom = specialTrayPill(CARD, texture->m_size);
+        if (MOVING) {
+            // CARD.box was already shifted; pill was computed from that
         }
+        auto pillColor = BACKGROUND.a > 0.F ? BACKGROUND : CHyprColor{0.F, 0.F, 0.F, 0.45F};
+        CRectPassElement::SRectData pill;
+        pill.box   = pillGeom.pill;
+        pill.color = pillColor.modifyA(pillColor.a * CARDALPHA);
+        pill.round = sc<int>(pill.box.h / 2.0);
+        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(pill));
 
         CTexPassElement::SRenderData data;
         data.tex = texture;
-        data.box = LABEL.copy().round();
-        data.a   = ALPHA * (CARD.workspace ? 1.F : 0.6F);
+        data.box = pillGeom.text;
+        data.a   = CARDALPHA * (CARD.workspace ? 1.F : 0.6F);
         Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CTexPassElement>(std::move(data)));
+
+        // six-dot grip on the right of the pill
+        const float DOT = std::max(1.5F, 2.2F * monitor->m_scale);
+        const auto  GRIPCOLOR = CHyprColor{1.F, 1.F, 1.F, 0.55F * CARDALPHA};
+        const float GX = pillGeom.grip.middle().x;
+        const float GY = pillGeom.grip.middle().y;
+        const float DX = 3.2F * monitor->m_scale;
+        const float DY = 4.2F * monitor->m_scale;
+        for (int col : {-1, 1}) {
+            for (int row : {-1, 0, 1}) {
+                CRectPassElement::SRectData dot;
+                dot.box   = CBox{GX + col * DX - DOT / 2.F, GY + row * DY - DOT / 2.F, DOT, DOT}.round();
+                dot.color = GRIPCOLOR;
+                dot.round = sc<int>(DOT);
+                Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(dot));
+            }
+        }
+    }
+
+    // drop line while reordering
+    if (REORDERING && specialTrayReorderInsert && !CARDS.empty()) {
+        const auto SLOT = *specialTrayReorderInsert;
+        double     y    = 0;
+        if (SLOT == 0)
+            y = CARDS.front().box.y - 4.F * monitor->m_scale;
+        else if (SLOT >= CARDS.size())
+            y = CARDS.back().box.y + CARDS.back().box.h + 4.F * monitor->m_scale;
+        else
+            y = (CARDS[SLOT - 1].box.y + CARDS[SLOT - 1].box.h + CARDS[SLOT].box.y) / 2.0;
+        auto color = ScrollOverview::Config::getEmptyColor(monitor);
+        color.a    = std::min(1.F, sc<float>(color.a) * 2.F) * ALPHA;
+        CRectPassElement::SRectData line;
+        line.box   = CBox{CARDS.front().box.x, y - 1.5F * monitor->m_scale, CARDS.front().box.w, 3.F * monitor->m_scale}.round();
+        line.color = color;
+        line.round = sc<int>(line.box.h / 2.0);
+        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(line));
     }
 
     // "+" box: new scratchpad (drop a window on it, or click it); brighter under the pointer or a dragged window
@@ -689,8 +933,13 @@ std::string CScrollOverview::specialTrayLayoutJson() const {
                 icons += iconBox;
             }
         }
-        auto box = global(card.box);
-        box.insert(1, std::format("\"name\": {}, \"exists\": {}, \"icons\": [{}], ", jsonString(card.name), card.workspace ? "true" : "false", icons));
+        const int  TEXTSIZE = std::max(1, sc<int>(std::round(TRAY_LABEL_SIZE * MONITOR->m_scale)));
+        const auto KEY      = card.name + "\n" + std::to_string(TEXTSIZE) + "\ntray";
+        const auto TEXTURE  = contextLabelTextures.contains(KEY) ? contextLabelTextures.at(KEY) : SP<Render::ITexture>{};
+        const auto SIZE     = TEXTURE && TEXTURE->m_size.x > 0 ? TEXTURE->m_size : Vector2D{TRAY_LABEL_SIZE * 4.0 * MONITOR->m_scale, TRAY_LABEL_SIZE * MONITOR->m_scale};
+        const auto PILL     = specialTrayPill(card, SIZE);
+        auto       box      = global(card.box);
+        box.insert(1, std::format("\"name\": {}, \"exists\": {}, \"icons\": [{}], \"grip\": {}, ", jsonString(card.name), card.workspace ? "true" : "false", icons, global(PILL.grip)));
         cards += box;
     }
 

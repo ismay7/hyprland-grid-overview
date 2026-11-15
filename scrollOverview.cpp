@@ -1341,8 +1341,12 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
             }
         }
 
+        if (specialTrayReorderFrom)
+            updateSpecialTrayReorder();
+
         if (dragPendingPrimary) {
-            if (!dragActiveWindow && !scrollingPanPointerDown && dragStartMouseLocal.distanceSq(lastMousePosLocal) > DRAGTHRESHOLDSQ) {
+            if (!dragActiveWindow && !scrollingPanPointerDown && !specialTrayReorderFrom &&
+                dragStartMouseLocal.distanceSq(lastMousePosLocal) > DRAGTHRESHOLDSQ) {
                 if (!INVERT_DRAG_MODE) {
                     beginWindowDrag(specialTrayPressed ? specialTrayWindowAt(dragStartMouseLocal) : windowAtOverviewPoint(dragStartMouseLocal));
                 } else
@@ -1546,6 +1550,18 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
             lastMousePosLocal = getOverviewMousePosLocal(pMonitor.lock());
 
             if (event.state == WL_POINTER_BUTTON_STATE_PRESSED) {
+                // grip on the name pill, or ALT+card: reorder the scratchpad cards
+                if (const auto GRIP = specialTrayGripAt(lastMousePosLocal)) {
+                    beginSpecialTrayReorder(*GRIP);
+                    return;
+                }
+                const bool ALT = g_pInputManager && (g_pInputManager->getModsFromAllKBs() & Input::HL_MODIFIER_ALT);
+                if (ALT) {
+                    if (const auto CARD = specialTrayCardAt(lastMousePosLocal)) {
+                        beginSpecialTrayReorder(*CARD);
+                        return;
+                    }
+                }
                 // scratchpad card: dragging starts on the window under the pointer, a click opens the scratchpad
                 // (an app icon takes its window, also over the card's edge)
                 const auto ICON = specialTrayIconAt(lastMousePosLocal);
@@ -1592,6 +1608,11 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
 
                 dragPendingPrimary  = true;
                 dragStartMouseLocal = lastMousePosLocal;
+                return;
+            }
+
+            if (specialTrayReorderFrom) {
+                finishSpecialTrayReorder(true);
                 return;
             }
 
@@ -1991,7 +2012,14 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
         keyboardKeyHook = Event::bus()->m_events.input.keyboard.key.listen(onKeyboardKey);
 
     dragKeyboardKeyHook = Event::bus()->m_events.input.keyboard.key.listen([this](IKeyboard::SKeyEvent event, Event::SCallbackInfo& info) {
-        if (closing || !dragActiveWindow || event.state != WL_KEYBOARD_KEY_STATE_PRESSED || getOverviewKeysym(event) != XKB_KEY_Escape)
+        if (closing || event.state != WL_KEYBOARD_KEY_STATE_PRESSED || getOverviewKeysym(event) != XKB_KEY_Escape)
+            return;
+        if (specialTrayReorderFrom) {
+            info.cancelled = true;
+            finishSpecialTrayReorder(false);
+            return;
+        }
+        if (!dragActiveWindow)
             return;
 
         info.cancelled = true;
@@ -7110,6 +7138,7 @@ void CScrollOverview::releaseInputListeners() {
         endScrollingPan();
     releaseTopLayerPointerButtons(Time::millis(Time::steadyNow()));
     cancelWindowDrag();
+    finishSpecialTrayReorder(false);
     clearDragPending();
     submapMouseClickPending = false;
     submapMouseClickButton  = 0;

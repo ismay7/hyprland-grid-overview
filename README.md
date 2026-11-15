@@ -25,8 +25,10 @@ features are additions on top of it (see [Credits](#credits)).
   edge scrolls to the neighbouring workspace.
 - **Scratchpads at hand**: a tray at the right screen edge shows Hyprland's special workspaces as live cards
   with the icons of their apps, starting with the default one, `special`. Drag a window into a card or out of it onto any workspace; a click
-  shows that scratchpad. In a crowded card, take a window by its app icon: drag the icon to move that window, click
-  it to show the scratchpad with that window in front (apps without an icon get their first letter). Drop a window on the "+" below the cards for a new scratchpad named after its app
+  shows that scratchpad. Reorder the cards with the grip on the right of the name pill, or with Alt+drag on a card
+  (the order is remembered under `~/.local/state/gridoverview/tray_order`). In a crowded card, take a window by its
+  app icon: drag the icon to move that window, click it to show the scratchpad with that window in front (apps without
+  an icon get their first letter). Drop a window on the "+" below the cards for a new scratchpad named after its app
   (`nautilus`, `kitty-2`, …), or click the "+" for a new, empty one. A dragged window shrinks to card size as it
   approaches the tray; at the right edge the tray comes first, pushing on to the very edge scrolls on behind it.
 - **Two views and everything in between**: buttons at the top switch between the centred view and the whole
@@ -161,7 +163,7 @@ The options, dispatchers, gestures and submaps of the original are documented in
 `python3 scripts/selftest.py` runs a self-test in the current Hyprland session: it drives a virtual mouse and
 keyboard (python-evdev, write access to `/dev/uinput`) on its own test window on workspace 91 (`--workspace`) and
 checks keys of the example module, views and zoom, a cancelled drag and the scratchpad tray (reveal, drop on "+",
-icon click and drag, card click, middle click closing a window). Your windows stay where they are; exit code 0 when everything passed. For scripts,
+icon click and drag, card reorder by grip, card click, middle click closing a window). Your windows stay where they are; exit code 0 when everything passed. For scripts,
 `hl.plugin.gridoverview.tray_layout()` returns the tray of the overview under the pointer as JSON.
 
 ## Known limitations
