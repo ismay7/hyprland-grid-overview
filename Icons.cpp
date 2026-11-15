@@ -3,14 +3,19 @@
 #include <hyprgraphics/image/Image.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/render/Texture.hpp>
+#include <hyprland/src/render/pass/TexPassElement.hpp>
 
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <optional>
+#include <span>
 #include <sstream>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -195,4 +200,127 @@ SP<Render::ITexture> GridIcons::iconForAppID(const std::string& appID, const std
 
     cache.emplace(KEY, texture);
     return texture;
+}
+
+namespace {
+    // keep in sync with assets/icons/*.svg (embedded so hyprpm's .so ships them)
+    constexpr std::string_view UI_GRIP = R"SVG(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#FFFFFF">
+  <circle cx="8.5" cy="5.5" r="2.4"/>
+  <circle cx="15.5" cy="5.5" r="2.4"/>
+  <circle cx="8.5" cy="12" r="2.4"/>
+  <circle cx="15.5" cy="12" r="2.4"/>
+  <circle cx="8.5" cy="18.5" r="2.4"/>
+  <circle cx="15.5" cy="18.5" r="2.4"/>
+</svg>)SVG";
+
+    constexpr std::string_view UI_CLOSE = R"SVG(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round">
+  <path d="M6 6l12 12M18 6L6 18"/>
+</svg>)SVG";
+
+    constexpr std::string_view UI_PLUS = R"SVG(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round">
+  <path d="M12 5v14M5 12h14"/>
+</svg>)SVG";
+
+    constexpr std::string_view UI_VIEW_CENTER = R"SVG(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#FFFFFF">
+  <rect x="1" y="7" width="4" height="10" rx="1" opacity="0.4"/>
+  <rect x="19" y="7" width="4" height="10" rx="1" opacity="0.4"/>
+  <rect x="6" y="5" width="12" height="14" rx="2"/>
+</svg>)SVG";
+
+    constexpr std::string_view UI_VIEW_GRID = R"SVG(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#FFFFFF">
+  <rect x="2" y="4" width="5.5" height="6.5" rx="1"/>
+  <rect x="9.25" y="4" width="5.5" height="6.5" rx="1"/>
+  <rect x="16.5" y="4" width="5.5" height="6.5" rx="1"/>
+  <rect x="2" y="13" width="5.5" height="6.5" rx="1"/>
+  <rect x="9.25" y="13" width="5.5" height="6.5" rx="1"/>
+  <rect x="16.5" y="13" width="5.5" height="6.5" rx="1"/>
+</svg>)SVG";
+
+    std::optional<std::string_view> uiSvgSource(std::string_view name) {
+        if (name == "grip")
+            return UI_GRIP;
+        if (name == "close")
+            return UI_CLOSE;
+        if (name == "plus")
+            return UI_PLUS;
+        if (name == "view-center")
+            return UI_VIEW_CENTER;
+        if (name == "view-grid")
+            return UI_VIEW_GRID;
+        return std::nullopt;
+    }
+
+    std::string tintUiSvg(std::string svg, const CHyprColor& color) {
+        const auto HEX = std::format("#{:02X}{:02X}{:02X}", sc<int>(std::clamp(sc<float>(color.r), 0.F, 1.F) * 255.F + 0.5F),
+                                     sc<int>(std::clamp(sc<float>(color.g), 0.F, 1.F) * 255.F + 0.5F), sc<int>(std::clamp(sc<float>(color.b), 0.F, 1.F) * 255.F + 0.5F));
+        // only the full six-digit white: replacing "#FFF" would also match inside "#FFFFFF" and yield "#FFFFFFFFF"
+        for (const auto* from : {"#FFFFFF", "#ffffff"}) {
+            for (size_t pos = 0; (pos = svg.find(from, pos)) != std::string::npos;) {
+                svg.replace(pos, std::strlen(from), HEX);
+                pos += HEX.size();
+            }
+        }
+        return svg;
+    }
+}
+
+SP<Render::ITexture> GridIcons::uiIcon(std::string_view name, const CHyprColor& color, int rasterPx) {
+    static std::unordered_map<std::string, SP<Render::ITexture>> cache;
+
+    const auto SOURCE = uiSvgSource(name);
+    if (!SOURCE || !g_pHyprRenderer)
+        return nullptr;
+
+    rasterPx         = std::clamp(rasterPx, 16, 512);
+    const auto KEY   = std::format("{}\n{:02X}{:02X}{:02X}\n{}", name, sc<int>(color.r * 255.F + 0.5F), sc<int>(color.g * 255.F + 0.5F), sc<int>(color.b * 255.F + 0.5F), rasterPx);
+    if (const auto it = cache.find(KEY); it != cache.end())
+        return it->second;
+
+    // load via a temp file: same path Hyprgraphics uses for app icons (in-memory SVG came out black)
+    const auto      SVG = tintUiSvg(std::string{*SOURCE}, color);
+    const auto      DIR = fs::temp_directory_path() / "gridoverview-icons";
+    std::error_code ec;
+    fs::create_directories(DIR, ec);
+    const auto FILE = DIR / std::format("{}-{:02X}{:02X}{:02X}-{}.svg", name, sc<int>(color.r * 255.F + 0.5F), sc<int>(color.g * 255.F + 0.5F),
+                                        sc<int>(color.b * 255.F + 0.5F), rasterPx);
+    {
+        std::ofstream out{FILE, std::ios::trunc};
+        if (!out) {
+            cache.emplace(KEY, nullptr);
+            return nullptr;
+        }
+        out << SVG;
+    }
+
+    SP<Render::ITexture> texture;
+    Hyprgraphics::CImage image(FILE.string(), Vector2D{rasterPx, rasterPx});
+    if (image.success()) {
+        if (const auto SURFACE = image.cairoSurface(); SURFACE && SURFACE->cairo())
+            texture = g_pHyprRenderer->createTexture(SURFACE->cairo());
+    }
+
+    cache.emplace(KEY, texture);
+    return texture;
+}
+
+void GridIcons::drawUiIcon(std::string_view name, const CBox& box, float alpha, const CHyprColor& color) {
+    if (alpha <= 0.F || box.empty() || !g_pHyprRenderer)
+        return;
+
+    const auto TEXTURE = uiIcon(name, color, std::max(32, sc<int>(std::max(box.w, box.h) * 2.0)));
+    if (!TEXTURE || TEXTURE->m_size.x <= 0)
+        return;
+
+    const double ASPECT = TEXTURE->m_size.x / std::max(TEXTURE->m_size.y, 1.0);
+    double       w = box.w, h = box.h;
+    if (w / std::max(h, 1.0) > ASPECT)
+        w = h * ASPECT;
+    else
+        h = w / ASPECT;
+
+    CTexPassElement::SRenderData data;
+    data.tex = TEXTURE;
+    data.box = CBox{box.middle().x - w / 2.0, box.middle().y - h / 2.0, w, h}.round();
+    data.a   = alpha * color.a;
+    Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CTexPassElement>(std::move(data)));
 }

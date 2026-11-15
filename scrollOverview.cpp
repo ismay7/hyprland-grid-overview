@@ -4566,7 +4566,6 @@ void CScrollOverview::renderGridModeButtons(PHLMONITOR monitor) {
 
     auto* const ACTIVEBORDER = sc<Config::CGradientValueData*>(ScrollOverview::Config::valueRef<Config::IComplexConfigValue>("general:col.active_border").ptr());
     const auto  ACCENT       = ACTIVEBORDER && !ACTIVEBORDER->m_colors.empty() ? ACTIVEBORDER->m_colors[0] : CHyprColor{1.F, 1.F, 1.F, 1.F};
-    const auto  UNIT         = monitor->m_scale * GRID_BUTTON_ICON;
 
     const auto rect = [&](const CBox& box, CHyprColor color, int round) {
         CRectPassElement::SRectData data;
@@ -4580,24 +4579,12 @@ void CScrollOverview::renderGridModeButtons(PHLMONITOR monitor) {
         const auto BOX    = gridModeButtonBox(button);
         // in-between zoom levels highlight neither button
         const bool ACTIVE = button == 1 ? zoomLevel >= 2.F - ZOOM_EPSILON : std::abs(zoomLevel - 1.F) <= ZOOM_EPSILON;
-        const auto MID    = BOX.middle();
 
         rect(BOX, ACTIVE ? ACCENT.modifyA(0.55F * ALPHA) : CHyprColor{0.F, 0.F, 0.F, 0.45F * ALPHA}, sc<int>(BOX.height / 2.0));
 
-        const CHyprColor ICON{1.F, 1.F, 1.F, (ACTIVE ? 0.95F : 0.7F) * ALPHA};
-        const CHyprColor ICONDIM{1.F, 1.F, 1.F, (ACTIVE ? 0.45F : 0.3F) * ALPHA};
-        if (button == 0) {
-            // centred view: one card with the neighbours peeking in
-            rect(CBox{MID.x - 8 * UNIT, MID.y - 6 * UNIT, 16 * UNIT, 12 * UNIT}, ICON, sc<int>(2 * UNIT));
-            rect(CBox{MID.x - 15 * UNIT, MID.y - 4 * UNIT, 4 * UNIT, 8 * UNIT}, ICONDIM, sc<int>(1 * UNIT));
-            rect(CBox{MID.x + 11 * UNIT, MID.y - 4 * UNIT, 4 * UNIT, 8 * UNIT}, ICONDIM, sc<int>(1 * UNIT));
-        } else {
-            // whole grid: 3 x 2 cards
-            for (int row = 0; row < 2; ++row) {
-                for (int col = 0; col < 3; ++col)
-                    rect(CBox{MID.x - 13 * UNIT + col * 9 * UNIT, MID.y - 7 * UNIT + row * 8 * UNIT, 8 * UNIT, 6 * UNIT}, ICON, sc<int>(1 * UNIT));
-            }
-        }
+        const float ICON = std::min(BOX.width, BOX.height) * 0.55F;
+        GridIcons::drawUiIcon(button == 0 ? "view-center" : "view-grid", CBox{BOX.middle().x - ICON / 2.F, BOX.middle().y - ICON / 2.F, ICON, ICON},
+                              (ACTIVE ? 0.95F : 0.7F) * ALPHA);
     }
 
     // zoom slider: track filled up to the knob; below the centred view the knob rests (dimmed) at the left end
@@ -5508,25 +5495,18 @@ void renderEmptyWorkspaceMarker(PHLMONITOR monitor, const CBox& workspaceBox, fl
         }));
     };
 
-    const float ARM   = std::min(box.width, box.height) * 0.08F;
-    const float THICK = std::max(2.F * UNIT, ARM * 0.14F);
-    const auto  MID   = box.middle();
-    const auto  plus  = [&](CHyprColor c, float grow) {
+    const float PLUS = std::min(box.width, box.height) * 0.18F;
+    const auto  MID  = box.middle();
+    const auto  plus = [&](CHyprColor c) {
         if (c.a <= 0.F)
             return;
-        for (const auto& PART : {CBox{MID.x - ARM, MID.y - THICK / 2.F, ARM * 2.F, THICK}, CBox{MID.x - THICK / 2.F, MID.y - ARM, THICK, ARM * 2.F}}) {
-            CRectPassElement::SRectData data;
-            data.box   = PART.copy().expand(grow).round();
-            data.color = c;
-            data.round = sc<int>(THICK / 2.F + grow);
-            Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(data));
-        }
+        GridIcons::drawUiIcon("plus", CBox{MID.x - PLUS / 2.F, MID.y - PLUS / 2.F, PLUS, PLUS}, 1.F, c);
     };
 
     outline(halo, BORDER + HALO, BORDER + 2 * HALO, ROUNDING);
-    plus(halo, HALO);
+    plus(halo);
     outline(color, BORDER, BORDER, ROUNDING);
-    plus(color, 0.F);
+    plus(color);
 }
 
 void CScrollOverview::renderWorkspaceBackground(PHLMONITOR monitor, size_t workspaceIdx, size_t activeIdx, float workspacePitch, float renderScale, int wallpaperMode,

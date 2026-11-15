@@ -27,7 +27,8 @@ features are additions on top of it (see [Credits](#credits)).
   with the icons of their apps, starting with the default one, `special`. Drag a window into a card or out of it onto any workspace; a click
   shows that scratchpad. × on the card's top-right corner closes its windows and removes the card
   (remembered in `tray_hidden`); the grip on the name pill reorders (or Alt+drag on a card; order in `tray_order`).
-  A hidden configured name comes back once that scratchpad has windows again. In a crowded card, take a window by its
+  UI icons (grip, close, plus, zoom buttons) are SVGs under `assets/icons/`, embedded in the plugin. A hidden configured
+  name comes back once that scratchpad has windows again. In a crowded card, take a window by its
   app icon: drag the icon to move that window, click it to show the scratchpad with that window in front (apps without
   an icon get their first letter). Drop a window on the "+" below the cards for a new scratchpad named after its app
   (`nautilus`, `kitty-2`, …), or click the "+" for a new, empty one. A dragged window shrinks to card size as it

@@ -150,11 +150,20 @@ static void writeNameList(const std::filesystem::path& path, const std::vector<s
 }
 
 static void loadTrayState() {
-    if (g_trayStateLoaded)
+    // re-read when the files change (also after an external edit without reloading the plugin)
+    static std::filesystem::file_time_type orderTime{}, hiddenTime{};
+    const auto                             ORDER  = trayStateDir() / "tray_order";
+    const auto                             HIDDEN = trayStateDir() / "tray_hidden";
+    std::error_code                        ec;
+    const auto                             ot = std::filesystem::exists(ORDER, ec) ? std::filesystem::last_write_time(ORDER, ec) : std::filesystem::file_time_type{};
+    const auto                             ht = std::filesystem::exists(HIDDEN, ec) ? std::filesystem::last_write_time(HIDDEN, ec) : std::filesystem::file_time_type{};
+    if (g_trayStateLoaded && ot == orderTime && ht == hiddenTime)
         return;
     g_trayStateLoaded = true;
-    g_trayOrder       = readNameList(trayStateDir() / "tray_order");
-    g_trayHidden      = readNameList(trayStateDir() / "tray_hidden");
+    orderTime         = ot;
+    hiddenTime        = ht;
+    g_trayOrder       = readNameList(ORDER);
+    g_trayHidden      = readNameList(HIDDEN);
 }
 
 static void saveTrayOrder() {
@@ -906,45 +915,23 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
             data.a   = CHROME_A;
             Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CTexPassElement>(std::move(data)));
 
-            // two vertical bars as grip (same colour as the name)
+            // grip: SVG 2×3 dots, same colour as the name
             auto chrome = CHROME;
-            chrome.a *= CHROME_A;
-            const float BAR_W = std::max(2.5F, 3.F * monitor->m_scale);
-            const float BAR_H = std::max(12.F, sc<float>(pillGeom.grip.h) * 0.5F);
-            const float GX    = pillGeom.grip.middle().x;
-            const float GY    = pillGeom.grip.middle().y;
-            const float GAPX  = 4.F * monitor->m_scale;
-            for (const float OX : {-GAPX, GAPX}) {
-                CRectPassElement::SRectData bar;
-                bar.box   = CBox{GX + OX - BAR_W / 2.F, GY - BAR_H / 2.F, BAR_W, BAR_H}.round();
-                bar.color = chrome;
-                bar.round = sc<int>(BAR_W / 2.F);
-                Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(bar));
-            }
+            chrome.a    = 1.F;
+            const float GRIPSIZE = std::min(sc<float>(pillGeom.grip.w), sc<float>(pillGeom.grip.h)) * 0.85F;
+            GridIcons::drawUiIcon("grip", CBox{pillGeom.grip.middle().x - GRIPSIZE / 2.F, pillGeom.grip.middle().y - GRIPSIZE / 2.F, GRIPSIZE, GRIPSIZE}, CHROME_A, chrome);
         }
 
-        // × centred on the card's top-right corner (after windows so it stays on top); full chrome colour
-        const auto CLOSEBOX  = specialTrayCloseBox(CARD);
-        const int  CLOSESIZE = std::max(22, TEXTSIZE + 10);
-        const auto CLOSEKEY  = std::string{"×\n"} + std::to_string(CLOSESIZE) + "\ntray-close";
-        auto&      closeTex  = contextLabelTextures[CLOSEKEY];
-        if (!closeTex)
-            closeTex = g_pHyprRenderer->renderText("×", CHROME, CLOSESIZE, false, "", 0, 700);
-        if (closeTex && closeTex->m_size.x > 0) {
-            // dark plate behind the × so it stays readable on wallpaper and on window content
-            CRectPassElement::SRectData plate;
-            plate.box   = CLOSEBOX.copy().scaleFromCenter(0.85).round();
-            plate.color = CHyprColor{0.F, 0.F, 0.F, 0.55F * CARDALPHA};
-            plate.round = sc<int>(plate.box.h / 2.0);
-            Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(plate));
-
-            CTexPassElement::SRenderData closeData;
-            closeData.tex = closeTex;
-            closeData.box =
-                CBox{CLOSEBOX.middle().x - closeTex->m_size.x / 2.0, CLOSEBOX.middle().y - closeTex->m_size.y / 2.0, closeTex->m_size.x, closeTex->m_size.y}.round();
-            closeData.a = CARDALPHA; // same brightness as an occupied name, not dimmed for empty cards
-            Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CTexPassElement>(std::move(closeData)));
-        }
+        // × centred on the card's top-right corner (after windows so it stays on top)
+        const auto CLOSEBOX = specialTrayCloseBox(CARD);
+        CRectPassElement::SRectData plate;
+        plate.box   = CLOSEBOX.copy().scaleFromCenter(0.85).round();
+        plate.color = CHyprColor{0.F, 0.F, 0.F, 0.55F * CARDALPHA};
+        plate.round = sc<int>(plate.box.h / 2.0);
+        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(plate));
+        auto closeColor = CHROME;
+        closeColor.a    = 1.F;
+        GridIcons::drawUiIcon("close", CLOSEBOX.copy().scaleFromCenter(0.7), CARDALPHA, closeColor);
     }
 
     // drop line while reordering
@@ -994,16 +981,8 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
         .borderSize = std::max(1, sc<int>(std::round((ADDTARGET ? 3.F : 2.F) * UNIT))),
     }));
 
-    const float ARM   = 11.F * UNIT;
-    const float THICK = 3.F * UNIT;
-    const auto  MID   = ADD.middle();
-    for (const auto& PART : {CBox{MID.x - ARM, MID.y - THICK / 2.F, ARM * 2.F, THICK}, CBox{MID.x - THICK / 2.F, MID.y - ARM, THICK, ARM * 2.F}}) {
-        CRectPassElement::SRectData plus;
-        plus.box   = PART.copy().round();
-        plus.color = color;
-        plus.round = sc<int>(THICK / 2.F);
-        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(plus));
-    }
+    const float PLUS = 22.F * UNIT;
+    GridIcons::drawUiIcon("plus", CBox{ADD.middle().x - PLUS / 2.F, ADD.middle().y - PLUS / 2.F, PLUS, PLUS}, 1.F, color);
 }
 
 static std::string jsonString(const std::string& text) {

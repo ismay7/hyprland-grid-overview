@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#FFFFFF">
+  <!-- centred view: one card, neighbours peeking -->
+  <rect x="1" y="7" width="4" height="10" rx="1" opacity="0.4"/>
+  <rect x="19" y="7" width="4" height="10" rx="1" opacity="0.4"/>
+  <rect x="6" y="5" width="12" height="14" rx="2"/>
+</svg>
