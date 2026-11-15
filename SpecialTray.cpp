@@ -417,6 +417,13 @@ void CScrollOverview::updateSpecialTrayReveal(const Vector2D& pointLocal) {
     if (!ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray", MONITOR))
         return;
 
+    // rename field lives on the tray: keep it revealed until the prompt is done
+    if (specialTrayRenameBusy) {
+        if (trayReveal->goal() < 0.5F)
+            *trayReveal = 1.F;
+        return;
+    }
+
     const auto CARDS = specialTrayCards();
     const auto ADD   = specialTrayAddBox(CARDS);
     if (ADD.empty())
@@ -715,6 +722,8 @@ void CScrollOverview::beginSpecialTrayRename(size_t index) {
     // anonymous cards start empty; named ones keep the current name for editing
     specialTrayRenameText = isAnonymousTrayName(CARDS[index].name) ? "" : CARDS[index].name;
     specialTrayRenameBusy = true;
+    if (specialTrayAutohide() && trayReveal && trayReveal->goal() < 0.5F)
+        *trayReveal = 1.F;
     damage();
 }
 

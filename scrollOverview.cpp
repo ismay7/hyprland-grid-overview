@@ -1983,11 +1983,9 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
         if (activeScrollOverview().get() != this || isTopLayerFocused(pMonitor.lock()))
             return;
 
-        if (specialTrayRenameBusy) {
-            info.cancelled = true;
-            handleSpecialTrayRenameKey(KEYSYM);
+        // rename keys are handled only in dragKeyboardKeyHook (avoids double characters when both hooks run)
+        if (specialTrayRenameBusy)
             return;
-        }
 
         const auto IGNOREDMODS = Input::HL_MODIFIER_CAPS | Input::HL_MODIFIER_MOD2;
         const auto MODS = sc<Input::ModifierMask>(sc<uint8_t>(g_pInputManager->getModsFromAllKBs()) & ~sc<uint8_t>(IGNOREDMODS));
