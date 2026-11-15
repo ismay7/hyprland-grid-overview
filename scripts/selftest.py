@@ -297,7 +297,7 @@ class SelfTest:
         layout = self.reveal_tray()
         self.check("tray shows at the right edge", bool(layout.get("shown")))
 
-        # drag the test window onto "+": a new scratchpad named after its app
+        # drag the test window onto "+": anonymous scratch / scratch-N by default (special_tray_auto_name = off)
         x, y, _ = self.monitor_center()
         self.input.warp(x, y)
         self.input.nudge()
@@ -313,31 +313,42 @@ class SelfTest:
         self.input.glide(edge_x, y, ax, ay, steps=20)
         time.sleep(0.4)
         self.input.button(False)
-        window = wait_for(lambda: (lambda w: w if w and w["workspace"]["name"] == TEST_SPECIAL else None)(test_window()), timeout=2.0)
-        self.check("drop on + creates a scratchpad named after the app", bool(window), (test_window() or {}).get("workspace", {}).get("name", "-"))
 
-        # × on the name pill closes the windows and hides the card persistently (before icon drag takes it out)
+        def on_anon_special():
+            w = test_window()
+            if not w:
+                return None
+            name = w["workspace"]["name"]
+            if name == "special:scratch" or name.startswith("special:scratch-"):
+                return w
+            return None
+
+        window = wait_for(on_anon_special, timeout=2.0)
+        dropped_name = (window["workspace"]["name"][8:] if window else "")
+        self.check("drop on + creates an anonymous scratchpad", bool(window), (test_window() or {}).get("workspace", {}).get("name", "-"))
+
+        # × closes the windows and removes the card from the persistent roster
         if window:
             if not self.tray().get("open"):
                 self.open_overview()
             layout = self.reveal_tray()
-            card = next((c for c in layout.get("cards", []) if c["name"] == TEST_CLASS), None)
+            card = next((c for c in layout.get("cards", []) if c["name"] == dropped_name), None)
             if card and card.get("close"):
                 close = card["close"]
                 self.input.warp(close["x"] + close["w"] / 2, close["y"] + close["h"] / 2)
                 self.input.nudge()
                 time.sleep(0.2)
                 self.input.click()
-                gone = wait_for(lambda: TEST_CLASS not in [c["name"] for c in (self.tray().get("cards") or [])], timeout=2.0)
+                gone = wait_for(lambda: dropped_name not in [c["name"] for c in (self.tray().get("cards") or [])], timeout=2.0)
                 closed = wait_for(lambda: test_window() is None, timeout=2.0)
-                self.check("× on the pill closes the scratchpad and hides the card", bool(gone and closed))
+                self.check("× closes the scratchpad and removes it from the roster", bool(gone and closed))
                 has_add = bool((self.tray().get("add") or {}))
-                self.check("tray keeps the + after the last scratchpad was closed", has_add or bool(self.tray().get("cards")))
+                self.check("tray keeps the + after a scratchpad was closed", has_add or bool(self.tray().get("cards")))
                 self.close_overview()
                 self.open_overview()
                 layout = self.reveal_tray()
-                still = TEST_CLASS not in [c["name"] for c in layout.get("cards", [])]
-                self.check("removed scratchpad stays hidden after reopen", still)
+                still = dropped_name not in [c["name"] for c in layout.get("cards", [])]
+                self.check("removed scratchpad stays off the roster after reopen", still)
                 self.check("tray still has + after reopen", bool(layout.get("add")))
                 self.close_overview()
             else:
@@ -362,12 +373,22 @@ class SelfTest:
             if window:
                 self.test_tray_icon(window["address"])
 
-        # back to its workspace: the emptied scratchpad disappears
+        # back to its workspace: Hyprland drops the empty special; the roster keeps an empty card until ×
         window = test_window()
         if window and window["workspace"]["name"] == TEST_SPECIAL:
             dispatch(f'hl.dsp.window.move({{ workspace = {self.args.workspace}, follow = false, window = "address:{window["address"]}" }})')
             time.sleep(0.8)
-        self.check("emptied scratchpad disappears", TEST_SPECIAL not in workspaces())
+        self.check("emptied special workspace is gone from Hyprland", TEST_SPECIAL not in workspaces())
+        self.open_overview()
+        layout = self.reveal_tray()
+        leftover = next((c for c in layout.get("cards", []) if c["name"] == TEST_CLASS), None)
+        if leftover and leftover.get("close"):
+            close = leftover["close"]
+            self.input.warp(close["x"] + close["w"] / 2, close["y"] + close["h"] / 2)
+            self.input.nudge()
+            self.input.click()
+            wait_for(lambda: TEST_CLASS not in [c["name"] for c in (self.tray().get("cards") or [])], timeout=2.0)
+        self.close_overview()
 
         # reorder by the grip on the name pill, then put the order back
         if active_workspace() != str(self.args.workspace):

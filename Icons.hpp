@@ -15,8 +15,11 @@ namespace GridIcons {
     // Needs the renderer's GL context, i.e. call it while rendering.
     SP<Render::ITexture> iconForAppID(const std::string& appID, const std::string& iconTheme);
 
+    // First FreeDesktop main category from the app's .desktop Categories= (lowercase slug), or empty if none.
+    std::string categoryForAppID(const std::string& appID);
+
     // Built-in UI icon (SVG under assets/icons/, embedded in the plugin). `name` is the file stem: grip, close,
-    // plus, view-center, view-grid. `color` tints fills/strokes that were #FFFFFF in the SVG; alpha is applied
+    // plus, pencil, view-center, view-grid. `color` tints fills/strokes that were #FFFFFF in the SVG; alpha is applied
     // when drawing. Needs the renderer's GL context.
     SP<Render::ITexture> uiIcon(std::string_view name, const CHyprColor& color = CHyprColor{1.F, 1.F, 1.F, 1.F}, int rasterPx = 128);
 

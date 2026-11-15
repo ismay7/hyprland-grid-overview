@@ -80,9 +80,13 @@
 #include "Window.hpp"
 #include "ScrollOverviewInternal.hpp"
 #include "SpecialTray.hpp"
+#include "IOverview.hpp"
 #include <sstream>
 #include <fstream>
 #include <filesystem>
+#include <cctype>
+#include <cstdio>
+#include <thread>
 #include <hyprland/src/input/Keys.hpp>
 
 static constexpr float       TRAY_MARGIN     = 24.F; // logical px: screen edge to cards, and between grid and cards
@@ -94,9 +98,10 @@ static constexpr int         TRAY_LABEL_SIZE = 15;
 static constexpr float       TRAY_ADD_HEIGHT = 56.F; // the "+" box below the cards
 static constexpr float       TRAY_DOCK_PAD   = 14.F; // dock around the cards (within TRAY_MARGIN)
 static constexpr float       TRAY_DOCK_ROUNDING = 18.F;
-static constexpr float       TRAY_GRIP_WIDTH = 16.F; // grip on the right of the name pill
-static constexpr float       TRAY_GRIP_GAP   = 8.F;  // between the name and the grip
-static constexpr float       TRAY_CLOSE_SIZE = 36.F; // × hitbox; centre sits on the card's top-right corner
+static constexpr float       TRAY_GRIP_WIDTH   = 16.F; // grip on the right of the name pill
+static constexpr float       TRAY_PENCIL_WIDTH = 16.F; // pencil on the left of the name pill
+static constexpr float       TRAY_GRIP_GAP     = 8.F;  // between the name / icons and the grip or pencil
+static constexpr float       TRAY_CLOSE_SIZE   = 36.F; // × hitbox; centre sits on the card's top-right corner
 static constexpr std::string_view SPECIAL_PREFIX = "special:";
 
 static std::string specialTrayName(std::string name) {
@@ -108,10 +113,11 @@ static std::string specialTrayName(std::string name) {
     return name;
 }
 
-// remembered card order (disk) / hidden names for this session only (config placeholders return after restart)
+// remembered card order + living tray roster (disk). Config special_workspaces only seeds the roster once.
 static std::vector<std::string> g_trayOrder;
-static std::vector<std::string> g_trayHidden;
-static bool                     g_trayOrderLoaded = false;
+static std::vector<std::string> g_trayRoster;
+static bool                     g_trayOrderLoaded  = false;
+static bool                     g_trayRosterLoaded = false;
 
 static std::filesystem::path trayStateDir() {
     if (const char* state = std::getenv("XDG_STATE_HOME"); state && *state)
@@ -166,20 +172,83 @@ static void saveTrayOrder() {
     writeNameList(trayStateDir() / "tray_order", g_trayOrder);
 }
 
-static bool trayNameHidden(const std::string& name) {
-    return std::ranges::find(g_trayHidden, name) != g_trayHidden.end();
+static void saveTrayRoster() {
+    writeNameList(trayStateDir() / "special_workspaces", g_trayRoster);
 }
 
-static void hideTrayName(const std::string& name) {
-    if (std::ranges::find(g_trayHidden, name) == g_trayHidden.end())
-        g_trayHidden.push_back(name);
+static void loadTrayRoster(PHLMONITOR monitor) {
+    static std::filesystem::file_time_type rosterTime{};
+    const auto                             PATH = trayStateDir() / "special_workspaces";
+    std::error_code                        ec;
+    const bool                             EXISTS = std::filesystem::exists(PATH, ec);
+    const auto                             rt     = EXISTS ? std::filesystem::last_write_time(PATH, ec) : std::filesystem::file_time_type{};
+    if (g_trayRosterLoaded && EXISTS && rt == rosterTime)
+        return;
+
+    g_trayRosterLoaded = true;
+    rosterTime         = rt;
+    if (EXISTS) {
+        g_trayRoster = readNameList(PATH);
+        return;
+    }
+
+    // first run: seed from config, then persist so × / rename / + survive restarts
+    g_trayRoster.clear();
+    std::stringstream configured(ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:special_workspaces", monitor));
+    for (std::string entry; std::getline(configured, entry, ',');) {
+        const auto NAME = specialTrayName(entry);
+        if (!NAME.empty() && std::ranges::find(g_trayRoster, NAME) == g_trayRoster.end())
+            g_trayRoster.push_back(NAME);
+    }
+    saveTrayRoster();
+}
+
+static bool isAnonymousTrayName(const std::string& name) {
+    if (name == "scratch")
+        return true;
+    if (!name.starts_with("scratch-"))
+        return false;
+    const auto REST = name.substr(8);
+    return !REST.empty() && std::ranges::all_of(REST, [](unsigned char c) { return std::isdigit(c) != 0; });
+}
+
+static void addTrayRosterName(const std::string& name) {
+    if (name.empty())
+        return;
+    loadTrayRoster(nullptr);
+    if (std::ranges::find(g_trayRoster, name) == g_trayRoster.end()) {
+        g_trayRoster.push_back(name);
+        saveTrayRoster();
+    }
+    loadTrayOrder();
+    if (std::ranges::find(g_trayOrder, name) == g_trayOrder.end()) {
+        g_trayOrder.push_back(name);
+        saveTrayOrder();
+    }
+}
+
+static void removeTrayRosterName(const std::string& name) {
+    loadTrayRoster(nullptr);
+    std::erase(g_trayRoster, name);
+    saveTrayRoster();
     loadTrayOrder();
     std::erase(g_trayOrder, name);
     saveTrayOrder();
 }
 
-static void unhideTrayName(const std::string& name) {
-    std::erase(g_trayHidden, name);
+static std::string sanitizeTrayName(std::string name) {
+    name = specialTrayName(std::move(name));
+    std::string out;
+    for (const char C : name) {
+        const char LOWER = sc<char>(std::tolower(sc<unsigned char>(C)));
+        if (std::isalnum(sc<unsigned char>(LOWER)) || LOWER == '_' || LOWER == '-')
+            out += LOWER;
+        else if (!out.empty() && out.back() != '-')
+            out += '-';
+    }
+    while (!out.empty() && out.back() == '-')
+        out.pop_back();
+    return out;
 }
 
 template <typename TCard>
@@ -230,11 +299,9 @@ std::vector<CScrollOverview::STrayCard> CScrollOverview::specialTrayCards() cons
     if (!MONITOR || !ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray", MONITOR))
         return cards;
 
-    std::stringstream configured(ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:special_workspaces", MONITOR));
-    for (std::string entry; std::getline(configured, entry, ',');) {
-        const auto NAME = specialTrayName(entry);
-        // session-hidden names skip empty placeholders from special_workspaces (cleared on Hyprland restart)
-        if (NAME.empty() || trayNameHidden(NAME) || std::ranges::any_of(cards, [&NAME](const auto& card) { return card.name == NAME; }))
+    loadTrayRoster(MONITOR);
+    for (const auto& NAME : g_trayRoster) {
+        if (NAME.empty() || std::ranges::any_of(cards, [&NAME](const auto& card) { return card.name == NAME; }))
             continue;
         cards.push_back({.name = NAME});
     }
@@ -246,19 +313,16 @@ std::vector<CScrollOverview::STrayCard> CScrollOverview::specialTrayCards() cons
             continue;
 
         const auto NAME = specialTrayName(WORKSPACE->addressableName());
-        // a hidden name with windows comes back; empty hidden specials stay off the tray
         const bool HASWINDOWS = std::ranges::any_of(Desktop::windowState()->windows(), [&WORKSPACE](const auto& window) {
             return window && window->m_workspace == WORKSPACE && shouldShowOverviewWindow(window);
         });
-        if (trayNameHidden(NAME)) {
-            if (!HASWINDOWS)
-                continue;
-            unhideTrayName(NAME);
-        }
+        // specials with windows that are not on the roster still appear (keybind-created etc.)
+        if (!HASWINDOWS && std::ranges::find(g_trayRoster, NAME) == g_trayRoster.end())
+            continue;
         const auto IT = std::ranges::find_if(cards, [&NAME](const auto& card) { return card.name == NAME; });
         if (IT != cards.end())
             IT->workspace = WORKSPACE;
-        else
+        else if (HASWINDOWS)
             others.push_back({.name = NAME, .workspace = WORKSPACE});
     }
     std::ranges::sort(others, {}, &STrayCard::name);
@@ -423,28 +487,31 @@ bool CScrollOverview::specialTrayAddAt(const Vector2D& pointLocal) const {
     return !ADD.empty() && ADD.containsPoint(pointLocal);
 }
 
-// a name not taken by an existing or configured scratchpad: the app of the dropped window ("org.gnome.Nautilus" ->
-// "nautilus"), else "scratch"; "-2", "-3", ... when taken
+// a free name for a new scratchpad. Default / "+": anonymous scratch / scratch-N. Drop with special_tray_auto_name:
+// category (desktop Categories=, else app) or app; "-2", "-3", ... when taken
 std::string CScrollOverview::newSpecialWorkspaceName(const PHLWINDOW& window) const {
-    std::string base;
-    if (window) {
-        auto app = window->metadata().appID();
-        if (const auto DOT = app.find_last_of('.'); DOT != std::string::npos && DOT + 1 < app.size())
-            app = app.substr(DOT + 1);
-        for (const char C : app) {
-            const char LOWER = sc<char>(std::tolower(sc<unsigned char>(C)));
-            if (std::isalnum(sc<unsigned char>(LOWER)) || LOWER == '_' || LOWER == '-')
-                base += LOWER;
-            else if (!base.empty() && base.back() != '-')
-                base += '-';
+    const auto MODE = ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:special_tray_auto_name", pMonitor.lock());
+    std::string base = "scratch";
+    if (window && MODE != "off" && !MODE.empty()) {
+        if (MODE == "category") {
+            base = GridIcons::categoryForAppID(window->metadata().appID());
+            if (base.empty())
+                base = sanitizeTrayName(window->metadata().appID().substr(window->metadata().appID().find_last_of('.') == std::string::npos
+                                                                              ? 0
+                                                                              : window->metadata().appID().find_last_of('.') + 1));
+        } else if (MODE == "app") {
+            auto app = window->metadata().appID();
+            if (const auto DOT = app.find_last_of('.'); DOT != std::string::npos && DOT + 1 < app.size())
+                app = app.substr(DOT + 1);
+            base = sanitizeTrayName(app);
         }
-        while (!base.empty() && base.back() == '-')
-            base.pop_back();
+        if (base.empty())
+            base = "scratch";
     }
-    if (base.empty())
-        base = "scratch";
 
     std::vector<std::string> taken;
+    loadTrayRoster(pMonitor.lock());
+    taken.insert(taken.end(), g_trayRoster.begin(), g_trayRoster.end());
     for (const auto& card : specialTrayCards())
         taken.push_back(card.name);
     for (const auto& w : State::workspaceState()->workspaces()) {
@@ -471,24 +538,30 @@ std::optional<size_t> CScrollOverview::specialTrayCardAt(const Vector2D& pointLo
     return std::nullopt;
 }
 
-// name pill under the card: text + grip (reorder); room for a later pencil / menu
+// name pill under the card: pencil (rename) + optional text + grip (reorder)
 CScrollOverview::STrayPill CScrollOverview::specialTrayPill(const STrayCard& card, const Vector2D& textSize) const {
     const auto MONITOR = pMonitor.lock();
     STrayPill  out;
-    if (!MONITOR || textSize.x <= 0)
+    if (!MONITOR)
         return out;
 
+    const bool  NAMED   = !isAnonymousTrayName(card.name) && textSize.x > 0;
     const float UNIT    = MONITOR->m_scale;
     const float PAD     = 6.F * UNIT;
     const float GRIP    = TRAY_GRIP_WIDTH * UNIT;
+    const float PENCIL  = TRAY_PENCIL_WIDTH * UNIT;
     const float GAP     = TRAY_GRIP_GAP * UNIT;
-    const float HEIGHT  = std::max(TRAY_PILL * UNIT, sc<float>(textSize.y) + 2.F * PAD);
-    const float WIDTH   = textSize.x + GAP + GRIP + 2.F * PAD + 2.F * PAD;
+    const float TEXTH   = NAMED ? sc<float>(textSize.y) : 0.F;
+    const float TEXTW   = NAMED ? sc<float>(textSize.x) : 0.F;
+    const float HEIGHT  = std::max(TRAY_PILL * UNIT, TEXTH + 2.F * PAD);
+    const float WIDTH   = PAD + PAD + PENCIL + GAP + (NAMED ? TEXTW + GAP : 0.F) + GRIP + PAD + PAD;
     const float CENTERX = card.box.middle().x;
     const float CENTERY = card.box.y + card.box.h + specialTrayLabelOffset() * UNIT;
     out.pill            = CBox{CENTERX - WIDTH / 2.F, CENTERY - HEIGHT / 2.F, WIDTH, HEIGHT}.round();
-    out.text            = CBox{out.pill.x + PAD + PAD, CENTERY - textSize.y / 2.F, textSize.x, textSize.y}.round();
-    out.grip            = CBox{out.pill.x + out.pill.w - PAD - PAD - GRIP, out.pill.y, GRIP + PAD, out.pill.h}.round();
+    out.pencil          = CBox{out.pill.x + PAD, out.pill.y, PENCIL + PAD, out.pill.h}.round();
+    if (NAMED)
+        out.text = CBox{out.pencil.x + out.pencil.w + GAP - PAD, CENTERY - TEXTH / 2.F, TEXTW, TEXTH}.round();
+    out.grip = CBox{out.pill.x + out.pill.w - PAD - PAD - GRIP, out.pill.y, GRIP + PAD, out.pill.h}.round();
     return out;
 }
 
@@ -502,7 +575,7 @@ CBox CScrollOverview::specialTrayCloseBox(const STrayCard& card) const {
 }
 
 std::optional<size_t> CScrollOverview::specialTrayGripAt(const Vector2D& pointLocal) const {
-    if (closing || (specialTrayAutohide() && trayReveal && trayReveal->goal() < 0.5F))
+    if (closing || specialTrayRenameBusy || (specialTrayAutohide() && trayReveal && trayReveal->goal() < 0.5F))
         return std::nullopt;
 
     const auto MONITOR = pMonitor.lock();
@@ -514,7 +587,9 @@ std::optional<size_t> CScrollOverview::specialTrayGripAt(const Vector2D& pointLo
     for (size_t i = 0; i < CARDS.size(); ++i) {
         const auto KEY     = CARDS[i].name + "\n" + std::to_string(TEXTSIZE) + "\ntray";
         const auto TEXTURE = contextLabelTextures.contains(KEY) ? contextLabelTextures.at(KEY) : SP<Render::ITexture>{};
-        const auto SIZE    = TEXTURE && TEXTURE->m_size.x > 0 ? TEXTURE->m_size : Vector2D{TRAY_LABEL_SIZE * 4.0 * MONITOR->m_scale, TRAY_LABEL_SIZE * MONITOR->m_scale};
+        const auto SIZE    = !isAnonymousTrayName(CARDS[i].name) && TEXTURE && TEXTURE->m_size.x > 0
+                                  ? TEXTURE->m_size
+                                  : Vector2D{isAnonymousTrayName(CARDS[i].name) ? 0.0 : TRAY_LABEL_SIZE * 4.0 * MONITOR->m_scale, TRAY_LABEL_SIZE * MONITOR->m_scale};
         if (specialTrayPill(CARDS[i], SIZE).grip.containsPoint(pointLocal))
             return i;
     }
@@ -522,7 +597,7 @@ std::optional<size_t> CScrollOverview::specialTrayGripAt(const Vector2D& pointLo
 }
 
 std::optional<size_t> CScrollOverview::specialTrayCloseAt(const Vector2D& pointLocal) const {
-    if (closing || (specialTrayAutohide() && trayReveal && trayReveal->goal() < 0.5F))
+    if (closing || specialTrayRenameBusy || (specialTrayAutohide() && trayReveal && trayReveal->goal() < 0.5F))
         return std::nullopt;
 
     const auto CARDS = specialTrayCards();
@@ -550,7 +625,123 @@ void CScrollOverview::removeSpecialTrayCard(size_t index) {
     if (const auto MONITOR = pMonitor.lock(); MONITOR && CARD.workspace && MONITOR->m_activeSpecialWorkspace == CARD.workspace)
         MONITOR->setSpecialWorkspace(nullptr);
 
-    hideTrayName(CARD.name);
+    removeTrayRosterName(CARD.name);
+    rebuildPending = true;
+    damage();
+}
+
+std::optional<size_t> CScrollOverview::specialTrayPencilAt(const Vector2D& pointLocal) const {
+    if (closing || specialTrayRenameBusy || (specialTrayAutohide() && trayReveal && trayReveal->goal() < 0.5F))
+        return std::nullopt;
+
+    const auto MONITOR = pMonitor.lock();
+    if (!MONITOR)
+        return std::nullopt;
+
+    const int  TEXTSIZE = std::max(1, sc<int>(std::round(TRAY_LABEL_SIZE * MONITOR->m_scale)));
+    const auto CARDS    = specialTrayCards();
+    for (size_t i = 0; i < CARDS.size(); ++i) {
+        const auto KEY     = CARDS[i].name + "\n" + std::to_string(TEXTSIZE) + "\ntray";
+        const auto TEXTURE = contextLabelTextures.contains(KEY) ? contextLabelTextures.at(KEY) : SP<Render::ITexture>{};
+        const auto SIZE    = !isAnonymousTrayName(CARDS[i].name) && TEXTURE && TEXTURE->m_size.x > 0
+                                  ? TEXTURE->m_size
+                                  : Vector2D{isAnonymousTrayName(CARDS[i].name) ? 0.0 : TRAY_LABEL_SIZE * 4.0 * MONITOR->m_scale, TRAY_LABEL_SIZE * MONITOR->m_scale};
+        if (specialTrayPill(CARDS[i], SIZE).pencil.containsPoint(pointLocal))
+            return i;
+    }
+    return std::nullopt;
+}
+
+static bool applySpecialTrayRename(const std::string& oldName, const std::string& rawNew) {
+    const auto NEW = sanitizeTrayName(rawNew);
+    if (NEW.empty() || NEW == oldName)
+        return false;
+
+    loadTrayRoster({});
+    if (std::ranges::find(g_trayRoster, NEW) != g_trayRoster.end())
+        return false;
+    for (const auto& w : State::workspaceState()->workspaces()) {
+        if (const auto WORKSPACE = w.lock(); valid(WORKSPACE) && WORKSPACE->type() == Workspace::eWorkspaceType::SPECIAL &&
+            specialTrayName(WORKSPACE->addressableName()) == NEW)
+            return false;
+    }
+
+    PHLWORKSPACE workspace;
+    for (const auto& w : State::workspaceState()->workspaces()) {
+        if (const auto WS = w.lock(); valid(WS) && WS->type() == Workspace::eWorkspaceType::SPECIAL && specialTrayName(WS->addressableName()) == oldName) {
+            workspace = WS;
+            break;
+        }
+    }
+
+    if (workspace) {
+        // Hyprland specials keep the special: prefix in their addressable name
+        (void)Config::Actions::renameWorkspace(workspace, std::string{SPECIAL_PREFIX} + NEW);
+    }
+
+    if (const auto IT = std::ranges::find(g_trayRoster, oldName); IT != g_trayRoster.end())
+        *IT = NEW;
+    else
+        g_trayRoster.push_back(NEW);
+    saveTrayRoster();
+
+    loadTrayOrder();
+    if (const auto IT = std::ranges::find(g_trayOrder, oldName); IT != g_trayOrder.end())
+        *IT = NEW;
+    else if (std::ranges::find(g_trayOrder, NEW) == g_trayOrder.end())
+        g_trayOrder.push_back(NEW);
+    saveTrayOrder();
+    return true;
+}
+
+void CScrollOverview::beginSpecialTrayRename(size_t index) {
+    if (specialTrayRenameBusy || closing)
+        return;
+    const auto CARDS = specialTrayCards();
+    if (index >= CARDS.size())
+        return;
+
+    const auto OLD = CARDS[index].name;
+    auto       cmd = ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:special_tray_rename_cmd", pMonitor.lock());
+    if (cmd.empty())
+        cmd = "tofi --require-match=false --prompt-text=\"Name \" --width=360 --height=48 --anchor=center";
+    // $NAME -> current name (for prompts that show or pre-fill it)
+    for (size_t pos = 0; (pos = cmd.find("$NAME", pos)) != std::string::npos;)
+        cmd.replace(pos, 5, OLD);
+
+    specialTrayRenameBusy = true;
+    damage();
+
+    // run off the compositor thread so the overlay can take keyboard focus; apply on the main loop
+    std::thread([OLD, cmd] {
+        std::string result;
+        if (FILE* pipe = popen(cmd.c_str(), "r")) {
+            char buf[256];
+            while (fgets(buf, sizeof(buf), pipe))
+                result += buf;
+            pclose(pipe);
+        }
+        while (!result.empty() && (result.back() == '\n' || result.back() == '\r'))
+            result.pop_back();
+
+        if (!g_pEventLoopManager)
+            return;
+        g_pEventLoopManager->doLater([OLD, result] {
+            if (!result.empty())
+                applySpecialTrayRename(OLD, result);
+            const auto OVERVIEW = activeScrollOverview();
+            if (auto* tray = OVERVIEW ? dynamic_cast<CScrollOverview*>(OVERVIEW.get()) : nullptr) {
+                tray->specialTrayRenameBusy = false;
+                tray->rebuildPending        = true;
+                tray->damage();
+            }
+        });
+    }).detach();
+}
+
+void CScrollOverview::renameSpecialTrayCard(const std::string& oldName, const std::string& rawNew) {
+    if (!applySpecialTrayRename(oldName, rawNew))
+        return;
     rebuildPending = true;
     damage();
 }
@@ -701,6 +892,9 @@ void CScrollOverview::hideActiveSpecialWorkspace() {
 }
 
 PHLWORKSPACE CScrollOverview::ensureSpecialWorkspace(const STrayCard& card) const {
+    if (!card.name.empty())
+        addTrayRosterName(card.name);
+
     if (card.workspace && valid(card.workspace))
         return card.workspace;
 
@@ -913,31 +1107,41 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
         }
 
         const float CHROME_A = CARDALPHA * (CARD.workspace ? 1.F : 0.6F);
-        const auto  KEY      = CARD.name + "\n" + std::to_string(TEXTSIZE) + "\ntray";
-        auto&       texture  = contextLabelTextures[KEY];
-        if (!texture)
-            texture = g_pHyprRenderer->renderText(CARD.name, CHROME, TEXTSIZE, false, "", 0, 600);
-        if (texture && texture->m_size.x > 0) {
-            const auto pillGeom  = specialTrayPill(CARD, texture->m_size);
-            auto       pillColor = BACKGROUND.a > 0.F ? BACKGROUND : CHyprColor{0.F, 0.F, 0.F, 0.45F};
-            CRectPassElement::SRectData pill;
-            pill.box   = pillGeom.pill;
-            pill.color = pillColor.modifyA(pillColor.a * CARDALPHA);
-            pill.round = sc<int>(pill.box.h / 2.0);
-            Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(pill));
+        const bool  NAMED    = !isAnonymousTrayName(CARD.name);
+        Vector2D    textSize{};
+        SP<Render::ITexture> texture;
+        if (NAMED) {
+            const auto KEY = CARD.name + "\n" + std::to_string(TEXTSIZE) + "\ntray";
+            auto&      slot = contextLabelTextures[KEY];
+            if (!slot)
+                slot = g_pHyprRenderer->renderText(CARD.name, CHROME, TEXTSIZE, false, "", 0, 600);
+            texture = slot;
+            if (texture && texture->m_size.x > 0)
+                textSize = texture->m_size;
+        }
+        const auto pillGeom  = specialTrayPill(CARD, textSize);
+        auto       pillColor = BACKGROUND.a > 0.F ? BACKGROUND : CHyprColor{0.F, 0.F, 0.F, 0.45F};
+        CRectPassElement::SRectData pill;
+        pill.box   = pillGeom.pill;
+        pill.color = pillColor.modifyA(pillColor.a * CARDALPHA);
+        pill.round = sc<int>(pill.box.h / 2.0);
+        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(pill));
 
+        auto chrome = CHROME;
+        chrome.a    = 1.F;
+        const float PENSIZE = std::min(sc<float>(pillGeom.pencil.w), sc<float>(pillGeom.pencil.h)) * 0.72F;
+        GridIcons::drawUiIcon("pencil", CBox{pillGeom.pencil.middle().x - PENSIZE / 2.F, pillGeom.pencil.middle().y - PENSIZE / 2.F, PENSIZE, PENSIZE}, CHROME_A, chrome);
+
+        if (NAMED && texture && texture->m_size.x > 0 && !pillGeom.text.empty()) {
             CTexPassElement::SRenderData data;
             data.tex = texture;
             data.box = pillGeom.text;
             data.a   = CHROME_A;
             Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CTexPassElement>(std::move(data)));
-
-            // grip: SVG 2×3 dots, same colour as the name
-            auto chrome = CHROME;
-            chrome.a    = 1.F;
-            const float GRIPSIZE = std::min(sc<float>(pillGeom.grip.w), sc<float>(pillGeom.grip.h)) * 0.85F;
-            GridIcons::drawUiIcon("grip", CBox{pillGeom.grip.middle().x - GRIPSIZE / 2.F, pillGeom.grip.middle().y - GRIPSIZE / 2.F, GRIPSIZE, GRIPSIZE}, CHROME_A, chrome);
         }
+
+        const float GRIPSIZE = std::min(sc<float>(pillGeom.grip.w), sc<float>(pillGeom.grip.h)) * 0.85F;
+        GridIcons::drawUiIcon("grip", CBox{pillGeom.grip.middle().x - GRIPSIZE / 2.F, pillGeom.grip.middle().y - GRIPSIZE / 2.F, GRIPSIZE, GRIPSIZE}, CHROME_A, chrome);
 
         // × centred on the card's top-right corner (after windows so it stays on top)
         const auto CLOSEBOX = specialTrayCloseBox(CARD);
@@ -1036,13 +1240,18 @@ std::string CScrollOverview::specialTrayLayoutJson() const {
             }
         }
         const int  TEXTSIZE = std::max(1, sc<int>(std::round(TRAY_LABEL_SIZE * MONITOR->m_scale)));
-        const auto KEY      = card.name + "\n" + std::to_string(TEXTSIZE) + "\ntray";
-        const auto TEXTURE  = contextLabelTextures.contains(KEY) ? contextLabelTextures.at(KEY) : SP<Render::ITexture>{};
-        const auto SIZE     = TEXTURE && TEXTURE->m_size.x > 0 ? TEXTURE->m_size : Vector2D{TRAY_LABEL_SIZE * 4.0 * MONITOR->m_scale, TRAY_LABEL_SIZE * MONITOR->m_scale};
-        const auto PILL     = specialTrayPill(card, SIZE);
-        auto       box      = global(card.box);
-        box.insert(1, std::format("\"name\": {}, \"exists\": {}, \"icons\": [{}], \"close\": {}, \"grip\": {}, ", jsonString(card.name),
-                                  card.workspace ? "true" : "false", icons, global(specialTrayCloseBox(card)), global(PILL.grip)));
+        const bool NAMED    = !isAnonymousTrayName(card.name);
+        Vector2D   size{};
+        if (NAMED) {
+            const auto KEY     = card.name + "\n" + std::to_string(TEXTSIZE) + "\ntray";
+            const auto TEXTURE = contextLabelTextures.contains(KEY) ? contextLabelTextures.at(KEY) : SP<Render::ITexture>{};
+            size               = TEXTURE && TEXTURE->m_size.x > 0 ? TEXTURE->m_size : Vector2D{TRAY_LABEL_SIZE * 4.0 * MONITOR->m_scale, TRAY_LABEL_SIZE * MONITOR->m_scale};
+        }
+        const auto PILL = specialTrayPill(card, size);
+        auto       box  = global(card.box);
+        box.insert(1, std::format("\"name\": {}, \"anonymous\": {}, \"exists\": {}, \"icons\": [{}], \"close\": {}, \"pencil\": {}, \"grip\": {}, ",
+                                  jsonString(card.name), NAMED ? "false" : "true", card.workspace ? "true" : "false", icons, global(specialTrayCloseBox(card)),
+                                  global(PILL.pencil), global(PILL.grip)));
         cards += box;
     }
 

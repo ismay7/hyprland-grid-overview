@@ -25,15 +25,14 @@ features are additions on top of it (see [Credits](#credits)).
   edge scrolls to the neighbouring workspace.
 - **Scratchpads at hand**: a tray at the right screen edge shows Hyprland's special workspaces as live cards
   with the icons of their apps, starting with the default one, `special`. Drag a window into a card or out of it onto any workspace; a click
-  shows that scratchpad. × on the card's top-right corner closes its windows and removes the card for this session;
-  the "+" stays so you can create a new one. Configured names from `special_workspaces` return after a Hyprland restart.
-  The grip on the name pill reorders (or Alt+drag on a card; order in `tray_order`). UI icons (grip, close, plus, zoom
-  buttons) are SVGs under `assets/icons/`, embedded in the plugin. A closed scratchpad also comes back once it has
-  windows again in this session. In a crowded card, take a window by its
-  app icon: drag the icon to move that window, click it to show the scratchpad with that window in front (apps without
-  an icon get their first letter). Drop a window on the "+" below the cards for a new scratchpad named after its app
-  (`nautilus`, `kitty-2`, …), or click the "+" for a new, empty one. A dragged window shrinks to card size as it
-  approaches the tray; at the right edge the tray comes first, pushing on to the very edge scrolls on behind it.
+  shows that scratchpad. New cards are anonymous by default (`scratch`, `scratch-2`, … — no name in the pill); the
+  pencil renames them (tofi overlay, or `special_tray_rename_cmd`). × closes their windows and removes them from the
+  persistent roster (`~/.local/state/gridoverview/special_workspaces`; config `special_workspaces` only seeds it once).
+  The "+" stays when every card is gone. The grip reorders (or Alt+drag; order in `tray_order`). Drop on "+" can
+  auto-name by app or desktop category via `special_tray_auto_name` (default `off`). UI icons are SVGs under
+  `assets/icons/`, embedded in the plugin. In a crowded card, take a window by its app icon: drag to move it, click to
+  show the scratchpad with that window in front. A dragged window shrinks to card size as it approaches the tray; at
+  the right edge the tray comes first, pushing on to the very edge scrolls on behind it.
 - **Two views and everything in between**: buttons at the top switch between the centred view and the whole
   grid; the slider between them zooms continuously.
 - **Mouse everywhere**: click a workspace or window to go there, wheel through the grid (`SHIFT` or the
@@ -150,7 +149,9 @@ workspaces of a context are created on its monitor. A separate grid per monitor 
 | `special_tray_blur` | bool | blur behind the tray's dock (with Hyprland's `decoration:blur` settings); off: a solid dark dock | `true` |
 | `special_tray_icon_size` | int | size of those icons in layout px | `36` |
 | `special_tray_autohide` | bool | hide the tray until the pointer touches the right screen edge, like an auto-hiding dock; it stays while the pointer is over it, also while a window is dragged. The whole-grid view keeps no space free | `false` |
-| `special_workspaces` | string | comma-separated special workspace names (without `special:`) that always get a card, also while empty; `special` is Hyprland's unnamed scratchpad (`toggle_special` without a name) | `special` |
+| `special_workspaces` | string | seeds the persistent tray roster once (`~/.local/state/gridoverview/special_workspaces`); afterwards × / + / rename edit that file. `special` is Hyprland's unnamed scratchpad | `special` |
+| `special_tray_auto_name` | string | name when dropping a window on +: `off` (anonymous `scratch-N`, default), `category` (desktop `Categories=`, else app), or `app` | `off` |
+| `special_tray_rename_cmd` | string | shell command for the rename prompt (stdout = new name); `$NAME` is the current name; empty = built-in tofi | empty (tofi) |
 | `special_tray_width` | int | card width in layout px (cards shrink when they do not fit the screen height) | `300` |
 | `transition_bezier` | string | bezier for moving between workspaces in the overview; empty = `windowsMove` | empty |
 | `transition_speed` | float | speed for `transition_bezier` | `4` |

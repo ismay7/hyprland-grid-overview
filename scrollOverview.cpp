@@ -1550,9 +1550,16 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
             lastMousePosLocal = getOverviewMousePosLocal(pMonitor.lock());
 
             if (event.state == WL_POINTER_BUTTON_STATE_PRESSED) {
-                // × on the name pill: close the scratchpad's windows and hide the card
+                if (specialTrayRenameBusy)
+                    return;
+                // × on the card: close windows and remove the card from the persistent tray roster
                 if (const auto CLOSE = specialTrayCloseAt(lastMousePosLocal)) {
                     removeSpecialTrayCard(*CLOSE);
+                    return;
+                }
+                // pencil on the name pill: rename via tofi (or special_tray_rename_cmd)
+                if (const auto PENCIL = specialTrayPencilAt(lastMousePosLocal)) {
+                    beginSpecialTrayRename(*PENCIL);
                     return;
                 }
                 // grip on the name pill, or ALT+card: reorder the scratchpad cards
@@ -1630,6 +1637,7 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
                 specialTrayAddPressed = false;
                 if (specialTrayAddAt(lastMousePosLocal)) {
                     pendingSpecialName = newSpecialWorkspaceName(nullptr);
+                    // ensureSpecialWorkspace (on close) adds it to the persistent roster
                     closeOnWindow.reset();
                     closeAll();
                 }

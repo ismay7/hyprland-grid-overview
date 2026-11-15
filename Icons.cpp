@@ -45,10 +45,36 @@ namespace {
         return dirs;
     }
 
+    struct SDesktopEntry {
+        std::string icon;
+        std::string category; // first FreeDesktop main category, lowercase
+    };
+
     struct SDesktopIndex {
         bool                                         built = false;
-        std::unordered_map<std::string, std::string> byWmClass, byFileName; // lowercased key -> Icon=
+        std::unordered_map<std::string, SDesktopEntry> byWmClass, byFileName; // lowercased key
     };
+
+    // FreeDesktop main categories we accept as tray auto-names (first match in Categories= wins)
+    std::string mainCategorySlug(const std::string& categoriesLine) {
+        static constexpr std::string_view MAINS[] = {"audiovideo", "audio", "video", "development", "education", "game", "graphics",
+                                                     "network",    "office", "science", "settings",  "system",   "utility"};
+        std::stringstream                 all{categoriesLine};
+        for (std::string part; std::getline(all, part, ';');) {
+            auto cat = lower(part);
+            while (!cat.empty() && (cat.front() == ' ' || cat.front() == '\t'))
+                cat.erase(cat.begin());
+            while (!cat.empty() && (cat.back() == ' ' || cat.back() == '\t'))
+                cat.pop_back();
+            if (cat.empty())
+                continue;
+            for (const auto MAIN : MAINS) {
+                if (cat == MAIN)
+                    return cat;
+            }
+        }
+        return {};
+    }
 
     SDesktopIndex& desktopIndex() {
         static SDesktopIndex index;
@@ -68,7 +94,7 @@ namespace {
                     continue;
 
                 std::ifstream file(it->path());
-                std::string   icon, wmClass;
+                std::string   icon, wmClass, categories;
                 bool          inEntry = false;
                 for (std::string line; std::getline(file, line);) {
                     if (!line.empty() && line.front() == '[') {
@@ -81,32 +107,41 @@ namespace {
                         icon = line.substr(5);
                     else if (line.starts_with("StartupWMClass="))
                         wmClass = line.substr(15);
+                    else if (line.starts_with("Categories="))
+                        categories = line.substr(11);
                 }
 
-                if (icon.empty())
-                    continue;
+                SDesktopEntry entry{.icon = icon, .category = mainCategorySlug(categories)};
                 // data dirs are ordered by priority (user first), so the first entry wins
-                index.byFileName.try_emplace(lower(it->path().stem().string()), icon);
-                if (!wmClass.empty())
-                    index.byWmClass.try_emplace(lower(wmClass), icon);
+                const auto STEM = lower(it->path().stem().string());
+                if (!icon.empty() || !entry.category.empty())
+                    index.byFileName.try_emplace(STEM, entry);
+                if (!wmClass.empty() && (!icon.empty() || !entry.category.empty()))
+                    index.byWmClass.try_emplace(lower(wmClass), entry);
             }
         }
         return index;
     }
 
-    std::string iconNameForAppID(const std::string& appID) {
+    const SDesktopEntry* desktopEntryForAppID(const std::string& appID) {
         const auto& index = desktopIndex();
         const auto  KEY   = lower(appID);
 
         if (const auto it = index.byWmClass.find(KEY); it != index.byWmClass.end())
-            return it->second;
+            return &it->second;
         if (const auto it = index.byFileName.find(KEY); it != index.byFileName.end())
-            return it->second;
+            return &it->second;
         // reverse-DNS desktop ids ending in the app id, e.g. org.gnome.Calculator.desktop for "calculator"
-        for (const auto& [fileName, icon] : index.byFileName) {
+        for (const auto& [fileName, entry] : index.byFileName) {
             if (fileName.ends_with("." + KEY))
-                return icon;
+                return &entry;
         }
+        return nullptr;
+    }
+
+    std::string iconNameForAppID(const std::string& appID) {
+        if (const auto* entry = desktopEntryForAppID(appID); entry && !entry->icon.empty())
+            return entry->icon;
         return appID;
     }
 
@@ -221,6 +256,11 @@ namespace {
   <path d="M12 5v14M5 12h14"/>
 </svg>)SVG";
 
+    constexpr std::string_view UI_PENCIL = R"SVG(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M14.5 4.5l5 5L8 21H3v-5L14.5 4.5z"/>
+  <path d="M12.5 6.5l5 5"/>
+</svg>)SVG";
+
     constexpr std::string_view UI_VIEW_CENTER = R"SVG(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#FFFFFF">
   <rect x="1" y="7" width="4" height="10" rx="1" opacity="0.4"/>
   <rect x="19" y="7" width="4" height="10" rx="1" opacity="0.4"/>
@@ -243,6 +283,8 @@ namespace {
             return UI_CLOSE;
         if (name == "plus")
             return UI_PLUS;
+        if (name == "pencil")
+            return UI_PENCIL;
         if (name == "view-center")
             return UI_VIEW_CENTER;
         if (name == "view-grid")
@@ -262,6 +304,12 @@ namespace {
         }
         return svg;
     }
+}
+
+std::string GridIcons::categoryForAppID(const std::string& appID) {
+    if (const auto* entry = desktopEntryForAppID(appID); entry && !entry->category.empty())
+        return entry->category;
+    return {};
 }
 
 SP<Render::ITexture> GridIcons::uiIcon(std::string_view name, const CHyprColor& color, int rasterPx) {

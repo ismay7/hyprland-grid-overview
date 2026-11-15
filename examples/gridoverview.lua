@@ -74,7 +74,9 @@ local settings = {
         window_icon_size = 64,
         -- scratchpads (special workspaces) as cards at the right edge: drag windows in and out, click one to show it
         special_tray = true,
-        special_workspaces = "special", -- always shown, also while empty (comma-separated); "special" = the unnamed one
+        special_workspaces = "special", -- seeds the persistent roster once (~/.local/state/gridoverview/special_workspaces)
+        special_tray_auto_name = "off", -- off | category | app: name when dropping a window on +
+        -- special_tray_rename_cmd = "", -- empty = tofi; stdout = new name, $NAME = current
         special_tray_width = 300,  -- card width in layout px
         special_tray_icons = true, -- app icons on the bottom edge of the cards
         special_tray_icon_size = 36,
