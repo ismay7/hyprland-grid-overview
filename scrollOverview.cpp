@@ -1558,11 +1558,13 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
                 // × on the card: close windows and remove the card from the persistent tray roster
                 if (const auto CLOSE = specialTrayCloseAt(lastMousePosLocal)) {
                     removeSpecialTrayCard(*CLOSE);
+                    specialTrayChromePressed = true; // release must not select a workspace under the tray
                     return;
                 }
                 // pencil on the name pill: centred rename field
                 if (const auto PENCIL = specialTrayPencilAt(lastMousePosLocal)) {
                     beginSpecialTrayRename(*PENCIL);
+                    specialTrayChromePressed = true;
                     return;
                 }
                 // grip on the name pill, or ALT+card: reorder the scratchpad cards
@@ -1628,6 +1630,11 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
 
             if (specialTrayReorderFrom) {
                 finishSpecialTrayReorder(true);
+                return;
+            }
+
+            if (specialTrayChromePressed) {
+                specialTrayChromePressed = false;
                 return;
             }
 

@@ -133,6 +133,7 @@ class CScrollOverview : public IOverview {
     CBox                   specialTrayAddBox(const std::vector<STrayCard>& cards) const;
     bool                   specialTrayAddAt(const Vector2D& pointLocal) const;
     bool                   specialTrayAddPressed = false;
+    bool                   specialTrayChromePressed = false; // × / pencil: swallow the matching release
     std::string            newSpecialWorkspaceName(const PHLWINDOW& window) const;
     CBox                   specialTrayWindowBox(const STrayCard& card, const PHLWINDOW& window) const;
     float                  specialTrayRenderScale(const STrayCard& card) const;
