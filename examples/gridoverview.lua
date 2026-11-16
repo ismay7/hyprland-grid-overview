@@ -71,6 +71,7 @@ local settings = {
         context_labels = false,    -- context name next to the first workspace of each context (names from contexts)
         context_label_size = 20,
         window_icons = false,
+        window_chrome = true,  -- float / maximize / fullscreen / pin / close under focus/hover
         window_icon_size = 64,
         -- scratchpads (special workspaces) as cards at the right edge: drag windows in and out, click one to show it
         special_tray = true,

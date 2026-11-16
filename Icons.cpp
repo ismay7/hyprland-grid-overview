@@ -276,6 +276,26 @@ namespace {
   <rect x="16.5" y="13" width="5.5" height="6.5" rx="1"/>
 </svg>)SVG";
 
+    constexpr std::string_view UI_FLOAT = R"SVG(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="3" y="6" width="12" height="10" rx="2" opacity="0.45"/>
+  <rect x="9" y="8" width="12" height="10" rx="2"/>
+</svg>)SVG";
+
+    constexpr std::string_view UI_MAXIMIZE = R"SVG(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="5" y="5" width="14" height="14" rx="2"/>
+</svg>)SVG";
+
+    constexpr std::string_view UI_FULLSCREEN = R"SVG(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M8 4H4v4M16 4h4v4M8 20H4v-4M16 20h4v-4"/>
+  <rect x="7" y="7" width="10" height="10" rx="1.5"/>
+</svg>)SVG";
+
+    constexpr std::string_view UI_PIN = R"SVG(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 14v7"/>
+  <path d="M8.5 4.5l7 0"/>
+  <path d="M9 4.5c0 3.5-1.5 5.5-1.5 7.5 0 1.5 1.5 2 4.5 2s4.5-.5 4.5-2c0-2-1.5-4-1.5-7.5"/>
+</svg>)SVG";
+
     std::optional<std::string_view> uiSvgSource(std::string_view name) {
         if (name == "grip")
             return UI_GRIP;
@@ -289,6 +309,14 @@ namespace {
             return UI_VIEW_CENTER;
         if (name == "view-grid")
             return UI_VIEW_GRID;
+        if (name == "float")
+            return UI_FLOAT;
+        if (name == "maximize")
+            return UI_MAXIMIZE;
+        if (name == "fullscreen")
+            return UI_FULLSCREEN;
+        if (name == "pin")
+            return UI_PIN;
         return std::nullopt;
     }
 

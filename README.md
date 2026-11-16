@@ -47,8 +47,9 @@ Everything below is optional; see [Configuration](#configuration-lua) for the op
   and with the example Lua module a wallpaper and a monitor per context and a bar widget. Rows without a
   name keep working the same. Contexts as columns instead of rows: `grid_orientation = "columns"`.
 - **Looks**: only the selected workspace with wallpaper and shadow (`highlight_selected`), empty workspaces always,
-  only while dragging or only under the pointer (`empty_marker`), app icons on the windows (`window_icons`), own
-  curves for moving and switching views (`transition_bezier`, `view_switch_bezier`).
+  only while dragging or only under the pointer (`empty_marker`), app icons (`window_icons`) and action chrome
+  (`window_chrome`) on the windows, own curves for moving and switching views (`transition_bezier`,
+  `view_switch_bezier`).
 - **Scratchpad tray**: cards that are always there, also while empty (`special_workspaces`), their size
   (`special_tray_width`), or hidden until the pointer touches the right edge, like an auto-hiding dock
   (`special_tray_autohide`).
@@ -141,6 +142,7 @@ workspaces of a context are created on its monitor. A separate grid per monitor 
 | `context_label_background` | color | pill behind the labels | `rgba(0,0,0,0.45)` |
 | `context_label_color` | color | label colour (the current context's label is fully opaque, others dimmed) | `rgba(255,255,255,0.9)` |
 | `window_icons` | bool | app icon on a rounded plate in the middle of every window | `false` |
+| `window_chrome` | bool | float / maximize / fullscreen / pin / close buttons under the focused or hovered window (and pin-rail icons) | `true` |
 | `window_icon_size` | int | icon size on screen in layout px, independent of the zoom (at most 60 % of a window's short side incl. plate) | `64` |
 | `window_icon_plate_color` | color | plate behind the icon | `rgba(0,0,0,0.45)` |
 | `icon_theme` | string | icon theme searched before hicolor (e.g. `Papirus-Dark`); empty = hicolor only | empty |

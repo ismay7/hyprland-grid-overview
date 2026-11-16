@@ -456,13 +456,19 @@ static void defineConfigValues() {
                                     "continuous zoom: zooming in selects the workspace under the cursor and zooms towards it", false));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:grid_all_contexts",
                                     "grid mode: every named context (context_names) always has its first workspace in the overview", false));
-    addValue(makeShared<CBoolValue>("plugin:gridoverview:special_tray", "special workspaces (scratchpads) as cards at the right screen edge", true));
+    addValue(makeShared<CBoolValue>("plugin:gridoverview:special_tray", "special workspaces (scratchpads) as cards at a screen edge", true));
+    addValue(makeShared<CStringValue>("plugin:gridoverview:special_tray_edge",
+                                      "which screen edge holds the scratchpad tray: right (default), left, or bottom",
+                                      Hyprlang::STRING{"right"}));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:special_tray_icons", "app icons on the bottom edge of the scratchpad cards", true));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:special_tray_blur", "blur behind the scratchpad tray (Hyprland's decoration:blur settings)", true));
     addValue(makeShared<CIntValue>("plugin:gridoverview:special_tray_icon_size", "size of the scratchpad card icons in layout px", 36,
                                    SIntValueOptions{.min = 8, .max = 256}));
+    addValue(makeShared<CBoolValue>("plugin:gridoverview:special_tray_perspective",
+                                    "tilt scratchpad window contents toward the screen centre (Stage Manager style; icons/name stay flat; experimental)",
+                                    false));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:special_tray_autohide",
-                                    "hide the scratchpad tray until the pointer touches the right screen edge (also while dragging a window)",
+                                    "hide the scratchpad tray until the pointer touches its screen edge (also while dragging a window)",
                                     false));
     addValue(makeShared<CStringValue>("plugin:gridoverview:special_workspaces",
                                       "comma-separated special workspace names that seed the tray roster (also when empty); afterwards the roster lives in "
@@ -481,6 +487,8 @@ static void defineConfigValues() {
                                    SIntValueOptions{.min = 6, .max = 200}));
     addValue(makeShared<CGradientValue>("plugin:gridoverview:context_label_color", "context label colour", -1));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:window_icons", "draw the app icon in the middle of every window", false));
+    addValue(makeShared<CBoolValue>("plugin:gridoverview:window_chrome",
+                                   "float / maximize / fullscreen / pin / close buttons under the focused or hovered window", true));
     addValue(makeShared<CIntValue>("plugin:gridoverview:window_icon_size", "app icon size in screen (layout) px, independent of the overview zoom", 64,
                                    SIntValueOptions{.min = 8, .max = 1024}));
     addValue(makeShared<CGradientValue>("plugin:gridoverview:window_icon_plate_color", "round plate behind the app icon", -1));

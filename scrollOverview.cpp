@@ -83,6 +83,9 @@
 #include "SpecialTray.hpp"
 
 static PHLWINDOW getOverviewFullscreenVisibilityWindow(const PHLWORKSPACE& workspace, const PHLWINDOW& fallback = {});
+static std::string overviewWindowKey(const PHLWINDOW& window) {
+    return window ? std::format("0x{:x}", rc<uintptr_t>(window.get())) : "";
+}
 static constexpr const char* OVERVIEW_SUBMAP = "gridoverview";
 static constexpr auto        POST_DROP_PSEUDO_FOCUS_DURATION = std::chrono::milliseconds(100);
 // grid zoom level, remembered across overview openings for the lifetime of the plugin:
@@ -645,78 +648,7 @@ static double overviewBoxCenterDistanceSquared(const CBox& a, const CBox& b) {
     return DX * DX + DY * DY;
 }
 
-static CBox getPinnedFloatingOverviewWindowBox(PHLMONITOR monitor, const PHLWINDOW& window, float targetOverviewScale, float animationProgress, float* renderScale) {
-    if (!monitor || !window) {
-        if (renderScale)
-            *renderScale = 1.F;
-        return {};
-    }
-
-    const auto MONITORSCALE = monitor->m_scale;
-    const auto WINDOWSIZE   = window->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT) * MONITORSCALE;
-    if (WINDOWSIZE.x <= 0 || WINDOWSIZE.y <= 0) {
-        if (renderScale)
-            *renderScale = 1.F;
-        return {};
-    }
-
-    const CBox WINDOWBOX = {(window->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT) - monitor->m_position) * MONITORSCALE, WINDOWSIZE};
-    const auto MONITORW  = sc<float>(monitor->m_size.x * MONITORSCALE);
-    const auto MONITORH  = sc<float>(monitor->m_size.y * MONITORSCALE);
-
-    const std::array<CBox, 4> QUADRANTS = {
-        CBox{0.F, 0.F, MONITORW / 2.F, MONITORH / 2.F},
-        CBox{MONITORW / 2.F, 0.F, MONITORW / 2.F, MONITORH / 2.F},
-        CBox{0.F, MONITORH / 2.F, MONITORW / 2.F, MONITORH / 2.F},
-        CBox{MONITORW / 2.F, MONITORH / 2.F, MONITORW / 2.F, MONITORH / 2.F},
-    };
-
-    size_t bestQuadrant = 0;
-    double bestArea     = -1.0;
-    for (size_t i = 0; i < QUADRANTS.size(); ++i) {
-        const auto AREA = overviewBoxIntersectionArea(WINDOWBOX, QUADRANTS[i]);
-        if (AREA <= bestArea)
-            continue;
-
-        bestQuadrant = i;
-        bestArea     = AREA;
-    }
-
-    const bool RIGHT  = bestQuadrant == 1 || bestQuadrant == 3;
-    const bool BOTTOM = bestQuadrant == 2 || bestQuadrant == 3;
-
-    const auto FULLBOX = monitor->logicalBox();
-    const auto WORKBOX = monitor->logicalBoxMinusReserved();
-
-    const float RESERVEDLEFT   = std::max(0.F, sc<float>(WORKBOX.x - FULLBOX.x)) * MONITORSCALE;
-    const float RESERVEDTOP    = std::max(0.F, sc<float>(WORKBOX.y - FULLBOX.y)) * MONITORSCALE;
-    const float RESERVEDRIGHT  = std::max(0.F, sc<float>((FULLBOX.x + FULLBOX.width) - (WORKBOX.x + WORKBOX.width))) * MONITORSCALE;
-    const float RESERVEDBOTTOM = std::max(0.F, sc<float>((FULLBOX.y + FULLBOX.height) - (WORKBOX.y + WORKBOX.height))) * MONITORSCALE;
-
-    const auto WORKSPACEGAP       = sc<float>(ScrollOverview::Config::getWorkspaceGap(monitor)) * MONITORSCALE;
-    const auto RESERVEDWIDTH      = RIGHT ? RESERVEDRIGHT : RESERVEDLEFT;
-    const auto CALCULATEDWIDTH    = std::max(1.F, sc<float>((MONITORW - MONITORW * targetOverviewScale) / 2.F - 2.F * WORKSPACEGAP - RESERVEDWIDTH));
-    const auto CALCULATEDSCALE    = CALCULATEDWIDTH / sc<float>(WINDOWSIZE.x);
-    const auto WINDOWRENDERSCALE  = std::min(1.F, std::max(CALCULATEDSCALE, targetOverviewScale));
-    const auto PROGRESS           = std::clamp(animationProgress, 0.F, 1.F);
-    const auto CURRENTRENDERSCALE = 1.F + (WINDOWRENDERSCALE - 1.F) * PROGRESS;
-    const auto TARGETWIDTH       = sc<float>(WINDOWSIZE.x) * CURRENTRENDERSCALE;
-    const auto TARGETHEIGHT      = sc<float>(WINDOWSIZE.y) * CURRENTRENDERSCALE;
-
-    if (renderScale)
-        *renderScale = CURRENTRENDERSCALE;
-
-    const float X = RIGHT ? MONITORW - TARGETWIDTH - WORKSPACEGAP - RESERVEDRIGHT : WORKSPACEGAP + RESERVEDLEFT;
-    const float Y = BOTTOM ? MONITORH - TARGETHEIGHT - WORKSPACEGAP - RESERVEDBOTTOM : WORKSPACEGAP + RESERVEDTOP;
-
-    CBox box = {{X, Y}, {TARGETWIDTH, TARGETHEIGHT}};
-
-    box.x = WINDOWBOX.x + (box.x - WINDOWBOX.x) * PROGRESS;
-    box.y = WINDOWBOX.y + (box.y - WINDOWBOX.y) * PROGRESS;
-    box.round();
-
-    return box;
-}
+// pin rail geometry lives on CScrollOverview (uniform minis on the focused workspace card)
 
 static std::chrono::milliseconds getOverviewIdleFrameInterval() {
     const int fps = std::clamp<int>(ScrollOverview::Config::getValue<int>("misc:render_unfocused_fps"), 1, 240);
@@ -1227,6 +1159,7 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
     Animation::mgr()->createAnimation(1.F, workspaceInsertFadeProgress, workspaceInsertFadeConfig, AVARDAMAGE_NONE);
     Animation::mgr()->createAnimation(1.F, highlightProgress, TRANSITIONCONFIG, AVARDAMAGE_NONE);
     Animation::mgr()->createAnimation(specialTrayAutohide() ? 0.F : 1.F, trayReveal, TRANSITIONCONFIG, AVARDAMAGE_NONE);
+    Animation::mgr()->createAnimation(1.F, pinMorphProgress, TRANSITIONCONFIG, AVARDAMAGE_NONE);
 
     highlightProgress->setUpdateCallback([this](auto) { damage(); });
     trayReveal->setUpdateCallback([this](auto) { damage(); });
@@ -1234,6 +1167,17 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
     viewOffset->setUpdateCallback([this](auto) { damage(); });
     workspaceInsertProgress->setUpdateCallback([this](auto) { damage(); });
     workspaceInsertFadeProgress->setUpdateCallback([this](auto) { damage(); });
+    pinMorphProgress->setUpdateCallback([this](auto) { damage(); });
+    // Do not gate on isBeingAnimated() (can still be true in onEnd → stuck morph).
+    // Ignore cancels/warps to 0 from beginPinMorph — only clear when we actually reached the end.
+    pinMorphProgress->setCallbackOnEnd([this](auto) {
+        if (!pinMorph || !pinMorph->toReady || !pinMorphProgress)
+            return;
+        if (pinMorphProgress->value() < 0.999F)
+            return;
+        pinMorph.reset();
+        damage();
+    });
 
     zoomLevel = swipe ? 0.F : (grid ? g_gridZoomLevel : 1.F);
     if (!swipe)
@@ -1273,6 +1217,7 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
 
         lastMousePosLocal = getOverviewMousePosLocal(pMonitor.lock());
         updateSpecialTrayReveal(lastMousePosLocal);
+        updateHoveredChromeWindow();
 
         if (gridSliderDragging) {
             info.cancelled = true;
@@ -1307,11 +1252,21 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
         info.cancelled = true;
         requestInputFrame();
 
-        // hidden empty placeholders appear on mouse-over: redraw when the workspace under the pointer changes
-        if (grid && !dragActiveWindow) {
-            const auto HOVERED = workspaceAtOverviewPoint(lastMousePosLocal);
+        // empty placeholders, workspace × and scratchpad-tray × appear on mouse-over
+        if (!dragActiveWindow) {
+            auto HOVERED = workspaceAtOverviewPoint(lastMousePosLocal);
+            if (!HOVERED) {
+                if (const auto SHOWING = workspaceShowingClose())
+                    HOVERED = images[*SHOWING]->pWorkspace;
+            }
             if (HOVERED != hoveredWorkspace.lock()) {
                 hoveredWorkspace = HOVERED;
+                damage();
+            }
+
+            const auto TRAY = specialTrayShowingClose();
+            if (TRAY != hoveredSpecialTrayCard) {
+                hoveredSpecialTrayCard = TRAY;
                 damage();
             }
         }
@@ -1423,6 +1378,12 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
                 g_pointerGrabOverview        = nullptr;
             }
         });
+
+        // rename field: swallow clicks; only Escape / Enter leave the field
+        if (specialTrayRenameBusy) {
+            info.cancelled = true;
+            return;
+        }
 
         if (ADOPTEDNATIVEDRAGRELEASE) {
             if (dragActiveWindow)
@@ -1552,13 +1513,23 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
             lastMousePosLocal = getOverviewMousePosLocal(pMonitor.lock());
 
             if (event.state == WL_POINTER_BUTTON_STATE_PRESSED) {
-                // rename prompt owns the keyboard; do not start other tray actions under it
-                if (specialTrayRenameBusy)
+                updateHoveredChromeWindow();
+                // window action chrome (float / maximize / fullscreen / pin / close)
+                if (const auto HIT = windowChromeActionAt(lastMousePosLocal)) {
+                    applyWindowChromeAction(HIT->first, HIT->second);
+                    windowChromePressed = true;
                     return;
+                }
                 // × on the card: close windows and remove the card from the persistent tray roster
                 if (const auto CLOSE = specialTrayCloseAt(lastMousePosLocal)) {
                     removeSpecialTrayCard(*CLOSE);
                     specialTrayChromePressed = true; // release must not select a workspace under the tray
+                    return;
+                }
+                // × on a normal workspace card: close every window on it
+                if (const auto CLOSE = workspaceCloseAt(lastMousePosLocal)) {
+                    closeOverviewWorkspace(*CLOSE);
+                    specialTrayChromePressed = true;
                     return;
                 }
                 // pencil on the name pill: centred rename field
@@ -1633,6 +1604,11 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
                 return;
             }
 
+            if (windowChromePressed) {
+                windowChromePressed = false;
+                return;
+            }
+
             if (specialTrayChromePressed) {
                 specialTrayChromePressed = false;
                 return;
@@ -1646,10 +1622,10 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
             if (specialTrayAddPressed) {
                 specialTrayAddPressed = false;
                 if (specialTrayAddAt(lastMousePosLocal)) {
-                    pendingSpecialName = newSpecialWorkspaceName(nullptr);
-                    // ensureSpecialWorkspace (on close) adds it to the persistent roster
-                    closeOnWindow.reset();
-                    closeAll();
+                    // create the card / special in-place; stay in overview so the new SW is visible
+                    (void)ensureSpecialWorkspace(STrayCard{.name = newSpecialWorkspaceName(nullptr)});
+                    rebuildPending = true;
+                    damage();
                 }
                 return;
             }
@@ -1709,11 +1685,24 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
                 if (beginSubmapMouseClickPending(event.button))
                     return;
 
+                middleClickStart            = lastMousePosLocal;
+                middleClickCloseWorkspace   = false;
+                middleClickWindow.reset();
+
+                // Shift+middle: close the whole workspace (normal cards only; tray stays window-close)
+                const bool SHIFT = g_pInputManager && (g_pInputManager->getModsFromAllKBs() & Input::HL_MODIFIER_SHIFT);
+                if (SHIFT && !specialTrayBandAt(lastMousePosLocal)) {
+                    size_t idx = 0;
+                    if (workspaceAtOverviewPoint(lastMousePosLocal, &idx) && workspaceHasCloseableWindows(idx))
+                        middleClickCloseWorkspace = true;
+                    scrollingPanPointerDown = false;
+                    return;
+                }
+
                 // a middle click without moving closes the window under the pointer (like a browser tab)
                 middleClickWindow = specialTrayWindowAt(lastMousePosLocal);
                 if (!middleClickWindow)
                     middleClickWindow = windowAtOverviewPoint(lastMousePosLocal);
-                middleClickStart = lastMousePosLocal;
 
                 const auto WORKSPACE = workspaceAtPanPoint(lastMousePosLocal);
 
@@ -1729,6 +1718,17 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
             }
 
             const auto closeOnMiddleClick = [&] {
+                if (middleClickCloseWorkspace) {
+                    middleClickCloseWorkspace = false;
+                    middleClickWindow.reset();
+                    if (middleClickStart.distanceSq(lastMousePosLocal) > DRAGTHRESHOLDSQ)
+                        return;
+                    size_t idx = 0;
+                    if (workspaceAtOverviewPoint(lastMousePosLocal, &idx) && workspaceHasCloseableWindows(idx))
+                        closeOverviewWorkspace(idx);
+                    return;
+                }
+
                 const auto WINDOW = getOverviewWindowToShow(middleClickWindow.lock());
                 middleClickWindow.reset();
                 if (!shouldShowOverviewWindow(WINDOW) || middleClickStart.distanceSq(lastMousePosLocal) > DRAGTHRESHOLDSQ)
@@ -1754,6 +1754,7 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
                     clearSubmapMouseClickPending();
 
                 middleClickWindow.reset();
+                middleClickCloseWorkspace = false;
                 return;
             }
 
@@ -1940,7 +1941,7 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
         else
             emitFullscreenVisibilityState(overviewWindow, true);
 
-        if (shouldShowOverviewWindow(overviewWindow) && overviewWindow->m_monitor == pMonitor) {
+        if ((shouldShowOverviewWindow(overviewWindow) || shouldShowPinnedFloatingOverviewWindow(overviewWindow)) && overviewWindow->m_monitor == pMonitor) {
             rebuildPending = true;
             closeOnWindow  = overviewWindow;
             rememberSelection(overviewWindow);
@@ -2700,10 +2701,6 @@ void CScrollOverview::rebuildWorkspaceImages() {
     }
 
     closeOnWindow = selectedWindow;
-
-    // the grid may have grown or shrunk (placeholders, moved windows): refit
-    if (grid && zoomLevel > 1.F + ZOOM_EPSILON && !gridPanActive)
-        applyGridFit();
 }
 
 void CScrollOverview::seedRememberedSelections() {
@@ -2797,6 +2794,40 @@ PHLWINDOW CScrollOverview::windowAtOverviewPoint(const Vector2D& point, size_t* 
     const auto MONITOR = pMonitor.lock();
     if (!MONITOR || specialTrayBandAt(point))
         return nullptr;
+
+    // pin morph (card↔rail) — same hit target as the animated box
+    if (pinMorph && pinMorph->toReady && isPinMorphWindow(pinMorph->window.lock())) {
+        const auto MORPH = getOverviewWindowToShow(pinMorph->window.lock());
+        const auto BOX   = pinMorphBox();
+        if (MORPH && !BOX.empty() && BOX.containsPoint(point)) {
+            if (hoveredWorkspaceIdx) {
+                *hoveredWorkspaceIdx = viewportCurrentWorkspace;
+                if (viewportCurrentWorkspace >= images.size())
+                    *hoveredWorkspaceIdx = activeIdx;
+            }
+            return MORPH;
+        }
+    }
+
+    // pin rail on the focused workspace card — hit before regular windows
+    {
+        const auto PINS = pinnedRailWindows(MONITOR);
+        for (auto it = PINS.rbegin(); it != PINS.rend(); ++it) {
+            const auto WINDOW = *it;
+            if (isPinMorphWindow(WINDOW))
+                continue;
+            const auto BOX = pinnedRailWindowBox(WINDOW);
+            if (!BOX.containsPoint(point))
+                continue;
+
+            if (hoveredWorkspaceIdx) {
+                *hoveredWorkspaceIdx = viewportCurrentWorkspace;
+                if (viewportCurrentWorkspace >= images.size())
+                    *hoveredWorkspaceIdx = activeIdx;
+            }
+            return WINDOW;
+        }
+    }
 
     const auto WORKSPACEPITCH = getWorkspaceRenderedPitch(MONITOR, scale->value(), layout);
     for (size_t workspaceIdx = 0; workspaceIdx < images.size(); ++workspaceIdx) {
@@ -3231,6 +3262,106 @@ PHLWORKSPACE CScrollOverview::workspaceAtOverviewCursor(size_t* hoveredWorkspace
     return workspaceAtOverviewPoint(lastMousePosLocal, hoveredWorkspaceIdx);
 }
 
+static constexpr float WORKSPACE_CLOSE_SIZE = 36.F; // same logical size as the scratchpad-tray ×
+
+bool CScrollOverview::workspaceHasCloseableWindows(size_t workspaceIdx) const {
+    if (workspaceIdx >= images.size() || !images[workspaceIdx] || !images[workspaceIdx]->pWorkspace)
+        return false;
+
+    for (const auto& windowRef : images[workspaceIdx]->windows) {
+        const auto WINDOW = getOverviewWindowToShow(windowRef.lock());
+        if (shouldShowOverviewWindow(WINDOW) && WINDOW->m_workspace == images[workspaceIdx]->pWorkspace)
+            return true;
+    }
+    return false;
+}
+
+CBox CScrollOverview::workspaceCloseBox(size_t workspaceIdx) const {
+    const auto MONITOR = pMonitor.lock();
+    if (!MONITOR || workspaceIdx >= images.size() || !images[workspaceIdx] || !images[workspaceIdx]->pWorkspace)
+        return {};
+
+    const auto ACTIVEIDX = activeWorkspaceIndex();
+    const auto SCALE     = scale->value();
+    const auto PITCH     = getWorkspaceRenderedPitch(MONITOR, SCALE, layout);
+    // sit on the visible card face: with highlight_selected that is the work-area highlight, not the
+    // full monitor card (which still includes the reserved bar strip)
+    const auto CARDBOX = ScrollOverview::Config::getHighlightSelected(MONITOR)
+                             ? highlightBoxFor(workspaceIdx, ACTIVEIDX, PITCH, SCALE, MONITOR)
+                             : getOverviewWorkspaceBox(MONITOR, SCALE, viewOffset->value(), workspaceOverviewOffset(workspaceIdx, ACTIVEIDX, PITCH), layout);
+    if (CARDBOX.width <= 0 || CARDBOX.height <= 0)
+        return {};
+
+    const float SIZE = WORKSPACE_CLOSE_SIZE * MONITOR->m_scale;
+    return CBox{CARDBOX.x + CARDBOX.w - SIZE / 2.F, CARDBOX.y - SIZE / 2.F, SIZE, SIZE}.round();
+}
+
+std::optional<size_t> CScrollOverview::workspaceShowingClose() const {
+    if (closing || specialTrayRenameBusy || dragActiveWindow)
+        return std::nullopt;
+
+    const auto MONITOR = pMonitor.lock();
+    if (!MONITOR || !isOverviewPointerOnMonitor(MONITOR))
+        return std::nullopt;
+
+    // protruding × under the pointer wins (keeps the button visible half outside the card)
+    for (size_t i = images.size(); i > 0; --i) {
+        const auto IDX = i - 1;
+        if (!workspaceHasCloseableWindows(IDX))
+            continue;
+        if (workspaceCloseBox(IDX).containsPoint(lastMousePosLocal))
+            return IDX;
+    }
+
+    size_t hoverIdx = 0;
+    if (workspaceAtOverviewPoint(lastMousePosLocal, &hoverIdx) && workspaceHasCloseableWindows(hoverIdx))
+        return hoverIdx;
+
+    return std::nullopt;
+}
+
+bool CScrollOverview::workspaceCloseHovered(size_t workspaceIdx) const {
+    const auto SHOWING = workspaceShowingClose();
+    return SHOWING && *SHOWING == workspaceIdx;
+}
+
+std::optional<size_t> CScrollOverview::workspaceCloseAt(const Vector2D& pointLocal) const {
+    if (closing || specialTrayRenameBusy || specialTrayBandAt(pointLocal))
+        return std::nullopt;
+
+    const auto SHOWING = workspaceShowingClose();
+    if (!SHOWING)
+        return std::nullopt;
+
+    // hit-test uses the event point; visibility uses the current cursor (normally the same)
+    if (workspaceCloseBox(*SHOWING).containsPoint(pointLocal))
+        return *SHOWING;
+
+    return std::nullopt;
+}
+
+void CScrollOverview::closeOverviewWorkspace(size_t workspaceIdx) {
+    if (workspaceIdx >= images.size() || !images[workspaceIdx] || !images[workspaceIdx]->pWorkspace)
+        return;
+
+    const auto WORKSPACE = images[workspaceIdx]->pWorkspace;
+    std::vector<PHLWINDOW> windows;
+    for (const auto& windowRef : images[workspaceIdx]->windows) {
+        const auto WINDOW = getOverviewWindowToShow(windowRef.lock());
+        if (shouldShowOverviewWindow(WINDOW) && WINDOW->m_workspace == WORKSPACE)
+            windows.push_back(WINDOW);
+    }
+
+    for (const auto& window : windows)
+        window->sendClose();
+
+    if (closeOnWindow && closeOnWindow->m_workspace == WORKSPACE)
+        closeOnWindow.reset();
+
+    rebuildPending = true;
+    damage();
+}
+
 static void syncWorkspaceGeometry(const PHLWORKSPACE& workspace) {
     if (!workspace || !workspace->space())
         return;
@@ -3282,7 +3413,8 @@ void CScrollOverview::selectHoveredWorkspace() {
         if (focusSyncedFromWorkspaceKey.empty())
             focusSyncedFromWorkspaceKey = pMonitor->m_activeWorkspace ? Workspace::selector(*pMonitor->m_activeWorkspace) : "";
         changeOverviewWorkspace(pMonitor.lock(), WORKSPACE);
-    }
+    } else
+        retargetGridFitIfNeeded();
 
     damage();
 }
@@ -3302,6 +3434,15 @@ bool CScrollOverview::windowDispatcherAction(const std::string& action) {
     if (action == "close") {
         WINDOW->sendClose();
         damage();
+        return true;
+    }
+
+    if (action == "pin") {
+        // prefer focused window so Super+Shift+T morphs the selection, not only cursor hover
+        auto TARGET = getOverviewWindowToShow(Desktop::focusState()->window());
+        if (!TARGET || !(shouldShowOverviewWindow(TARGET) || shouldShowPinnedFloatingOverviewWindow(TARGET)))
+            TARGET = WINDOW;
+        applyWindowChromeAction(TARGET, EWindowChromeAction::Pin);
         return true;
     }
 
@@ -3678,7 +3819,7 @@ void CScrollOverview::updateDragEdgeScroll() {
     static constexpr auto  FIRST_STEP_DELAY      = std::chrono::milliseconds(350);
     static constexpr auto  FIRST_STEP_DELAY_TRAY = std::chrono::milliseconds(700);
     static constexpr auto  REPEAT_STEP_DELAY     = std::chrono::milliseconds(650);
-    static constexpr float TRAY_PUSH_ZONE        = 10.F; // logical px at the right screen edge, beyond the cards
+    static constexpr float TRAY_PUSH_ZONE        = 10.F; // logical px at the tray's screen edge, beyond the cards
 
     const auto MONITOR = pMonitor.lock();
     int        col = 0, row = 0;
@@ -3695,10 +3836,28 @@ void CScrollOverview::updateDragEdgeScroll() {
         // over the scratchpad tray (also while it slides in) the edge belongs to the tray; only pushing on to the
         // very screen edge, beyond the cards, scrolls on, after a longer pause so a swing to the edge and back onto
         // a card does not
-        if (const auto TRAY = specialTrayShownWidth(); TRAY > 0.F && MOUSE.x > SIZE.x - TRAY * MONITOR->m_scale - MARGIN) {
-            pushThroughTray = MOUSE.x >= SIZE.x - TRAY_PUSH_ZONE * MONITOR->m_scale;
-            col             = pushThroughTray ? 1 : 0;
-            row             = 0;
+        if (specialTrayOnBottom()) {
+            if (const auto TRAY = specialTrayShownHeight(); TRAY > 0.F) {
+                const double TRAYPX = TRAY * MONITOR->m_scale;
+                if (MOUSE.y > SIZE.y - TRAYPX - MARGIN) {
+                    pushThroughTray = MOUSE.y >= SIZE.y - TRAY_PUSH_ZONE * MONITOR->m_scale;
+                    row             = pushThroughTray ? 1 : 0;
+                    col             = 0;
+                }
+            }
+        } else if (const auto TRAY = specialTrayShownWidth(); TRAY > 0.F) {
+            const double TRAYPX = TRAY * MONITOR->m_scale;
+            if (specialTrayOnLeft()) {
+                if (MOUSE.x < TRAYPX + MARGIN) {
+                    pushThroughTray = MOUSE.x <= TRAY_PUSH_ZONE * MONITOR->m_scale;
+                    col             = pushThroughTray ? -1 : 0;
+                    row             = 0;
+                }
+            } else if (MOUSE.x > SIZE.x - TRAYPX - MARGIN) {
+                pushThroughTray = MOUSE.x >= SIZE.x - TRAY_PUSH_ZONE * MONITOR->m_scale;
+                col             = pushThroughTray ? 1 : 0;
+                row             = 0;
+            }
         }
     }
 
@@ -4347,6 +4506,7 @@ void CScrollOverview::endWindowResize() {
         TARGET->setPositionGlobal(GLOBALBOX);
         TARGET->warpPositionSize();
         TARGET->damageEntire();
+        rememberedFloatSizes[overviewWindowKey(WINDOW)] = GLOBALBOX.size();
     }
 
     resizePointerDown = false;
@@ -4404,25 +4564,85 @@ Vector2D CScrollOverview::restingViewOffset() const {
     return gridFitViewOffset() * (std::min(zoomLevel, 2.F) - 1.F);
 }
 
+bool CScrollOverview::workspaceHasVisibleWindows(size_t workspaceIdx) const {
+    if (workspaceIdx >= images.size() || !images[workspaceIdx] || !images[workspaceIdx]->pWorkspace)
+        return false;
+
+    // use the live window list — images[].windows is empty mid-rebuild and would treat every card as vacant
+    const auto WORKSPACE = images[workspaceIdx]->pWorkspace;
+    for (const auto& windowRef : Desktop::windowState()->windows()) {
+        const auto WINDOW = getOverviewWindowToShow(windowRef);
+        if (shouldShowOverviewWindow(WINDOW) && WINDOW->m_workspace == WORKSPACE)
+            return true;
+    }
+    return false;
+}
+
+bool CScrollOverview::gridFitOccupiedBounds(Vector2D& minCell, Vector2D& maxCell, bool includeSelectedEmpty) const {
+    minCell = Vector2D{1e9, 1e9};
+    maxCell = Vector2D{-1e9, -1e9};
+    bool any = false;
+
+    const auto consider = [&](size_t i) {
+        if (i >= images.size() || !images[i] || !images[i]->pWorkspace)
+            return;
+        const auto CELL = workspaceGridCell(i);
+        minCell         = Vector2D{std::min(minCell.x, CELL.x), std::min(minCell.y, CELL.y)};
+        maxCell         = Vector2D{std::max(maxCell.x, CELL.x), std::max(maxCell.y, CELL.y)};
+        any             = true;
+    };
+
+    for (size_t i = 0; i < images.size(); ++i) {
+        if (workspaceHasVisibleWindows(i))
+            consider(i);
+    }
+
+    // only when focusing an empty drop slot outside the occupied block: pull it into the framing
+    if (includeSelectedEmpty && viewportCurrentWorkspace < images.size() && !workspaceHasVisibleWindows(viewportCurrentWorkspace))
+        consider(viewportCurrentWorkspace);
+
+    if (!any) {
+        for (size_t i = 0; i < images.size(); ++i)
+            consider(i);
+    }
+    return any;
+}
+
+bool CScrollOverview::gridFitShouldRetargetForSelection() const {
+    if (!grid || zoomLevel <= 1.F + ZOOM_EPSILON || images.empty() || !viewOffset)
+        return false;
+
+    // pan when the framing for this selection differs (empty edge in / occupied block back);
+    // among occupied cards restingViewOffset is unchanged, so this stays put
+    const auto DELTA = restingViewOffset() - viewOffset->value();
+    return std::abs(DELTA.x) > 0.5 || std::abs(DELTA.y) > 0.5;
+}
+
+void CScrollOverview::retargetGridFitIfNeeded() {
+    if (!gridFitShouldRetargetForSelection())
+        return;
+    useViewSwitchAnimation(true);
+    *viewOffset = restingViewOffset();
+    damage();
+}
+
 float CScrollOverview::gridFitScale() const {
     const auto MONITOR = pMonitor.lock();
     const auto CONFIGSCALE = ScrollOverview::Config::getScale(MONITOR);
     if (!MONITOR || images.empty())
         return CONFIGSCALE;
 
-    Vector2D minCell{1e9, 1e9}, maxCell{-1e9, -1e9};
-    for (size_t i = 0; i < images.size(); ++i) {
-        const auto CELL = workspaceGridCell(i);
-        minCell = Vector2D{std::min(minCell.x, CELL.x), std::min(minCell.y, CELL.y)};
-        maxCell = Vector2D{std::max(maxCell.x, CELL.x), std::max(maxCell.y, CELL.y)};
-    }
+    // scale from occupied cells only — focusing an empty edge slot must not shrink the whole grid
+    Vector2D minCell, maxCell;
+    if (!gridFitOccupiedBounds(minCell, maxCell, false))
+        return CONFIGSCALE;
 
     const auto  COUNT = maxCell - minCell + Vector2D{1, 1};
     const auto  GAP   = sc<float>(ScrollOverview::Config::getWorkspaceGap(MONITOR));
     const auto  SIZE  = MONITOR->m_size;
     const float TOP   = gridWorkAreaTop(MONITOR) + GRID_BUTTON_BAND;
-    const float AVAILW = SIZE.x - 2.F * GRID_FIT_MARGIN - specialTrayReserve();
-    const float AVAILH = SIZE.y - TOP - GRID_FIT_MARGIN;
+    const float AVAILW = SIZE.x - 2.F * GRID_FIT_MARGIN - specialTrayReserveX();
+    const float AVAILH = SIZE.y - TOP - GRID_FIT_MARGIN - specialTrayReserveY();
 
     const float FIT = std::min((AVAILW - (COUNT.x - 1) * GAP) / (COUNT.x * SIZE.x), (AVAILH - (COUNT.y - 1) * GAP) / (COUNT.y * SIZE.y));
     return std::clamp(FIT, 0.05F, CONFIGSCALE);
@@ -4433,11 +4653,28 @@ Vector2D CScrollOverview::gridFitViewOffset() const {
     if (!MONITOR || images.empty())
         return {};
 
-    Vector2D minCell{1e9, 1e9}, maxCell{-1e9, -1e9};
-    for (size_t i = 0; i < images.size(); ++i) {
-        const auto CELL = workspaceGridCell(i);
-        minCell = Vector2D{std::min(minCell.x, CELL.x), std::min(minCell.y, CELL.y)};
-        maxCell = Vector2D{std::max(maxCell.x, CELL.x), std::max(maxCell.y, CELL.y)};
+    Vector2D minCell, maxCell;
+    if (!gridFitOccupiedBounds(minCell, maxCell, false))
+        return {};
+
+    // selected empty outside the occupied block: keep the occupied fit scale, but slide the
+    // view window so that empty card is fully on-screen (not merely half-centred into frame)
+    if (viewportCurrentWorkspace < images.size() && !workspaceHasVisibleWindows(viewportCurrentWorkspace)) {
+        const auto CELL = workspaceGridCell(viewportCurrentWorkspace);
+        if (CELL.x < minCell.x || CELL.x > maxCell.x || CELL.y < minCell.y || CELL.y > maxCell.y) {
+            const auto     SPAN    = maxCell - minCell + Vector2D{1, 1};
+            Vector2D       viewMin = minCell;
+            if (CELL.x > maxCell.x)
+                viewMin.x = CELL.x - (SPAN.x - 1);
+            else if (CELL.x < minCell.x)
+                viewMin.x = CELL.x;
+            if (CELL.y > maxCell.y)
+                viewMin.y = CELL.y - (SPAN.y - 1);
+            else if (CELL.y < minCell.y)
+                viewMin.y = CELL.y;
+            minCell = viewMin;
+            maxCell = viewMin + SPAN - Vector2D{1, 1};
+        }
     }
 
     const float SCALE = std::max(gridFitScale(), 0.01F);
@@ -4445,10 +4682,13 @@ Vector2D CScrollOverview::gridFitViewOffset() const {
     const auto  PITCH = MONITOR->m_size + Vector2D{GAP, GAP};
     const auto  DELTA = (minCell + maxCell) / 2.0 - workspaceGridCell(activeWorkspaceIndex());
 
-    // centre the grid in the space below the buttons and left of the scratchpad tray: shift it by half of those bands
-    // (screen px / scale)
+    // centre the view window below the buttons, offset away from the scratchpad tray
     const float TOP = gridWorkAreaTop(MONITOR) + GRID_BUTTON_BAND - GRID_FIT_MARGIN;
-    return Vector2D{DELTA.x * PITCH.x + specialTrayReserve() / 2.F / SCALE, DELTA.y * PITCH.y - TOP / 2.F / SCALE};
+    const float SHIFTX = specialTrayReserveX() / 2.F / SCALE;
+    const float SHIFTY = specialTrayReserveY() / 2.F / SCALE;
+    const float OFFX   = specialTrayOnBottom() ? 0.F : (specialTrayOnLeft() ? -SHIFTX : SHIFTX);
+    // TOP already pulls the fit down from the button band; bottom tray adds a matching lift
+    return Vector2D{DELTA.x * PITCH.x + OFFX, DELTA.y * PITCH.y - TOP / 2.F / SCALE - SHIFTY};
 }
 
 void CScrollOverview::useViewSwitchAnimation(bool viewSwitch) {
@@ -4468,6 +4708,13 @@ void CScrollOverview::useViewSwitchAnimation(bool viewSwitch) {
 void CScrollOverview::applyGridFit() {
     if (!grid || closing)
         return;
+
+    Vector2D minCell, maxCell;
+    if (gridFitOccupiedBounds(minCell, maxCell, false)) {
+        gridFitBoundsValid = true;
+        gridFitLastMinCell = minCell;
+        gridFitLastMaxCell = maxCell;
+    }
 
     useViewSwitchAnimation(true);
     *scale      = targetOverviewScale();
@@ -4734,6 +4981,8 @@ void CScrollOverview::moveViewportToWorkspace(size_t workspaceIdx) {
 
     if (pMonitor && pMonitor->m_activeWorkspace != TARGETWORKSPACEIMAGE->pWorkspace)
         changeOverviewWorkspace(pMonitor.lock(), TARGETWORKSPACEIMAGE->pWorkspace);
+    else
+        retargetGridFitIfNeeded();
 
     damage();
 }
@@ -4929,7 +5178,8 @@ void CScrollOverview::syncSelectionToViewport() {
 
 void CScrollOverview::syncFocusedSelection() {
     const auto window = getOverviewWindowToShow(closeOnWindow.lock());
-    if (!shouldShowOverviewWindow(window))
+    const bool PINNED = shouldShowPinnedFloatingOverviewWindow(window);
+    if (!shouldShowOverviewWindow(window) && !PINNED)
         return;
 
     closeOnWindow = window;
@@ -4937,14 +5187,15 @@ void CScrollOverview::syncFocusedSelection() {
     if (activeScrollOverview().get() != this)
         return;
 
-    if (Desktop::focusState()->window() == window && window->m_workspace == pMonitor->m_activeWorkspace)
+    // pinned floats stay visible across workspaces — don't require matching the active workspace
+    if (Desktop::focusState()->window() == window && (PINNED || window->m_workspace == pMonitor->m_activeWorkspace))
         return;
 
     const auto PREVIOUSWORKSPACE = pMonitor ? pMonitor->m_activeWorkspace : PHLWORKSPACE{};
 
     Desktop::focusState()->fullWindowFocus(window, Desktop::FOCUS_REASON_KEYBIND);
 
-    if (window->m_workspace != PREVIOUSWORKSPACE && focusSyncedFromWorkspaceKey.empty())
+    if (!PINNED && window->m_workspace != PREVIOUSWORKSPACE && focusSyncedFromWorkspaceKey.empty())
         focusSyncedFromWorkspaceKey = PREVIOUSWORKSPACE ? Workspace::selector(*PREVIOUSWORKSPACE) : "";
 }
 
@@ -5570,7 +5821,8 @@ void CScrollOverview::renderWorkspaceBackground(PHLMONITOR monitor, size_t works
     // highlight_selected: wallpaper + shadow come from renderSelectedHighlight(); empty workspaces get an
     // outline + plus (brighter when selected or under a dragged window), depending on empty_marker
     if (ScrollOverview::Config::getHighlightSelected(monitor)) {
-        if (workspace->getWindowCount() > 0)
+        // pinned-only workspaces are visually empty (pins live on the rail)
+        if (workspaceHasVisibleWindows(workspaceIdx))
             return;
 
         auto*      dragContext = g_pointerGrabOverview && g_pointerGrabOverview->dragActiveWindow ? g_pointerGrabOverview : this;
@@ -5691,7 +5943,7 @@ void CScrollOverview::renderSelectedEmptyMarker(PHLMONITOR monitor, size_t activ
         return;
 
     const auto WORKSPACE = images[viewportCurrentWorkspace]->pWorkspace;
-    if (!WORKSPACE || WORKSPACE->getWindowCount() > 0)
+    if (!WORKSPACE || workspaceHasVisibleWindows(viewportCurrentWorkspace))
         return;
 
     const auto BOX = getOverviewWorkspaceBox(monitor, renderScale, viewOffset->value(), workspaceOverviewOffset(viewportCurrentWorkspace, activeIdx, workspacePitch), layout);
@@ -5810,6 +6062,33 @@ void CScrollOverview::renderWindowIcons(PHLMONITOR monitor, size_t activeIdx, fl
     const auto  THEME   = ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:icon_theme", monitor);
     const auto  DRAGGED = getOverviewWindowToShow(dragActiveWindow.lock());
 
+    const auto drawIconOnBox = [&](const PHLWINDOW& WINDOW, const CBox& BOX) {
+        if (!overviewBoxIntersectsMonitor(BOX, monitor))
+            return;
+
+        const auto TEXTURE = GridIcons::iconForAppID(WINDOW->metadata().appID(), THEME);
+        if (!TEXTURE)
+            return;
+
+        const float ICON  = std::min(SIZE, sc<float>(std::min(BOX.width, BOX.height)) * 0.6F / 1.5F);
+        const float PLATE = ICON * 1.5F;
+        const auto  MID   = BOX.middle();
+
+        if (plate.a > 0.F) {
+            CRectPassElement::SRectData data;
+            data.box   = CBox{MID.x - PLATE / 2.F, MID.y - PLATE / 2.F, PLATE, PLATE}.round();
+            data.color = plate;
+            data.round = sc<int>(PLATE * 0.25F);
+            Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(data));
+        }
+
+        CTexPassElement::SRenderData data;
+        data.tex = TEXTURE;
+        data.box = CBox{MID.x - ICON / 2.F, MID.y - ICON / 2.F, ICON, ICON}.round();
+        data.a   = ALPHA;
+        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CTexPassElement>(std::move(data)));
+    };
+
     for (size_t workspaceIdx = 0; workspaceIdx < images.size(); ++workspaceIdx) {
         if (!images[workspaceIdx])
             continue;
@@ -5817,34 +6096,864 @@ void CScrollOverview::renderWindowIcons(PHLMONITOR monitor, size_t activeIdx, fl
         const auto OFFSET = workspaceOverviewOffset(workspaceIdx, activeIdx, workspacePitch);
         for (const auto& windowRef : images[workspaceIdx]->windows) {
             const auto WINDOW = getOverviewWindowToShow(windowRef.lock());
-            if (!shouldShowOverviewWindow(WINDOW) || WINDOW == DRAGGED)
+            if (!shouldShowOverviewWindow(WINDOW) || WINDOW == DRAGGED || !windowShowsOverviewIcon(WINDOW) || isPinMorphWindow(WINDOW))
+                continue;
+
+            drawIconOnBox(WINDOW, getOverviewWindowBox(WINDOW, monitor, renderScale, viewOffset->value(), OFFSET, layout));
+        }
+    }
+    // pinned icons: renderPinnedWindowOverlays (after the pinned preview itself)
+}
+
+float CScrollOverview::pinnedFloatingAnimationProgress() const {
+    const auto MONITOR = pMonitor.lock();
+    if (!MONITOR || !scale)
+        return 1.F;
+    const auto TARGET = ScrollOverview::Config::getScale(MONITOR);
+    return (1.F - TARGET) > 0.001F ? (1.F - scale->value()) / (1.F - TARGET) : 1.F;
+}
+
+std::vector<PHLWINDOW> CScrollOverview::pinnedRailWindows(PHLMONITOR monitor) const {
+    std::vector<PHLWINDOW> out;
+    if (!monitor)
+        return out;
+    out.reserve(pinnedFloatingWindows.size());
+    for (const auto& windowRef : pinnedFloatingWindows) {
+        const auto WINDOW = getOverviewWindowToShow(windowRef.lock());
+        if (!shouldShowPinnedFloatingOverviewWindow(WINDOW) || WINDOW->m_monitor != monitor)
+            continue;
+        out.push_back(WINDOW);
+    }
+    return out;
+}
+
+CBox CScrollOverview::pinnedRailHostCard() const {
+    const auto MONITOR = pMonitor.lock();
+    if (!MONITOR || images.empty() || !scale)
+        return {};
+
+    size_t idx = viewportCurrentWorkspace;
+    if (idx >= images.size())
+        idx = activeWorkspaceIndex();
+    if (idx >= images.size() || !images[idx])
+        return {};
+
+    const auto ACTIVEIDX = activeWorkspaceIndex();
+    const auto PITCH     = getWorkspaceRenderedPitch(MONITOR, scale->value(), layout);
+    const auto OFFSET    = workspaceOverviewOffset(idx, ACTIVEIDX, PITCH);
+    return getOverviewWorkspaceBox(MONITOR, scale->value(), viewOffset->value(), OFFSET, layout);
+}
+
+CBox CScrollOverview::pinnedRailSlotBox(const PHLWINDOW& window, float* contentRenderScale) const {
+    const auto MONITOR = pMonitor.lock();
+    const auto WINDOW  = getOverviewWindowToShow(window);
+    if (!MONITOR || !WINDOW) {
+        if (contentRenderScale)
+            *contentRenderScale = 1.F;
+        return {};
+    }
+
+    const auto PINS = pinnedRailWindows(MONITOR);
+    size_t     slot = PINS.size();
+    for (size_t i = 0; i < PINS.size(); ++i) {
+        if (PINS[i] == WINDOW) {
+            slot = i;
+            break;
+        }
+    }
+    if (slot >= PINS.size()) {
+        if (contentRenderScale)
+            *contentRenderScale = 1.F;
+        return {};
+    }
+
+    const auto CARD = pinnedRailHostCard();
+    if (CARD.empty()) {
+        if (contentRenderScale)
+            *contentRenderScale = 1.F;
+        return {};
+    }
+
+    const float S     = MONITOR->m_scale;
+    const float PAD   = 8.F * S;
+    const float GAP   = 8.F * S;
+    const float COUNT = sc<float>(std::max<size_t>(PINS.size(), 1));
+    // ~⅓ larger than the first icon-rail size (was ~0.9× icon_size, 28–40px)
+    const float ICONCFG = sc<float>(ScrollOverview::Config::getValue<int>("plugin:gridoverview:window_icon_size", MONITOR)) * S;
+    float       cell    = std::clamp(ICONCFG * 1.2F, 36.F * S, 52.F * S);
+
+    const float AVAILH = std::max(1.F, sc<float>(CARD.height) - 2.F * PAD);
+    float       totalH = COUNT * cell + (COUNT - 1.F) * GAP;
+    if (totalH > AVAILH) {
+        cell   = (AVAILH - (COUNT - 1.F) * GAP) / COUNT;
+        cell   = std::max(cell, 28.F * S);
+        totalH = COUNT * cell + (COUNT - 1.F) * GAP;
+    }
+
+    const float X = sc<float>(CARD.x) + PAD;
+    const float Y = sc<float>(CARD.y) + (sc<float>(CARD.height) - totalH) * 0.5F + sc<float>(slot) * (cell + GAP);
+
+    if (contentRenderScale)
+        *contentRenderScale = 1.F;
+
+    return CBox{X, Y, cell, cell}.round();
+}
+
+CBox CScrollOverview::pinnedRailWindowBox(const PHLWINDOW& window, float* contentRenderScale) const {
+    const auto MONITOR = pMonitor.lock();
+    const auto WINDOW  = getOverviewWindowToShow(window);
+    const auto SLOT    = pinnedRailSlotBox(WINDOW);
+    if (!MONITOR || !WINDOW || SLOT.empty()) {
+        if (contentRenderScale)
+            *contentRenderScale = 1.F;
+        return {};
+    }
+
+    // morph the real floating window into the rail icon slot (and back when closing)
+    const float PROGRESS = std::clamp(pinnedFloatingAnimationProgress(), 0.F, 1.F);
+    const float S        = MONITOR->m_scale;
+    const auto  NATIVE   = WINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT) * S;
+    const CBox  REAL     = {(WINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT) - MONITOR->m_position) * S, NATIVE};
+
+    CBox box = SLOT;
+    if (!REAL.empty() && REAL.width > 1 && REAL.height > 1) {
+        box.x      = REAL.x + (SLOT.x - REAL.x) * PROGRESS;
+        box.y      = REAL.y + (SLOT.y - REAL.y) * PROGRESS;
+        box.width  = REAL.width + (SLOT.width - REAL.width) * PROGRESS;
+        box.height = REAL.height + (SLOT.height - REAL.height) * PROGRESS;
+        box.round();
+    }
+
+    if (contentRenderScale) {
+        const float SX = NATIVE.x > 1.F ? sc<float>(box.width) / sc<float>(NATIVE.x) : 1.F;
+        const float SY = NATIVE.y > 1.F ? sc<float>(box.height) / sc<float>(NATIVE.y) : 1.F;
+        *contentRenderScale = std::clamp(std::min(SX, SY), 0.05F, 1.F);
+    }
+    return box;
+}
+
+void CScrollOverview::beginPinMorph(const PHLWINDOW& window, const CBox& from, bool pinning) {
+    const auto WINDOW = getOverviewWindowToShow(window);
+    if (!WINDOW || from.empty() || !pinMorphProgress)
+        return;
+
+    pinMorph = SPinMorph{
+        .window  = WINDOW,
+        .from    = from,
+        .to      = {},
+        .pinning = pinning,
+        .toReady = false,
+    };
+    // hold at 0 until rebuild gives us the target slot/card
+    pinMorphProgress->setValueAndWarp(0.F);
+}
+
+void CScrollOverview::snapshotPinMorphSources() {
+    pinMorphSourceBoxes.clear();
+    pinMorphSourcePinned.clear();
+    if (closing || !scale)
+        return;
+
+    const auto MONITOR = pMonitor.lock();
+    if (!MONITOR)
+        return;
+
+    for (const auto& img : images) {
+        if (!img)
+            continue;
+        for (const auto& windowRef : img->windows) {
+            const auto WINDOW = getOverviewWindowToShow(windowRef.lock());
+            if (!shouldShowOverviewWindow(WINDOW))
+                continue;
+            const auto KEY = overviewWindowKey(WINDOW);
+            const auto BOX = windowActionChromeHostBox(WINDOW);
+            if (KEY.empty() || BOX.empty())
+                continue;
+            pinMorphSourceBoxes[KEY] = BOX;
+        }
+    }
+
+    for (const auto& WINDOW : pinnedRailWindows(MONITOR)) {
+        const auto KEY = overviewWindowKey(WINDOW);
+        const auto BOX = pinnedRailSlotBox(WINDOW);
+        if (KEY.empty() || BOX.empty())
+            continue;
+        pinMorphSourceBoxes[KEY] = BOX;
+        pinMorphSourcePinned.insert(KEY);
+    }
+}
+
+void CScrollOverview::maybeAutoBeginPinMorphFromSnapshot() {
+    if (pinMorph || closing || !pinMorphProgress)
+        return;
+
+    const auto MONITOR = pMonitor.lock();
+    if (!MONITOR || pinMorphSourceBoxes.empty())
+        return;
+
+    std::unordered_set<std::string> nowPinned;
+    for (const auto& WINDOW : pinnedRailWindows(MONITOR)) {
+        const auto KEY = overviewWindowKey(WINDOW);
+        if (!KEY.empty())
+            nowPinned.insert(KEY);
+    }
+
+    PHLWINDOW morphWindow;
+    CBox      from{};
+    bool      pinning = true;
+
+    for (const auto& KEY : nowPinned) {
+        if (pinMorphSourcePinned.contains(KEY))
+            continue;
+        const auto IT = pinMorphSourceBoxes.find(KEY);
+        if (IT == pinMorphSourceBoxes.end())
+            continue;
+        // newly pinned — find the window
+        for (const auto& WINDOW : pinnedRailWindows(MONITOR)) {
+            if (overviewWindowKey(WINDOW) != KEY)
+                continue;
+            morphWindow = WINDOW;
+            from        = IT->second;
+            pinning     = true;
+            break;
+        }
+        if (morphWindow)
+            break;
+    }
+
+    if (!morphWindow) {
+        for (const auto& KEY : pinMorphSourcePinned) {
+            if (nowPinned.contains(KEY))
+                continue;
+            const auto IT = pinMorphSourceBoxes.find(KEY);
+            if (IT == pinMorphSourceBoxes.end())
+                continue;
+            for (const auto& img : images) {
+                if (!img)
+                    continue;
+                for (const auto& windowRef : img->windows) {
+                    const auto WINDOW = getOverviewWindowToShow(windowRef.lock());
+                    if (!shouldShowOverviewWindow(WINDOW) || overviewWindowKey(WINDOW) != KEY)
+                        continue;
+                    morphWindow = WINDOW;
+                    from        = IT->second;
+                    pinning     = false;
+                    break;
+                }
+                if (morphWindow)
+                    break;
+            }
+            if (morphWindow)
+                break;
+        }
+    }
+
+    if (morphWindow && !from.empty())
+        beginPinMorph(morphWindow, from, pinning);
+}
+
+void CScrollOverview::retargetPinMorphIfNeeded() {
+    if (!pinMorph || pinMorph->toReady || !pinMorphProgress)
+        return;
+
+    const auto WINDOW = getOverviewWindowToShow(pinMorph->window.lock());
+    if (!WINDOW) {
+        pinMorph.reset();
+        return;
+    }
+
+    CBox to{};
+    if (pinMorph->pinning)
+        to = pinnedRailSlotBox(WINDOW);
+    else {
+        const auto MONITOR = pMonitor.lock();
+        if (MONITOR && WINDOW->m_workspace) {
+            for (size_t i = 0; i < images.size(); ++i) {
+                if (!images[i] || images[i]->pWorkspace != WINDOW->m_workspace)
+                    continue;
+                const auto OFFSET = workspaceOverviewOffset(i, activeWorkspaceIndex(), getWorkspaceRenderedPitch(MONITOR, scale->value(), layout));
+                to                = getOverviewWindowBox(WINDOW, MONITOR, scale->value(), viewOffset->value(), OFFSET, layout);
+                break;
+            }
+        }
+    }
+
+    if (to.empty())
+        return;
+
+    pinMorph->to      = to;
+    pinMorph->toReady = true;
+    *pinMorphProgress = 1.F;
+}
+
+void CScrollOverview::clearPinMorphIfFinished() {
+    if (!pinMorph || !pinMorph->toReady || !pinMorphProgress)
+        return;
+    // belt-and-suspenders if onEnd missed a cycle (stuck morph breaks chrome + drag)
+    if (!pinMorphProgress->isBeingAnimated() && pinMorphProgress->value() >= 0.999F)
+        pinMorph.reset();
+}
+
+bool CScrollOverview::isPinMorphWindow(const PHLWINDOW& window) const {
+    if (!pinMorph || !pinMorph->toReady || !pinMorphProgress)
+        return false;
+    // finished morph must not keep owning render/hit/chrome (looks like snapback + missing chrome)
+    if (!pinMorphProgress->isBeingAnimated() && pinMorphProgress->value() >= 0.999F)
+        return false;
+    const auto WINDOW = getOverviewWindowToShow(window);
+    const auto MORPH  = getOverviewWindowToShow(pinMorph->window.lock());
+    return WINDOW && MORPH && WINDOW == MORPH;
+}
+
+CBox CScrollOverview::pinMorphBox(float* contentRenderScale) const {
+    if (!pinMorph || !pinMorph->toReady || !pinMorphProgress) {
+        if (contentRenderScale)
+            *contentRenderScale = 1.F;
+        return {};
+    }
+
+    const float T    = std::clamp(pinMorphProgress->value(), 0.F, 1.F);
+    const auto& FROM = pinMorph->from;
+    const auto& TO   = pinMorph->to;
+    CBox        box{FROM.x + (TO.x - FROM.x) * T, FROM.y + (TO.y - FROM.y) * T, FROM.width + (TO.width - FROM.width) * T, FROM.height + (TO.height - FROM.height) * T};
+    box.round();
+
+    if (contentRenderScale) {
+        const auto WINDOW  = getOverviewWindowToShow(pinMorph->window.lock());
+        const auto MONITOR = pMonitor.lock();
+        if (WINDOW && MONITOR) {
+            const auto  NATIVE = WINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT) * MONITOR->m_scale;
+            const float SX     = NATIVE.x > 1.F ? sc<float>(box.width) / sc<float>(NATIVE.x) : 1.F;
+            const float SY     = NATIVE.y > 1.F ? sc<float>(box.height) / sc<float>(NATIVE.y) : 1.F;
+            *contentRenderScale = std::clamp(std::min(SX, SY), 0.05F, 1.F);
+        } else
+            *contentRenderScale = 1.F;
+    }
+    return box;
+}
+
+float CScrollOverview::pinMorphLiveAlpha() const {
+    if (!pinMorph || !pinMorphProgress)
+        return 1.F;
+    const float T = std::clamp(pinMorphProgress->value(), 0.F, 1.F);
+    const float S = T * T * (3.F - 2.F * T);
+    if (pinMorph->pinning)
+        return 1.F - std::clamp((S - 0.45F) / 0.50F, 0.F, 1.F);
+    return std::clamp((S - 0.10F) / 0.50F, 0.F, 1.F);
+}
+
+float CScrollOverview::pinMorphIconAlpha() const {
+    if (!pinMorph || !pinMorphProgress)
+        return 0.F;
+    const float T = std::clamp(pinMorphProgress->value(), 0.F, 1.F);
+    const float S = T * T * (3.F - 2.F * T);
+    if (pinMorph->pinning)
+        return std::clamp((S - 0.40F) / 0.45F, 0.F, 1.F);
+    return 1.F - std::clamp((S - 0.15F) / 0.45F, 0.F, 1.F);
+}
+
+void CScrollOverview::renderPinMorph(PHLMONITOR monitor, const Time::steady_tp& now) {
+    if (!monitor || !pinMorph || !pinMorph->toReady)
+        return;
+
+    const auto WINDOW = getOverviewWindowToShow(pinMorph->window.lock());
+    if (!WINDOW)
+        return;
+    if (dragActiveWindow && WINDOW == getOverviewWindowToShow(dragActiveWindow.lock()))
+        return; // drag owns the preview — avoid frozen morph duplicate
+
+    float      renderScale = 1.F;
+    const auto BOX         = pinMorphBox(&renderScale);
+    if (BOX.empty() || !overviewBoxIntersectsMonitor(BOX, monitor))
+        return;
+
+    const float LIVEA = pinMorphLiveAlpha();
+    if (LIVEA > 0.001F)
+        renderWindowLive(monitor, WINDOW, BOX, renderScale, now, nullptr, false, LIVEA, true);
+
+    const float BASE =
+        std::clamp((1.F - scale->value()) / (1.F - ScrollOverview::Config::getScale(monitor)), 0.F, 1.F);
+    const float ICONA = pinMorphIconAlpha() * BASE * BASE * (3.F - 2.F * BASE);
+    if (ICONA <= 0.001F)
+        return;
+
+    const auto  THEME = ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:icon_theme", monitor);
+    const auto  CHROME = ScrollOverview::Config::getContextLabelColor(monitor);
+    const auto  MID    = BOX.middle();
+    const float SIDE   = sc<float>(std::min(BOX.width, BOX.height));
+    const float ICON   = SIDE * 0.88F;
+
+    if (const auto TEXTURE = GridIcons::iconForAppID(WINDOW->metadata().appID(), THEME)) {
+        CTexPassElement::SRenderData data;
+        data.tex = TEXTURE;
+        data.box = CBox{MID.x - ICON / 2.F, MID.y - ICON / 2.F, ICON, ICON}.round();
+        data.a   = ICONA;
+        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CTexPassElement>(std::move(data)));
+    }
+
+    {
+        const float BADGE = std::clamp(SIDE * 0.22F, 12.F * monitor->m_scale, 18.F * monitor->m_scale);
+        const CBox  BADGEBOX{BOX.x + BOX.w - BADGE, BOX.y, BADGE, BADGE};
+        auto        badgeColor = CHROME;
+        badgeColor.a           = 1.F;
+        GridIcons::drawUiIcon("pin", BADGEBOX, ICONA * 0.9F, badgeColor);
+    }
+}
+
+CBox CScrollOverview::windowActionChromeHostBox(const PHLWINDOW& window) const {
+    const auto MONITOR = pMonitor.lock();
+    const auto WINDOW  = getOverviewWindowToShow(window);
+    if (!MONITOR || !WINDOW)
+        return {};
+
+    if (shouldShowPinnedFloatingOverviewWindow(WINDOW))
+        return pinnedRailSlotBox(WINDOW); // chrome anchors to the settled icon, not the morphing live box
+
+    if (!shouldShowOverviewWindow(WINDOW) || !WINDOW->m_workspace)
+        return {};
+
+    for (size_t workspaceIdx = 0; workspaceIdx < images.size(); ++workspaceIdx) {
+        if (!images[workspaceIdx] || images[workspaceIdx]->pWorkspace != WINDOW->m_workspace)
+            continue;
+        const auto OFFSET = workspaceOverviewOffset(workspaceIdx, activeWorkspaceIndex(), getWorkspaceRenderedPitch(MONITOR, scale->value(), layout));
+        return getOverviewWindowBox(WINDOW, MONITOR, scale->value(), viewOffset->value(), OFFSET, layout);
+    }
+    return {};
+}
+
+CBox CScrollOverview::windowOverviewIconPlateBox(const PHLWINDOW& window) const {
+    const auto MONITOR = pMonitor.lock();
+    const auto WINDOW  = getOverviewWindowToShow(window);
+    if (!MONITOR || !WINDOW)
+        return {};
+
+    const auto BOX = windowActionChromeHostBox(WINDOW);
+    if (BOX.empty())
+        return {};
+
+    // same geometry as renderWindowIcons plate
+    const float SIZE  = ScrollOverview::Config::getValue<int>("plugin:gridoverview:window_icon_size", MONITOR) * MONITOR->m_scale;
+    const float ICON  = std::min(SIZE, sc<float>(std::min(BOX.width, BOX.height)) * 0.6F / 1.5F);
+    const float PLATE = ICON * 1.5F;
+    const auto  MID   = BOX.middle();
+    return CBox{MID.x - PLATE / 2.F, MID.y - PLATE / 2.F, PLATE, PLATE}.round();
+}
+
+bool CScrollOverview::windowIsTopmostAtIconAnchor(const PHLWINDOW& window) const {
+    const auto WINDOW = getOverviewWindowToShow(window);
+    if (!shouldShowOverviewWindow(WINDOW))
+        return false;
+
+    const auto PLATE = windowOverviewIconPlateBox(WINDOW);
+    if (PLATE.empty())
+        return false;
+
+    // hide as soon as any sample on the plate is owned by another window (clipped plate)
+    const Vector2D MID = PLATE.middle();
+    const Vector2D SAMPLES[] = {
+        MID,
+        {PLATE.x + 1.F, PLATE.y + 1.F},
+        {PLATE.x + PLATE.w - 2.F, PLATE.y + 1.F},
+        {PLATE.x + 1.F, PLATE.y + PLATE.h - 2.F},
+        {PLATE.x + PLATE.w - 2.F, PLATE.y + PLATE.h - 2.F},
+        {MID.x, PLATE.y + 1.F},
+        {MID.x, PLATE.y + PLATE.h - 2.F},
+        {PLATE.x + 1.F, MID.y},
+        {PLATE.x + PLATE.w - 2.F, MID.y},
+    };
+
+    for (const auto& P : SAMPLES) {
+        const auto HIT = windowAtOverviewPoint(P);
+        if (HIT && HIT != WINDOW)
+            return false; // another window already clips the plate
+    }
+    return windowAtOverviewPoint(MID) == WINDOW;
+}
+
+bool CScrollOverview::windowShowsOverviewIcon(const PHLWINDOW& window) const {
+    const auto WINDOW = getOverviewWindowToShow(window);
+    if (!WINDOW || closing || dragActiveWindow)
+        return false;
+    if (WINDOW == getOverviewWindowToShow(dragActiveWindow.lock()))
+        return false;
+
+    // no hover exception for covered windows — only a free icon plate
+    return windowIsTopmostAtIconAnchor(WINDOW);
+}
+
+bool CScrollOverview::windowShowsActionChrome(const PHLWINDOW& window) const {
+    const auto WINDOW = getOverviewWindowToShow(window);
+    if (!WINDOW || closing || dragActiveWindow)
+        return false;
+    if (!ScrollOverview::Config::getValue<bool>("plugin:gridoverview:window_chrome", pMonitor.lock()))
+        return false;
+
+    // pin rail: still hover/focus based (icons don't occlude each other the same way)
+    if (shouldShowPinnedFloatingOverviewWindow(WINDOW))
+        return closeOnWindow == WINDOW || hoveredChromeWindow.lock() == WINDOW;
+
+    if (closeOnWindow != WINDOW && hoveredChromeWindow.lock() != WINDOW)
+        return false;
+
+    // covered windows stay without chrome; topmost + focus/hover only
+    return windowIsTopmostAtIconAnchor(WINDOW);
+}
+
+// keep chrome visible while the pointer sits on its buttons (often just below the window card)
+void CScrollOverview::updateHoveredChromeWindow() {
+    if (closing || dragActiveWindow || !ScrollOverview::Config::getValue<bool>("plugin:gridoverview:window_chrome", pMonitor.lock())) {
+        hoveredChromeWindow.reset();
+        return;
+    }
+
+    const auto MONITOR = pMonitor.lock();
+    PHLWINDOW  next    = windowAtOverviewPoint(lastMousePosLocal);
+
+    const auto stillOverChrome = [&](const PHLWINDOW& window) -> bool {
+        if (!window || !MONITOR)
+            return false;
+        const auto BOX     = windowActionChromeHostBox(window);
+        const auto BUTTONS = windowActionChromeButtons(window, BOX, MONITOR);
+        for (const auto& btn : BUTTONS) {
+            if (btn.box.containsPoint(lastMousePosLocal))
+                return true;
+        }
+        // pin rail only: icon + bridge to chrome (never use a normal window's full card — that steals pin hover)
+        if (!shouldShowPinnedFloatingOverviewWindow(window) || BOX.empty())
+            return false;
+        if (BOX.containsPoint(lastMousePosLocal))
+            return true;
+        if (BUTTONS.empty())
+            return false;
+        const auto& FIRST = BUTTONS.front().box;
+        const auto& LAST  = BUTTONS.back().box;
+        const float TOP   = std::min(sc<float>(BOX.y), sc<float>(FIRST.y));
+        const float BOT   = std::max(sc<float>(BOX.y + BOX.h), sc<float>(FIRST.y + FIRST.h));
+        const CBox  BRIDGE{BOX.x, TOP, (LAST.x + LAST.w) - BOX.x, BOT - TOP};
+        return BRIDGE.containsPoint(lastMousePosLocal);
+    };
+
+    // keep chrome while on its buttons / pin-rail bridge (pinned stillOverChrome never uses a full window card)
+    if (const auto PREV = hoveredChromeWindow.lock(); stillOverChrome(PREV))
+        next = PREV;
+    else if (stillOverChrome(closeOnWindow.lock()))
+        next = closeOnWindow.lock();
+
+    if (hoveredChromeWindow.lock() != next) {
+        hoveredChromeWindow = next;
+        damage();
+    }
+}
+
+std::vector<CScrollOverview::SWindowChromeButton> CScrollOverview::windowActionChromeButtons(const PHLWINDOW& window, const CBox& windowBox,
+                                                                                              PHLMONITOR monitor) const {
+    std::vector<SWindowChromeButton> buttons;
+    if (!window || !monitor || windowBox.empty())
+        return buttons;
+
+    static constexpr int   COUNT = 5;
+    static constexpr float GAP   = 6.F;
+    const bool PINNEDHOST = shouldShowPinnedFloatingOverviewWindow(window);
+    const bool ICONS = ScrollOverview::Config::getValue<bool>("plugin:gridoverview:window_icons", monitor);
+    const float SIZE  = ScrollOverview::Config::getValue<int>("plugin:gridoverview:window_icon_size", monitor) * monitor->m_scale;
+    const float ICON  = std::min(SIZE, sc<float>(std::min(windowBox.width, windowBox.height)) * 0.6F / 1.5F);
+    const float PLATE = ICON * 1.5F;
+    const float GAPPX = GAP * monitor->m_scale;
+    // pin rail: chrome opens to the right of the icon at a fixed readable size (not cramped to the plate)
+    float BTN = PINNEDHOST ? std::clamp(28.F * monitor->m_scale, 22.F * monitor->m_scale, 34.F * monitor->m_scale) :
+                             std::clamp(PLATE * 0.72F, 18.F * monitor->m_scale, 40.F * monitor->m_scale);
+    float WIDTH = COUNT * BTN + (COUNT - 1) * GAPPX;
+    if (!PINNEDHOST) {
+        const float MAXW = std::max(sc<float>(windowBox.width) * 0.92F, 1.F);
+        if (WIDTH > MAXW) {
+            BTN = (MAXW - (COUNT - 1) * GAPPX) / COUNT;
+            if (BTN < 14.F * monitor->m_scale)
+                return buttons;
+            WIDTH = COUNT * BTN + (COUNT - 1) * GAPPX;
+        }
+    }
+
+    const auto  MID = windowBox.middle();
+    float       X   = MID.x - WIDTH / 2.F;
+    float       Y   = ICONS ? MID.y + PLATE / 2.F + 8.F * monitor->m_scale : MID.y - BTN / 2.F;
+    if (PINNEDHOST) {
+        // flush against the icon so hover can travel onto the dock without a dead gap
+        X = sc<float>(windowBox.x + windowBox.w) + 2.F * monitor->m_scale;
+        Y = MID.y - BTN / 2.F;
+    }
+
+    const bool FLOATING   = window->isFloating();
+    const bool PINNED     = FLOATING && (window->m_state & Desktop::View::WINDOW_STATE_PINNED);
+    const auto FS         = Fullscreen::controller()->getFullscreenModes(window);
+    const bool MAXIMIZED  = FS.internal == Fullscreen::FSMODE_MAXIMIZED || FS.client == Fullscreen::FSMODE_MAXIMIZED;
+    const bool FULLSCREEN = FS.internal == Fullscreen::FSMODE_FULLSCREEN || FS.client == Fullscreen::FSMODE_FULLSCREEN;
+
+    const EWindowChromeAction ORDER[COUNT] = {EWindowChromeAction::Float, EWindowChromeAction::Maximize, EWindowChromeAction::Fullscreen, EWindowChromeAction::Pin,
+                                              EWindowChromeAction::Close};
+    for (int i = 0; i < COUNT; ++i) {
+        SWindowChromeButton b;
+        b.action = ORDER[i];
+        b.box    = CBox{X + i * (BTN + GAPPX), Y, BTN, BTN}.round();
+        b.active = (b.action == EWindowChromeAction::Float && FLOATING) || (b.action == EWindowChromeAction::Maximize && MAXIMIZED) ||
+            (b.action == EWindowChromeAction::Fullscreen && FULLSCREEN) || (b.action == EWindowChromeAction::Pin && PINNED);
+        buttons.push_back(b);
+    }
+    return buttons;
+}
+
+void CScrollOverview::ensureOverviewFloatSize(const PHLWINDOW& window) {
+    const auto MONITOR = pMonitor.lock();
+    if (!window || !MONITOR || !window->isFloating())
+        return;
+
+    static constexpr float FRACTION = 0.65F;
+    static constexpr float HUGE     = 0.85F;
+    const auto             KEY      = overviewWindowKey(window);
+    const auto             BOX      = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+    Vector2D               size     = BOX.size();
+
+    if (const auto it = rememberedFloatSizes.find(KEY); it != rememberedFloatSizes.end())
+        size = it->second;
+    else if (size.x >= MONITOR->m_size.x * HUGE && size.y >= MONITOR->m_size.y * HUGE) {
+        size = MONITOR->m_size * FRACTION;
+        rememberedFloatSizes[KEY] = size;
+    } else if (size.x > 1 && size.y > 1)
+        rememberedFloatSizes[KEY] = size;
+    else {
+        size = MONITOR->m_size * FRACTION;
+        rememberedFloatSizes[KEY] = size;
+    }
+
+    // layout target is reliable while the overview owns input; Actions::center can leave floats at (0,0)
+    const Vector2D POS = MONITOR->m_position + (MONITOR->m_size - size) * 0.5;
+    if (const auto TARGET = window->layoutTarget()) {
+        TARGET->rememberFloatingSize(size);
+        TARGET->setPositionGlobal(CBox{POS, size});
+        TARGET->warpPositionSize();
+        TARGET->damageEntire();
+    } else {
+        (void)Config::Actions::resize(size, false, window);
+        (void)Config::Actions::center(window);
+    }
+}
+
+void CScrollOverview::applyWindowChromeAction(const PHLWINDOW& window, EWindowChromeAction action) {
+    if (!window)
+        return;
+
+    const auto focusChromeWindow = [&]() {
+        size_t workspaceIdx = viewportCurrentWorkspace;
+        for (size_t i = 0; i < images.size(); ++i) {
+            if (images[i] && images[i]->pWorkspace == window->m_workspace) {
+                workspaceIdx = i;
+                break;
+            }
+        }
+        // maximize/fullscreen need a focused window; float/pin/close already work without this
+        selectOverviewWindow(window, workspaceIdx, true);
+    };
+
+    using A = EWindowChromeAction;
+    switch (action) {
+        case A::Float: {
+            const bool ON = !window->isFloating();
+            (void)Config::Actions::floatWindow(ON ? Config::Actions::TOGGLE_ACTION_ENABLE : Config::Actions::TOGGLE_ACTION_DISABLE, window);
+            if (ON)
+                ensureOverviewFloatSize(window);
+            closeOnWindow = window;
+            break;
+        }
+        case A::Maximize: {
+            focusChromeWindow();
+            const auto FS = Fullscreen::controller()->getFullscreenModes(window);
+            const bool ON = !(FS.internal == Fullscreen::FSMODE_MAXIMIZED || FS.client == Fullscreen::FSMODE_MAXIMIZED);
+            (void)Config::Actions::fullscreenWindow(ON ? Fullscreen::FSMODE_MAXIMIZED : Fullscreen::FSMODE_NONE, true, window);
+            break;
+        }
+        case A::Fullscreen: {
+            focusChromeWindow();
+            const auto FS = Fullscreen::controller()->getFullscreenModes(window);
+            const bool ON = !(FS.internal == Fullscreen::FSMODE_FULLSCREEN || FS.client == Fullscreen::FSMODE_FULLSCREEN);
+            (void)Config::Actions::fullscreenWindow(ON ? Fullscreen::FSMODE_FULLSCREEN : Fullscreen::FSMODE_NONE, true, window);
+            break;
+        }
+        case A::Pin: {
+            const bool PINNED = window->isFloating() && (window->m_state & Desktop::View::WINDOW_STATE_PINNED);
+            const CBox FROM   = windowActionChromeHostBox(window);
+            if (PINNED)
+                (void)Config::Actions::pinWindow(Config::Actions::TOGGLE_ACTION_DISABLE, window);
+            else {
+                if (!window->isFloating()) {
+                    (void)Config::Actions::floatWindow(Config::Actions::TOGGLE_ACTION_ENABLE, window);
+                    ensureOverviewFloatSize(window);
+                }
+                (void)Config::Actions::pinWindow(Config::Actions::TOGGLE_ACTION_ENABLE, window);
+            }
+            beginPinMorph(window, FROM, !PINNED);
+            closeOnWindow = window;
+            break;
+        }
+        case A::Close: window->sendClose(); break;
+    }
+    rebuildPending = true;
+    damage();
+}
+
+std::optional<std::pair<PHLWINDOW, CScrollOverview::EWindowChromeAction>> CScrollOverview::windowChromeActionAt(const Vector2D& pointLocal) const {
+    const auto MONITOR = pMonitor.lock();
+    if (!MONITOR || closing || dragActiveWindow)
+        return std::nullopt;
+
+    const auto DRAGGED = getOverviewWindowToShow(dragActiveWindow.lock());
+    const auto UNDER   = windowAtOverviewPoint(pointLocal);
+
+    const auto hitButtons = [&](const PHLWINDOW& WINDOW) -> std::optional<std::pair<PHLWINDOW, EWindowChromeAction>> {
+        if (!windowShowsActionChrome(WINDOW) || WINDOW == DRAGGED)
+            return std::nullopt;
+        if (!shouldShowOverviewWindow(WINDOW) && !shouldShowPinnedFloatingOverviewWindow(WINDOW))
+            return std::nullopt;
+        const auto BOX = windowActionChromeHostBox(WINDOW);
+        for (const auto& btn : windowActionChromeButtons(WINDOW, BOX, MONITOR)) {
+            if (btn.box.containsPoint(pointLocal))
+                return std::pair{WINDOW, btn.action};
+        }
+        return std::nullopt;
+    };
+
+    // chrome is drawn above the pinned preview / card — hit its buttons even when a workspace sits under them
+    if (const auto HIT = hitButtons(closeOnWindow.lock()))
+        return HIT;
+    if (const auto HIT = hitButtons(hoveredChromeWindow.lock()))
+        return HIT;
+    for (const auto& windowRef : pinnedFloatingWindows) {
+        if (const auto HIT = hitButtons(getOverviewWindowToShow(windowRef.lock())))
+            return HIT;
+    }
+    if (const auto HIT = hitButtons(UNDER))
+        return HIT;
+    return std::nullopt;
+}
+
+void CScrollOverview::drawWindowActionChromeButtons(const PHLWINDOW& window, const CBox& windowBox, PHLMONITOR monitor, float alpha, const CHyprColor& chrome) {
+    const auto BUTTONS = windowActionChromeButtons(window, windowBox, monitor);
+    if (BUTTONS.empty())
+        return;
+
+    const auto  FIRST = BUTTONS.front().box, LAST = BUTTONS.back().box;
+    const float PAD   = 5.F * monitor->m_scale;
+    const bool  PINNEDHOST = shouldShowPinnedFloatingOverviewWindow(window);
+    CRectPassElement::SRectData dock;
+    // pin rail: dock starts at the icon edge so chrome reads as attached
+    if (PINNEDHOST)
+        dock.box = CBox{windowBox.x + windowBox.w - PAD, FIRST.y - PAD, LAST.x + LAST.w - (windowBox.x + windowBox.w - PAD) + PAD, FIRST.h + 2.F * PAD}.round();
+    else
+        dock.box = CBox{FIRST.x - PAD, FIRST.y - PAD, LAST.x + LAST.w - FIRST.x + 2.F * PAD, FIRST.h + 2.F * PAD}.round();
+    dock.color = CHyprColor{0.F, 0.F, 0.F, 0.55F * alpha};
+    dock.round = sc<int>(dock.box.h / 2.0);
+    Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(dock));
+
+    for (const auto& btn : BUTTONS) {
+        if (btn.active) {
+            CRectPassElement::SRectData plate;
+            plate.box   = btn.box.copy().scaleFromCenter(0.92).round();
+            plate.color = CHyprColor{1.F, 1.F, 1.F, 0.16F * alpha};
+            plate.round = sc<int>(plate.box.h * 0.28F);
+            Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(plate));
+        }
+        auto color = chrome;
+        color.a    = 1.F;
+        const char* icon = "close";
+        switch (btn.action) {
+            case EWindowChromeAction::Float: icon = "float"; break;
+            case EWindowChromeAction::Maximize: icon = "maximize"; break;
+            case EWindowChromeAction::Fullscreen: icon = "fullscreen"; break;
+            case EWindowChromeAction::Pin: icon = "pin"; break;
+            case EWindowChromeAction::Close: icon = "close"; break;
+        }
+        GridIcons::drawUiIcon(icon, btn.box.copy().scaleFromCenter(0.62), alpha, color);
+    }
+}
+
+void CScrollOverview::renderWindowActionChrome(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale) {
+    if (!monitor || closing || !ScrollOverview::Config::getValue<bool>("plugin:gridoverview:window_chrome", monitor))
+        return;
+
+    const float PROGRESS = std::clamp((1.F - renderScale) / (1.F - ScrollOverview::Config::getScale(monitor)), 0.F, 1.F);
+    const float ALPHA    = PROGRESS * PROGRESS * (3.F - 2.F * PROGRESS);
+    if (ALPHA <= 0.001F)
+        return;
+
+    const auto DRAGGED = getOverviewWindowToShow(dragActiveWindow.lock());
+    const auto CHROME  = ScrollOverview::Config::getContextLabelColor(monitor);
+
+    for (size_t workspaceIdx = 0; workspaceIdx < images.size(); ++workspaceIdx) {
+        if (!images[workspaceIdx])
+            continue;
+        const auto OFFSET = workspaceOverviewOffset(workspaceIdx, activeIdx, workspacePitch);
+        for (const auto& windowRef : images[workspaceIdx]->windows) {
+            const auto WINDOW = getOverviewWindowToShow(windowRef.lock());
+            if (!shouldShowOverviewWindow(WINDOW) || WINDOW == DRAGGED || !windowShowsActionChrome(WINDOW) || isPinMorphWindow(WINDOW))
                 continue;
 
             const auto BOX = getOverviewWindowBox(WINDOW, monitor, renderScale, viewOffset->value(), OFFSET, layout);
-            if (!overviewBoxIntersectsMonitor(BOX, monitor))
-                continue;
+            drawWindowActionChromeButtons(WINDOW, BOX, monitor, ALPHA, CHROME);
+        }
+    }
+    // pinned chrome: renderPinnedWindowOverlays (after the pinned preview itself)
+}
 
-            const auto TEXTURE = GridIcons::iconForAppID(WINDOW->metadata().appID(), THEME);
-            if (!TEXTURE)
-                continue;
+void CScrollOverview::renderPinnedWindowOverlays(PHLMONITOR monitor, float renderScale) {
+    if (!monitor || closing)
+        return;
 
-            const auto  MID   = BOX.middle();
-            const float ICON  = std::min(SIZE, sc<float>(std::min(BOX.width, BOX.height)) * 0.6F / 1.5F);
-            const float PLATE = ICON * 1.5F;
-            if (plate.a > 0.F) {
-                CRectPassElement::SRectData data;
-                data.box   = CBox{MID.x - PLATE / 2.F, MID.y - PLATE / 2.F, PLATE, PLATE}.round();
-                data.color = plate;
-                data.round = sc<int>(PLATE * 0.25F);
-                Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(data));
-            }
+    const float PROGRESS = std::clamp((1.F - renderScale) / (1.F - ScrollOverview::Config::getScale(monitor)), 0.F, 1.F);
+    const float ALPHA    = PROGRESS * PROGRESS * (3.F - 2.F * PROGRESS);
+    if (ALPHA <= 0.001F)
+        return;
 
+    const float SETTLE = std::clamp(pinnedFloatingAnimationProgress(), 0.F, 1.F);
+    const float SMOOTH = SETTLE * SETTLE * (3.F - 2.F * SETTLE);
+    // crossfade with the live morph: icons take over as the window shrinks into the rail
+    const float ICONA  = ALPHA * std::clamp((SMOOTH - 0.40F) / 0.45F, 0.F, 1.F);
+    if (ICONA <= 0.001F)
+        return;
+
+    const auto DRAGGED = getOverviewWindowToShow(dragActiveWindow.lock());
+    const auto THEME   = ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:icon_theme", monitor);
+    const auto CHROME  = ScrollOverview::Config::getContextLabelColor(monitor);
+
+    for (const auto& window : pinnedRailWindows(monitor)) {
+        if (window == DRAGGED || isPinMorphWindow(window))
+            continue;
+
+        // draw the icon on the morphing box so it feels like the window becomes the icon
+        const auto BOX = pinnedRailWindowBox(window);
+        if (BOX.empty() || !overviewBoxIntersectsMonitor(BOX, monitor))
+            continue;
+
+        const auto  MID  = BOX.middle();
+        const float SIDE = sc<float>(std::min(BOX.width, BOX.height));
+        const float ICON = SIDE * 0.88F;
+
+        if (const auto TEXTURE = GridIcons::iconForAppID(window->metadata().appID(), THEME)) {
             CTexPassElement::SRenderData data;
             data.tex = TEXTURE;
             data.box = CBox{MID.x - ICON / 2.F, MID.y - ICON / 2.F, ICON, ICON}.round();
-            data.a   = ALPHA;
+            data.a   = ICONA;
             Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CTexPassElement>(std::move(data)));
         }
+
+        {
+            const float BADGE = std::clamp(SIDE * 0.22F, 12.F * monitor->m_scale, 18.F * monitor->m_scale);
+            const CBox  BADGEBOX{BOX.x + BOX.w - BADGE, BOX.y, BADGE, BADGE};
+            auto        badgeColor = CHROME;
+            badgeColor.a           = 1.F;
+            GridIcons::drawUiIcon("pin", BADGEBOX, ICONA * 0.9F, badgeColor);
+        }
+
+        // chrome only once the rail has settled (anchors to the slot)
+        if (SMOOTH > 0.88F && windowShowsActionChrome(window))
+            drawWindowActionChromeButtons(window, pinnedRailSlotBox(window), monitor, ALPHA, CHROME);
     }
 }
 
@@ -5876,6 +6985,8 @@ void CScrollOverview::renderWorkspaceLive(PHLMONITOR monitor, size_t workspaceId
             return;
         if (dragActiveWindow && window == getOverviewWindowToShow(dragActiveWindow.lock()))
             return;
+        if (isPinMorphWindow(window))
+            return; // drawn by renderPinMorph (unpin card↔rail)
 
         const auto windowBox = getOverviewWindowBox(window, monitor, renderScale, viewOffset->value(), WORKSPACEOFFSET, layout, true, false);
         if (!overviewBoxIntersectsMonitor(windowBox, monitor))
@@ -5946,6 +7057,38 @@ void CScrollOverview::renderWorkspaceLive(PHLMONITOR monitor, size_t workspaceId
     renderWindowsByState(false);
     renderWindowsByState(true);
     renderDropIndicator();
+}
+
+void CScrollOverview::renderWorkspaceCloseButtons(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale) {
+    if (!monitor || closing || specialTrayRenameBusy || dragActiveWindow)
+        return;
+
+    auto chrome = ScrollOverview::Config::getContextLabelColor(monitor);
+    chrome.a    = 1.F;
+
+    for (size_t workspaceIdx = 0; workspaceIdx < images.size(); ++workspaceIdx) {
+        if (!workspaceCloseHovered(workspaceIdx))
+            continue;
+
+        const float ALPHA = workspaceOverviewAlpha(workspaceIdx);
+        if (ALPHA <= 0.001F)
+            continue;
+
+        const auto CLOSEBOX = workspaceCloseBox(workspaceIdx);
+        if (CLOSEBOX.width <= 0 || CLOSEBOX.height <= 0 || !overviewBoxIntersectsMonitor(CLOSEBOX, monitor))
+            continue;
+
+        CRectPassElement::SRectData plate;
+        plate.box   = CLOSEBOX.copy().scaleFromCenter(0.92).round();
+        plate.color = CHyprColor{0.F, 0.F, 0.F, 0.55F * ALPHA};
+        plate.round = sc<int>(plate.box.h / 2.0);
+        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(plate));
+        GridIcons::drawUiIcon("close", CLOSEBOX.copy().scaleFromCenter(0.78), ALPHA, chrome);
+    }
+
+    (void)activeIdx;
+    (void)workspacePitch;
+    (void)renderScale;
 }
 
 void CScrollOverview::renderDraggedWindow(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale, const Time::steady_tp& now) {
@@ -6034,26 +7177,65 @@ void CScrollOverview::renderPinnedFloatingWindows(PHLMONITOR monitor, float over
     if (!monitor)
         return;
 
-    const auto TARGETOVERVIEWSCALE = ScrollOverview::Config::getScale(pMonitor.lock());
-    const auto ANIMATIONPROGRESS   = (1.F - TARGETOVERVIEWSCALE) > 0.001F ? (1.F - overviewScale) / (1.F - TARGETOVERVIEWSCALE) : 1.F;
+    const auto PINS = pinnedRailWindows(monitor);
+    if (PINS.empty())
+        return;
 
-    for (const auto& windowRef : pinnedFloatingWindows) {
-        const auto window = getOverviewWindowToShow(windowRef.lock());
-        if (!shouldShowPinnedFloatingOverviewWindow(window))
-            continue;
+    const float PROGRESS = std::clamp(pinnedFloatingAnimationProgress(), 0.F, 1.F);
+    const float SETTLE   = PROGRESS * PROGRESS * (3.F - 2.F * PROGRESS); // 0 = desktop, 1 = settled rail
+    (void)overviewScale;
+
+    // live window morphs into the rail; fades out as the icon takes over
+    const float LIVEA = 1.F - std::clamp((SETTLE - 0.45F) / 0.50F, 0.F, 1.F);
+    // rail plate only once icons dominate
+    const float RAILA = std::clamp((SETTLE - 0.55F) / 0.40F, 0.F, 1.F);
+
+    if (RAILA > 0.001F) {
+        CBox unionBox{};
+        bool any = false;
+        for (const auto& window : PINS) {
+            if (dragActiveWindow && window == getOverviewWindowToShow(dragActiveWindow.lock()))
+                continue;
+            const auto BOX = pinnedRailSlotBox(window);
+            if (BOX.empty())
+                continue;
+            if (!any) {
+                unionBox = BOX;
+                any      = true;
+            } else {
+                const float x2 = std::max(unionBox.x + unionBox.w, BOX.x + BOX.w);
+                const float y2 = std::max(unionBox.y + unionBox.h, BOX.y + BOX.h);
+                unionBox.x     = std::min(unionBox.x, BOX.x);
+                unionBox.y     = std::min(unionBox.y, BOX.y);
+                unionBox.w     = x2 - unionBox.x;
+                unionBox.h     = y2 - unionBox.y;
+            }
+        }
+        if (any) {
+            const float PAD = 4.F * monitor->m_scale;
+            CRectPassElement::SRectData rail;
+            rail.box   = unionBox.copy().expand(PAD).round();
+            rail.color = CHyprColor{0.F, 0.F, 0.F, 0.35F * RAILA};
+            rail.round = sc<int>(8.F * monitor->m_scale);
+            Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(rail));
+        }
+    }
+
+    if (LIVEA <= 0.001F)
+        return;
+
+    for (const auto& window : PINS) {
         if (dragActiveWindow && window == getOverviewWindowToShow(dragActiveWindow.lock()))
             continue;
+        if (isPinMorphWindow(window))
+            continue; // drawn by renderPinMorph
 
-        if (window->m_monitor != monitor)
+        float      renderScale = 1.F;
+        const auto windowBox   = pinnedRailWindowBox(window, &renderScale);
+        if (windowBox.empty() || !overviewBoxIntersectsMonitor(windowBox, monitor))
             continue;
 
-        float renderScale = 1.F;
-        CBox  windowBox   = getPinnedFloatingOverviewWindowBox(monitor, window, TARGETOVERVIEWSCALE, ANIMATIONPROGRESS, &renderScale);
-
-        if (!overviewBoxIntersectsMonitor(windowBox, monitor))
-            continue;
-
-        renderWindowLive(monitor, window, windowBox, renderScale, now);
+        renderWindowLive(monitor, window, windowBox, renderScale, now, nullptr, false, LIVEA, true);
     }
 }
 
@@ -6167,6 +7349,18 @@ void CScrollOverview::redrawAll(bool forcelowres) {
     }
 
     updateWorkspaceOverflow();
+
+    // complete view: refit only when the occupied block changes (pan on focus; zoom only if the block grows/shrinks)
+    if (grid && zoomLevel > 1.F + ZOOM_EPSILON && !gridPanActive) {
+        Vector2D minCell, maxCell;
+        if (gridFitOccupiedBounds(minCell, maxCell, false) &&
+            (!gridFitBoundsValid || minCell != gridFitLastMinCell || maxCell != gridFitLastMaxCell)) {
+            gridFitBoundsValid = true;
+            gridFitLastMinCell = minCell;
+            gridFitLastMaxCell = maxCell;
+            applyGridFit();
+        }
+    }
 }
 
 void CScrollOverview::damage() {
@@ -6701,6 +7895,9 @@ void CScrollOverview::close(ECloseMode mode) {
     if (closeApplied)
         return;
     closeApplied = true;
+    pinMorph.reset();
+    if (pinMorphProgress)
+        pinMorphProgress->setValueAndWarp(1.F);
     if (sharedStateOwner)
         runOverviewHook("exec_on_close");
 
@@ -6916,14 +8113,49 @@ void CScrollOverview::onPreRender() {
 
     focusSyncedFromWorkspaceKey.clear();
 
+    // external pin toggles (e.g. Super+Shift+T) don't always emit a rebuild hook
+    if (!rebuildPending && pMonitor) {
+        std::unordered_set<std::string> listed;
+        listed.reserve(pinnedFloatingWindows.size());
+        for (const auto& windowRef : pinnedFloatingWindows) {
+            const auto WINDOW = getOverviewWindowToShow(windowRef.lock());
+            if (!WINDOW) {
+                rebuildPending = true;
+                break;
+            }
+            listed.insert(overviewWindowKey(WINDOW));
+            if (!shouldShowPinnedFloatingOverviewWindow(WINDOW) || WINDOW->m_monitor != pMonitor) {
+                rebuildPending = true;
+                break;
+            }
+        }
+        if (!rebuildPending) {
+            for (const auto& window : Desktop::windowState()->windows()) {
+                const auto WINDOW = getOverviewWindowToShow(window);
+                if (!shouldShowPinnedFloatingOverviewWindow(WINDOW) || WINDOW->m_monitor != pMonitor)
+                    continue;
+                if (!listed.contains(overviewWindowKey(WINDOW))) {
+                    rebuildPending = true;
+                    break;
+                }
+            }
+        }
+    }
+
     if (rebuildPending) {
         rebuildPending = false;
         markBlurDirty();
         redrawAll();
+        maybeAutoBeginPinMorphFromSnapshot();
+        retargetPinMorphIfNeeded();
+        clearPinMorphIfFinished();
         syncSelectionToViewport();
         damage();
         return;
     }
+
+    retargetPinMorphIfNeeded();
+    clearPinMorphIfFinished();
 }
 
 void CScrollOverview::onWorkspaceChange() {
@@ -7024,7 +8256,13 @@ void CScrollOverview::onWorkspaceChange() {
             // zoomed out past the centred view the view rests away from the active workspace; keep the grid where it
             // is while the active one changes
             (grid && zoomLevel > 1.F + ZOOM_EPSILON ? viewOffset->value() : Vector2D{}));
-        *viewOffset = restingViewOffset();
+        // Komplettansicht: keep framing across focus changes; only pan when the desired
+        // fit window actually changes (empty edge in, or back onto the occupied block).
+        if (grid && zoomLevel > 1.F + ZOOM_EPSILON) {
+            if (gridFitShouldRetargetForSelection())
+                *viewOffset = restingViewOffset();
+        } else
+            *viewOffset = restingViewOffset();
     }
 
     syncSelectionToViewport();
@@ -7106,12 +8344,20 @@ void CScrollOverview::render() {
         renderWorkspaceLive(MONITOR, workspaceIdx, ACTIVEIDX, PITCH, SCALE, WALLPAPERMODE, NOW);
     }
 
+    renderWorkspaceCloseButtons(MONITOR, ACTIVEIDX, PITCH, SCALE);
     renderWindowIcons(MONITOR, ACTIVEIDX, PITCH, SCALE);
+    renderWindowActionChrome(MONITOR, ACTIVEIDX, PITCH, SCALE);
     renderContextLabels(MONITOR, ACTIVEIDX, PITCH, SCALE);
     renderSpecialTray(MONITOR, NOW);
     renderDraggedWindow(MONITOR, ACTIVEIDX, PITCH, SCALE, NOW);
     renderPinnedFloatingWindows(MONITOR, SCALE, NOW);
+    renderPinnedWindowOverlays(MONITOR, SCALE); // icon + chrome above the pinned preview
+    renderPinMorph(MONITOR, NOW);               // pin/unpin card↔rail (above settled pins)
     renderGridModeButtons(MONITOR);
+
+    // settled host boxes for Super+Shift+T (and other external pin toggles) while overview stays open
+    if (!closing && !(pinMorph && pinMorphProgress && pinMorphProgress->isBeingAnimated()))
+        snapshotPinMorphSources();
 
     for (const auto LAYER : {ZWLR_LAYER_SHELL_V1_LAYER_TOP, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY}) {
         for (auto const& ls : MONITOR->m_layerSurfaceLayers[LAYER]) {

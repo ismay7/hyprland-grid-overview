@@ -427,12 +427,14 @@ static SDispatchResult onNavigateDispatcher(std::string arg) {
 static SDispatchResult onWindowDispatcher(std::string arg) {
     const auto OVERVIEW = scrollOverviewAt(g_pInputManager->getMouseCoordsInternal());
     if (!OVERVIEW)
-        return {};
+        return {.success = false, .error = "overview not open"};
 
-    if (arg != "select" && arg != "close")
-        return {.success = false, .error = "invalid arg. expected select|close"};
+    if (arg != "select" && arg != "close" && arg != "pin")
+        return {.success = false, .error = "invalid arg. expected select|close|pin"};
 
-    OVERVIEW->windowDispatcherAction(arg);
+    if (!OVERVIEW->windowDispatcherAction(arg))
+        return {.success = false, .error = "window action failed"};
+
     return {};
 }
 

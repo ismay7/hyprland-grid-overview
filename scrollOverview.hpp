@@ -9,12 +9,15 @@
 #include <hyprland/src/event/EventBus.hpp>
 #include <hyprland/src/helpers/time/Time.hpp>
 #include <hyprland/src/layout/LayoutManager.hpp>
+#include <functional>
 #include <hyprland/src/render/Framebuffer.hpp>
 #include <hyprland/src/render/types.hpp>
 #include <hyprland/src/managers/eventLoop/EventLoopTimer.hpp>
 #include <chrono>
+#include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <xkbcommon/xkbcommon.h>
 
@@ -98,12 +101,66 @@ class CScrollOverview : public IOverview {
     void   renderSelectedHighlight(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale, int wallpaperMode, const Time::steady_tp& now);
     void   renderSelectedEmptyMarker(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale);
     void   renderWindowIcons(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale);
+    // hover/focus chrome under the app icon (or centred where the icon would be): float, maximize, fullscreen, pin, close
+    enum class EWindowChromeAction : uint8_t { Float, Maximize, Fullscreen, Pin, Close };
+    struct SWindowChromeButton {
+        EWindowChromeAction action = EWindowChromeAction::Close;
+        CBox                box;
+        bool                active = false; // current window state (floating / maximized / …)
+    };
+    // icon/chrome autohide: hide as soon as another window clips the icon plate, plus hover override
+    CBox                   windowOverviewIconPlateBox(const PHLWINDOW& window) const;
+    bool                   windowIsTopmostAtIconAnchor(const PHLWINDOW& window) const;
+    bool                   windowShowsOverviewIcon(const PHLWINDOW& window) const;
+    bool                   windowShowsActionChrome(const PHLWINDOW& window) const;
+    void                   updateHoveredChromeWindow();
+    CBox                   windowActionChromeHostBox(const PHLWINDOW& window) const; // workspace-card box or pin-rail slot
+    std::vector<SWindowChromeButton> windowActionChromeButtons(const PHLWINDOW& window, const CBox& windowBox, PHLMONITOR monitor) const;
+    void                   renderWindowActionChrome(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale);
+    // icons + chrome for pin-rail minis — must run after renderPinnedFloatingWindows
+    void                   renderPinnedWindowOverlays(PHLMONITOR monitor, float renderScale);
+    void                   drawWindowActionChromeButtons(const PHLWINDOW& window, const CBox& windowBox, PHLMONITOR monitor, float alpha, const CHyprColor& chrome);
+    std::optional<std::pair<PHLWINDOW, EWindowChromeAction>> windowChromeActionAt(const Vector2D& pointLocal) const;
+    void                   applyWindowChromeAction(const PHLWINDOW& window, EWindowChromeAction action);
+    void                   ensureOverviewFloatSize(const PHLWINDOW& window); // default / remembered size after float
+    float                  pinnedFloatingAnimationProgress() const;
+    // pin rail: compact app-icon stack on the left edge of the focused workspace card
+    std::vector<PHLWINDOW> pinnedRailWindows(PHLMONITOR monitor) const;
+    CBox                   pinnedRailHostCard() const;
+    CBox                   pinnedRailSlotBox(const PHLWINDOW& window, float* contentRenderScale = nullptr) const;
+    CBox                   pinnedRailWindowBox(const PHLWINDOW& window, float* contentRenderScale = nullptr) const; // icon plate, lerped while opening
+    // overview-local morph when pinning/unpinning (card ↔ rail), like open/close
+    struct SPinMorph {
+        PHLWINDOWREF window;
+        CBox         from;
+        CBox         to;
+        bool         pinning = true; // true: card→rail, false: rail→card
+        bool         toReady = false;
+    };
+    void                   beginPinMorph(const PHLWINDOW& window, const CBox& from, bool pinning);
+    void                   retargetPinMorphIfNeeded();
+    void                   clearPinMorphIfFinished();
+    void                   snapshotPinMorphSources();
+    void                   maybeAutoBeginPinMorphFromSnapshot();
+    bool                   isPinMorphWindow(const PHLWINDOW& window) const;
+    CBox                   pinMorphBox(float* contentRenderScale = nullptr) const;
+    float                  pinMorphLiveAlpha() const;
+    float                  pinMorphIconAlpha() const;
+    void                   renderPinMorph(PHLMONITOR monitor, const Time::steady_tp& now);
+    std::optional<SPinMorph> pinMorph;
+    PHLANIMVAR<float>        pinMorphProgress;
+    std::unordered_map<std::string, CBox> pinMorphSourceBoxes; // last settled host boxes (card or rail)
+    std::unordered_set<std::string>       pinMorphSourcePinned;
+    bool                   windowChromePressed = false;
+    PHLWINDOWREF           hoveredChromeWindow;
+    std::unordered_map<std::string, Vector2D> rememberedFloatSizes; // window address → last overview float size
     void   renderContextLabels(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale);
     std::unordered_map<std::string, SP<Render::ITexture>> contextLabelTextures;
     // where the labels were drawn last frame (pill box -> first workspace of the context), for clicks
     std::vector<std::pair<CBox, size_t>> contextLabelHitboxes;
     std::optional<size_t>            contextLabelPressed;
-    // special_tray: scratchpads as cards at the right screen edge, in screen coordinates (not zoomed / panned)
+    // special_tray: scratchpads as cards at a screen edge, in screen coordinates (not zoomed / panned)
+    enum class ESpecialTrayEdge { Right, Left, Bottom };
     struct STrayCard {
         std::string  name;      // without the "special:" prefix
         PHLWORKSPACE workspace; // null for a configured name that does not exist yet
@@ -115,11 +172,18 @@ class CScrollOverview : public IOverview {
         CBox pencil; // rename
         CBox grip;   // reorder handle at the right of the name pill
     };
+    ESpecialTrayEdge       specialTrayEdge() const; // right (default), left, or bottom
+    bool                   specialTrayOnLeft() const { return specialTrayEdge() == ESpecialTrayEdge::Left; }
+    bool                   specialTrayOnBottom() const { return specialTrayEdge() == ESpecialTrayEdge::Bottom; }
+    bool                   specialTrayOnSide() const { return !specialTrayOnBottom(); }
     std::vector<STrayCard> specialTrayCards() const;
     float                  specialTrayLabelOffset() const;
     float                  specialTrayLabelBand() const;
-    float                  specialTrayReserve() const; // logical px kept free right of the fitted grid
-    float                  specialTrayShownWidth() const; // logical px; full width when shown or sliding in, else 0
+    float                  specialTrayReserve() const;  // = reserveX (side trays); kept for older call sites
+    float                  specialTrayReserveX() const; // logical px free on the left/right of the fitted grid
+    float                  specialTrayReserveY() const; // logical px free below the fitted grid
+    float                  specialTrayShownWidth() const;  // side: column width; bottom: 0
+    float                  specialTrayShownHeight() const; // bottom: row height; side: 0
     float                  specialTrayDragScale(const Vector2D& cursorGlobal, float gridScale) const;
     bool                   specialTrayAutohide() const;
     void                   updateSpecialTrayReveal(const Vector2D& pointLocal);
@@ -130,7 +194,18 @@ class CScrollOverview : public IOverview {
     bool                   specialTrayBandPressed = false;
     PHLWINDOWREF           middleClickWindow; // pressed with the middle button: closed if released without moving
     Vector2D               middleClickStart;
+    bool                   middleClickCloseWorkspace = false; // Shift+middle: close whole workspace on release
+    CBox                   workspaceCloseBox(size_t workspaceIdx) const; // × on the card's top-right corner
+    std::optional<size_t>  workspaceShowingClose() const; // card under cursor (or its protruding ×)
+    bool                   workspaceCloseHovered(size_t workspaceIdx) const;
+    std::optional<size_t>  workspaceCloseAt(const Vector2D& pointLocal) const;
+    bool                   workspaceHasCloseableWindows(size_t workspaceIdx) const;
+    void                   closeOverviewWorkspace(size_t workspaceIdx); // sendClose every window on the card
+    void                   renderWorkspaceCloseButtons(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale);
     CBox                   specialTrayAddBox(const std::vector<STrayCard>& cards) const;
+    // foreshortened on-screen bounds of a card (dock / + / labels hug this; flat render still uses card.box)
+    float                  specialTrayPerspectiveDepth() const;
+    CBox                   specialTrayVisualBox(const CBox& cardBox) const;
     bool                   specialTrayAddAt(const Vector2D& pointLocal) const;
     bool                   specialTrayAddPressed = false;
     bool                   specialTrayChromePressed = false; // × / pencil: swallow the matching release
@@ -142,6 +217,12 @@ class CScrollOverview : public IOverview {
     PHLWORKSPACE           ensureSpecialWorkspace(const STrayCard& card) const;
     void                   hideActiveSpecialWorkspace();
     void                   renderSpecialTray(PHLMONITOR monitor, const Time::steady_tp& now);
+    // special_tray_perspective: draw window contents into a temp FB, then strip-blit with a taper
+    // toward the screen centre. Icons / name pills stay flat on top. False → caller draws flat.
+    enum class ETrayPerspectiveTaper { TowardLeft, TowardRight, TowardTop };
+    bool                   renderSpecialTrayPerspective(PHLMONITOR monitor, const std::vector<CBox>& cards, float shrink,
+                                                        ETrayPerspectiveTaper taper, const std::function<void()>& drawContents);
+    SP<Render::IFramebuffer> trayPerspectiveFB;
     struct STrayIcon {
         PHLWINDOW            window; // the app's topmost window on the card
         SP<Render::ITexture> texture;
@@ -152,9 +233,11 @@ class CScrollOverview : public IOverview {
     std::optional<std::pair<size_t, PHLWINDOW>> specialTrayIconAt(const Vector2D& pointLocal) const;
     STrayPill              specialTrayPill(const STrayCard& card, const Vector2D& textSize) const;
     CBox                   specialTrayCloseBox(const STrayCard& card) const; // × centred on the card's top-right corner
+    std::optional<size_t>  specialTrayShowingClose() const; // card under cursor (or its protruding × / name pill)
     std::optional<size_t>  specialTrayGripAt(const Vector2D& pointLocal) const;
     std::optional<size_t>  specialTrayPencilAt(const Vector2D& pointLocal) const;
     std::optional<size_t>  specialTrayCloseAt(const Vector2D& pointLocal) const;
+    std::optional<size_t>  hoveredSpecialTrayCard; // damage when the tray × should appear / disappear
     size_t                 specialTrayReorderInsertAt(const Vector2D& pointLocal, size_t from) const;
     void                   beginSpecialTrayReorder(size_t index);
     void                   updateSpecialTrayReorder();
@@ -162,7 +245,7 @@ class CScrollOverview : public IOverview {
     void                   applySpecialTrayOrder(std::vector<std::string> order);
     void                   removeSpecialTrayCard(size_t index);
     void                   beginSpecialTrayRename(size_t index);
-    void                   finishSpecialTrayRename(); // Enter: apply text
+    void                   finishSpecialTrayRename(); // Enter: apply text; empty → anonymous scratch-N
     bool                   handleSpecialTrayRenameKey(xkb_keysym_t keysym); // true = consumed
     void                   renderSpecialTrayRenameOverlay(PHLMONITOR monitor, float alpha);
     void                   renameSpecialTrayCard(const std::string& oldName, const std::string& newName);
@@ -213,8 +296,17 @@ class CScrollOverview : public IOverview {
     // grid fit mode: zoom out and centre so the whole grid is visible ("Komplettansicht")
     float      targetOverviewScale() const;
     Vector2D   restingViewOffset() const;
+    // complete view: fit occupied cells; optionally expand for a selected empty drop slot
+    bool       workspaceHasVisibleWindows(size_t workspaceIdx) const;
+    bool       gridFitOccupiedBounds(Vector2D& minCell, Vector2D& maxCell, bool includeSelectedEmpty = false) const;
+    bool       gridFitShouldRetargetForSelection() const; // framing for selection differs from current view
+    void       retargetGridFitIfNeeded();
     float      gridFitScale() const;
     Vector2D   gridFitViewOffset() const;
+    // last occupied fit bounds — rebuild must not re-centre on every focus change
+    bool       gridFitBoundsValid = false;
+    Vector2D   gridFitLastMinCell;
+    Vector2D   gridFitLastMaxCell;
     // continuous zoom (SUPER + CTRL + wheel): 0 = desktop, 1 = centred view, 2 = whole grid
     void       applyZoomLevel();
     void       finishZoom();

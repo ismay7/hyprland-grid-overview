@@ -1,6 +1,6 @@
-// Scratchpad tray (special_tray): special workspaces as cards at the right screen edge, in screen coordinates
-// (not zoomed or panned with the grid). Hit tests, layout and drawing; input and drag handling call into it from
-// scrollOverview.cpp.
+// Scratchpad tray (special_tray): special workspaces as cards at a screen edge (right or left), in screen
+// coordinates (not zoomed or panned with the grid). Hit tests, layout and drawing; input and drag handling call
+// into it from scrollOverview.cpp.
 #include "scrollOverview.hpp"
 #include <algorithm>
 #include <any>
@@ -97,6 +97,8 @@ static constexpr int         TRAY_LABEL_SIZE = 15;
 static constexpr float       TRAY_ADD_HEIGHT = 56.F; // the "+" box below the cards
 static constexpr float       TRAY_DOCK_PAD   = 14.F; // dock around the cards (within TRAY_MARGIN)
 static constexpr float       TRAY_DOCK_ROUNDING = 18.F;
+// max depth foreshortening when the overview is fully open (also used by strip perspective)
+static constexpr float       TRAY_PERSPECTIVE_SHRINK = 0.28F;
 static constexpr float       TRAY_GRIP_WIDTH   = 16.F; // grip on the right of the name pill
 static constexpr float       TRAY_PENCIL_WIDTH = 16.F; // pencil on the left of the name pill
 static constexpr float       TRAY_GRIP_GAP     = 8.F;  // between the name / icons and the grip or pencil
@@ -239,9 +241,9 @@ static std::string sanitizeTrayName(std::string name) {
     name = specialTrayName(std::move(name));
     std::string out;
     for (const char C : name) {
-        const char LOWER = sc<char>(std::tolower(sc<unsigned char>(C)));
-        if (std::isalnum(sc<unsigned char>(LOWER)) || LOWER == '_' || LOWER == '-')
-            out += LOWER;
+        // keep A–Z/a–z/0–9/_/- (case preserved); everything else becomes a single '-'
+        if (std::isalnum(sc<unsigned char>(C)) || C == '_' || C == '-')
+            out += C;
         else if (!out.empty() && out.back() != '-')
             out += '-';
     }
@@ -277,6 +279,15 @@ static void applyTrayOrder(std::vector<TCard>& cards) {
             g_trayOrder.push_back(card.name);
     }
     cards = std::move(ordered);
+}
+
+CScrollOverview::ESpecialTrayEdge CScrollOverview::specialTrayEdge() const {
+    const auto EDGE = ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:special_tray_edge", pMonitor.lock());
+    if (EDGE == "left")
+        return ESpecialTrayEdge::Left;
+    if (EDGE == "bottom")
+        return ESpecialTrayEdge::Bottom;
+    return ESpecialTrayEdge::Right;
 }
 
 // logical px from a card's bottom edge to the middle of its name: below the app icons when they are shown
@@ -331,25 +342,46 @@ std::vector<CScrollOverview::STrayCard> CScrollOverview::specialTrayCards() cons
 
     applyTrayOrder(cards);
 
-    // one column at the right edge, vertically centred in the work area; shrink the cards when they do not fit
     const auto  SIZE   = MONITOR->m_size;
     const float ASPECT = sc<float>(SIZE.y / std::max(SIZE.x, 1.0));
-    const float TOP    = gridWorkAreaTop(MONITOR) + TRAY_MARGIN;
-    const float AVAILH = sc<float>(SIZE.y) - TOP - TRAY_MARGIN;
     const float N      = sc<float>(cards.size());
     float       width  = sc<float>(ScrollOverview::Config::getValue<int>("plugin:gridoverview:special_tray_width", MONITOR));
-    // the cards, then the "+" box (new scratchpad) below the last one
-    const float BAND      = specialTrayLabelBand();
-    const float EXTRA     = N * BAND + N * TRAY_GAP + TRAY_ADD_HEIGHT;
+    const float BAND   = specialTrayLabelBand();
+
+    if (specialTrayOnBottom()) {
+        // one row at the bottom edge, horizontally centred; shrink when they do not fit
+        const float AVAILW    = sc<float>(SIZE.x) - 2.F * TRAY_MARGIN;
+        const float EXTRA     = (N - 1.F) * TRAY_GAP + TRAY_GAP + TRAY_ADD_HEIGHT; // gaps between cards + "+" after
+        const auto  widthFor  = [&](float w) { return N * w + EXTRA; };
+        if (widthFor(width) > AVAILW)
+            width = std::max(20.F, (AVAILW - EXTRA) / N);
+
+        const float HEIGHT = width * ASPECT;
+        const float ROW    = HEIGHT + BAND;
+        // keep a full TRAY_MARGIN below the dock (dock pad sits inside the tray, not in the screen margin)
+        const float EDGE   = TRAY_MARGIN + TRAY_DOCK_PAD;
+        const float HIDDEN = specialTrayAutohide() && trayReveal ? (1.F - trayReveal->value()) * (ROW + EDGE + TRAY_MARGIN) : 0.F;
+        const float Y      = sc<float>(SIZE.y) - EDGE - ROW + HIDDEN;
+        float       x      = TRAY_MARGIN + std::max(0.F, (AVAILW - widthFor(width)) / 2.F);
+        for (auto& card : cards) {
+            card.box = CBox{x, Y, width, HEIGHT}.scale(MONITOR->m_scale).round();
+            x += width + TRAY_GAP;
+        }
+        return cards;
+    }
+
+    // one column at the left/right edge, vertically centred in the work area
+    const float TOP    = gridWorkAreaTop(MONITOR) + TRAY_MARGIN;
+    const float AVAILH = sc<float>(SIZE.y) - TOP - TRAY_MARGIN;
+    const float EXTRA  = N * BAND + N * TRAY_GAP + TRAY_ADD_HEIGHT;
     const auto  heightFor = [&](float w) { return N * w * ASPECT + EXTRA; };
     if (heightFor(width) > AVAILH)
         width = std::max(20.F, (AVAILH - EXTRA) / N / ASPECT);
 
     const float HEIGHT = width * ASPECT;
     float       y      = TOP + std::max(0.F, (AVAILH - heightFor(width)) / 2.F);
-    // autohide: slides in from beyond the right edge
     const float HIDDEN = specialTrayAutohide() && trayReveal ? (1.F - trayReveal->value()) * (width + 2.F * TRAY_MARGIN) : 0.F;
-    const float X      = sc<float>(SIZE.x) - TRAY_MARGIN - width + HIDDEN;
+    const float X      = specialTrayOnLeft() ? TRAY_MARGIN - HIDDEN : sc<float>(SIZE.x) - TRAY_MARGIN - width + HIDDEN;
     for (auto& card : cards) {
         card.box = CBox{X, y, width, HEIGHT}.scale(MONITOR->m_scale).round();
         y += HEIGHT + BAND + TRAY_GAP;
@@ -363,9 +395,9 @@ bool CScrollOverview::specialTrayAutohide() const {
 }
 
 // a dragged window approaching the tray shrinks (around the grab point) from its grid size to the size it has in
-// a card, reaching it at the cards' left edge
+// a card, reaching it at the cards' inner edge (toward the grid)
 float CScrollOverview::specialTrayDragScale(const Vector2D& cursorGlobal, float gridScale) const {
-    static constexpr float RANGE = 300.F; // logical px left of the cards
+    static constexpr float RANGE = 300.F; // logical px on the grid side of the cards
     const auto             MONITOR = pMonitor.lock();
     if (!MONITOR || closing)
         return 1.F;
@@ -375,11 +407,25 @@ float CScrollOverview::specialTrayDragScale(const Vector2D& cursorGlobal, float 
     if (ADD.empty())
         return 1.F;
 
-    const double EDGE_X   = CARDS.empty() ? ADD.x : CARDS.front().box.x;
-    const double X        = (cursorGlobal.x - MONITOR->m_position.x) * MONITOR->m_scale;
-    const double START    = EDGE_X - RANGE * MONITOR->m_scale;
-    float        progress = std::clamp(sc<float>((X - START) / (EDGE_X - START)), 0.F, 1.F);
-    progress              = progress * progress * (3.F - 2.F * progress);
+    const double LOCAL_X = (cursorGlobal.x - MONITOR->m_position.x) * MONITOR->m_scale;
+    const double LOCAL_Y = (cursorGlobal.y - MONITOR->m_position.y) * MONITOR->m_scale;
+    float        progress = 0.F;
+
+    if (specialTrayOnBottom()) {
+        const double CARD_T = CARDS.empty() ? ADD.y : CARDS.front().box.y;
+        const double INNER  = CARD_T; // top of the row faces the grid
+        const double START  = INNER - RANGE * MONITOR->m_scale;
+        progress            = std::clamp(sc<float>((LOCAL_Y - START) / (INNER - START)), 0.F, 1.F);
+    } else {
+        const bool   LEFT   = specialTrayOnLeft();
+        const double CARD_L = CARDS.empty() ? ADD.x : CARDS.front().box.x;
+        const double CARD_R = CARDS.empty() ? ADD.x + ADD.w : CARDS.front().box.x + CARDS.front().box.w;
+        const double INNER  = LEFT ? CARD_R : CARD_L;
+        const double START  = LEFT ? INNER + RANGE * MONITOR->m_scale : INNER - RANGE * MONITOR->m_scale;
+        progress =
+            LEFT ? std::clamp(sc<float>((START - LOCAL_X) / (START - INNER)), 0.F, 1.F) : std::clamp(sc<float>((LOCAL_X - START) / (INNER - START)), 0.F, 1.F);
+    }
+    progress = progress * progress * (3.F - 2.F * progress);
     if (specialTrayAutohide() && trayReveal)
         progress *= trayReveal->value();
 
@@ -389,27 +435,77 @@ float CScrollOverview::specialTrayDragScale(const Vector2D& cursorGlobal, float 
     return 1.F + (CARDSCALE - 1.F) * progress;
 }
 
+float CScrollOverview::specialTrayPerspectiveDepth() const {
+    const auto MONITOR = pMonitor.lock();
+    if (!MONITOR || !scale || !ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray_perspective", MONITOR))
+        return 0.F;
+    const float PROGRESS = std::clamp((1.F - scale->value()) / (1.F - ScrollOverview::Config::getScale(MONITOR)), 0.F, 1.F);
+    return TRAY_PERSPECTIVE_SHRINK * PROGRESS;
+}
+
+CBox CScrollOverview::specialTrayVisualBox(const CBox& cardBox) const {
+    const float DEPTH = specialTrayPerspectiveDepth();
+    if (DEPTH <= 0.001F || cardBox.empty())
+        return cardBox;
+
+    if (specialTrayOnBottom()) {
+        const float PROJH = sc<float>(cardBox.h) * (1.F - DEPTH);
+        return CBox{cardBox.x, cardBox.y + cardBox.h - PROJH, cardBox.w, PROJH}.round();
+    }
+    const float PROJW = sc<float>(cardBox.w) * (1.F - DEPTH);
+    if (specialTrayOnLeft())
+        return CBox{cardBox.x, cardBox.y, PROJW, cardBox.h}.round(); // near = left (outer)
+    return CBox{cardBox.x + cardBox.w - PROJW, cardBox.y, PROJW, cardBox.h}.round(); // near = right (outer)
+}
+
 float CScrollOverview::specialTrayShownWidth() const {
-    if (specialTrayAutohide() && trayReveal && trayReveal->goal() < 0.5F)
+    if (specialTrayOnBottom() || (specialTrayAutohide() && trayReveal && trayReveal->goal() < 0.5F))
         return 0.F;
     const auto MONITOR = pMonitor.lock();
     if (!MONITOR || !ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray", MONITOR))
         return 0.F;
     const auto CARDS = specialTrayCards();
-    if (!CARDS.empty())
-        return sc<float>(CARDS.front().box.w) / std::max(MONITOR->m_scale, 0.01F) + TRAY_MARGIN;
-    // no cards left: still keep the column for the lone "+"
-    return sc<float>(ScrollOverview::Config::getValue<int>("plugin:gridoverview:special_tray_width", MONITOR)) + TRAY_MARGIN;
+    if (!CARDS.empty()) {
+        const auto VIS = specialTrayVisualBox(CARDS.front().box);
+        return sc<float>(VIS.w) / std::max(MONITOR->m_scale, 0.01F) + TRAY_MARGIN;
+    }
+    const float WIDTH = sc<float>(ScrollOverview::Config::getValue<int>("plugin:gridoverview:special_tray_width", MONITOR));
+    return WIDTH * (1.F - specialTrayPerspectiveDepth()) + TRAY_MARGIN;
+}
+
+float CScrollOverview::specialTrayShownHeight() const {
+    if (!specialTrayOnBottom() || (specialTrayAutohide() && trayReveal && trayReveal->goal() < 0.5F))
+        return 0.F;
+    const auto MONITOR = pMonitor.lock();
+    if (!MONITOR || !ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray", MONITOR))
+        return 0.F;
+    const auto CARDS = specialTrayCards();
+    if (!CARDS.empty()) {
+        const float SCALE = std::max(MONITOR->m_scale, 0.01F);
+        const auto  VIS   = specialTrayVisualBox(CARDS.front().box);
+        return sc<float>(VIS.h) / SCALE + specialTrayLabelBand() + TRAY_MARGIN + TRAY_DOCK_PAD;
+    }
+    const float WIDTH = sc<float>(ScrollOverview::Config::getValue<int>("plugin:gridoverview:special_tray_width", MONITOR));
+    const float HEIGHT = WIDTH * sc<float>(MONITOR->m_size.y / std::max(MONITOR->m_size.x, 1.0)) * (1.F - specialTrayPerspectiveDepth());
+    return HEIGHT + specialTrayLabelBand() + TRAY_MARGIN + TRAY_DOCK_PAD;
 }
 
 // a hidden (autohide) tray lies over the grid when shown instead of keeping space free
-float CScrollOverview::specialTrayReserve() const {
-    return specialTrayAutohide() ? 0.F : specialTrayShownWidth();
+float CScrollOverview::specialTrayReserveX() const {
+    return specialTrayAutohide() || specialTrayOnBottom() ? 0.F : specialTrayShownWidth();
 }
 
-// autohide: shown when the pointer touches the right edge, hidden once it leaves the tray. While a window is dragged
-// it comes up as soon as the pointer enters the edge scrolling zone; pushing on to the very edge scrolls further
-// (updateDragEdgeScroll)
+float CScrollOverview::specialTrayReserveY() const {
+    return specialTrayAutohide() || specialTrayOnSide() ? 0.F : specialTrayShownHeight();
+}
+
+float CScrollOverview::specialTrayReserve() const {
+    return specialTrayReserveX();
+}
+
+// autohide: shown when the pointer touches the tray's screen edge, hidden once it leaves the tray. While a window
+// is dragged it comes up as soon as the pointer enters the edge scrolling zone; pushing on to the very edge scrolls
+// further (updateDragEdgeScroll)
 void CScrollOverview::updateSpecialTrayReveal(const Vector2D& pointLocal) {
     const auto MONITOR = pMonitor.lock();
     if (!MONITOR || !trayReveal || closing || !specialTrayAutohide())
@@ -430,13 +526,27 @@ void CScrollOverview::updateSpecialTrayReveal(const Vector2D& pointLocal) {
         return;
 
     const auto   SIZE     = MONITOR->m_size * MONITOR->m_scale;
-    const double RIGHT    = SIZE.x;
-    const double KEEP     = RIGHT - (ADD.w + 2.0 * TRAY_MARGIN * MONITOR->m_scale);
     const bool   DRAGGING = dragActiveWindow || (g_pointerGrabOverview && g_pointerGrabOverview->dragActiveWindow);
-    // dragging: the edge scrolling zone of updateDragEdgeScroll()
-    const double EDGE  = DRAGGING ? RIGHT - std::min(SIZE.x, SIZE.y) * 0.04 : RIGHT - 2.0 * MONITOR->m_scale;
-    const bool   SHOWN = trayReveal->goal() > 0.5F;
-    const bool   SHOW  = isOverviewPointerOnMonitor(MONITOR) && (pointLocal.x >= EDGE || (SHOWN && pointLocal.x >= KEEP));
+    const double SCROLL   = std::min(SIZE.x, SIZE.y) * 0.04;
+    const bool   SHOWN    = trayReveal->goal() > 0.5F;
+    bool         SHOW     = false;
+    if (specialTrayOnBottom()) {
+        const double BAND = (CARDS.empty() ? ADD.h : CARDS.front().box.h + specialTrayLabelBand() * MONITOR->m_scale) +
+            2.0 * TRAY_MARGIN * MONITOR->m_scale;
+        const double KEEP = SIZE.y - BAND;
+        const double EDGE = DRAGGING ? SIZE.y - SCROLL : SIZE.y - 2.0 * MONITOR->m_scale;
+        SHOW              = isOverviewPointerOnMonitor(MONITOR) && (pointLocal.y >= EDGE || (SHOWN && pointLocal.y >= KEEP));
+    } else if (specialTrayOnLeft()) {
+        const double BAND = ADD.w + 2.0 * TRAY_MARGIN * MONITOR->m_scale;
+        const double KEEP = BAND;
+        const double EDGE = DRAGGING ? SCROLL : 2.0 * MONITOR->m_scale;
+        SHOW              = isOverviewPointerOnMonitor(MONITOR) && (pointLocal.x <= EDGE || (SHOWN && pointLocal.x <= KEEP));
+    } else {
+        const double BAND = ADD.w + 2.0 * TRAY_MARGIN * MONITOR->m_scale;
+        const double KEEP = SIZE.x - BAND;
+        const double EDGE = DRAGGING ? SIZE.x - SCROLL : SIZE.x - 2.0 * MONITOR->m_scale;
+        SHOW              = isOverviewPointerOnMonitor(MONITOR) && (pointLocal.x >= EDGE || (SHOWN && pointLocal.x >= KEEP));
+    }
     if (SHOW != SHOWN)
         *trayReveal = SHOW ? 1.F : 0.F;
 }
@@ -454,9 +564,20 @@ CBox CScrollOverview::specialTrayBandBox() const {
         return {};
 
     const double MARGIN = TRAY_MARGIN * MONITOR->m_scale;
-    const double LEFT   = ADD.x - MARGIN;
+    const double SCREENW = MONITOR->m_size.x * MONITOR->m_scale;
+    const double SCREENH = MONITOR->m_size.y * MONITOR->m_scale;
+    if (specialTrayOnBottom()) {
+        const auto   FRONT = CARDS.empty() ? ADD : specialTrayVisualBox(CARDS.front().box);
+        const double TOP   = FRONT.y - MARGIN;
+        return CBox{0, TOP, SCREENW, SCREENH - TOP};
+    }
+    const auto   FRONT  = CARDS.empty() ? ADD : specialTrayVisualBox(CARDS.front().box);
     const double TOP    = (CARDS.empty() ? ADD.y : CARDS.front().box.y) - MARGIN;
-    return CBox{LEFT, TOP, MONITOR->m_size.x * MONITOR->m_scale - LEFT, ADD.y + ADD.h + MARGIN - TOP};
+    const double HEIGHT = ADD.y + ADD.h + MARGIN - TOP;
+    if (specialTrayOnLeft())
+        return CBox{0, TOP, std::max(FRONT.x + FRONT.w, ADD.x + ADD.w) + MARGIN, HEIGHT};
+    const double LEFT = std::min(FRONT.x, ADD.x) - MARGIN;
+    return CBox{LEFT, TOP, SCREENW - LEFT, HEIGHT};
 }
 
 bool CScrollOverview::specialTrayBandAt(const Vector2D& pointLocal) const {
@@ -464,7 +585,7 @@ bool CScrollOverview::specialTrayBandAt(const Vector2D& pointLocal) const {
     return !BAND.empty() && BAND.containsPoint(pointLocal);
 }
 
-// the "+" box below the last card (or alone when every scratchpad was closed): drop / click for a new one
+// the "+" box after the last card (below on side trays, to the right on the bottom tray), or alone when empty
 CBox CScrollOverview::specialTrayAddBox(const std::vector<STrayCard>& cards) const {
     const auto MONITOR = pMonitor.lock();
     if (!MONITOR || !ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray", MONITOR))
@@ -472,16 +593,35 @@ CBox CScrollOverview::specialTrayAddBox(const std::vector<STrayCard>& cards) con
 
     if (!cards.empty()) {
         const auto& LAST = cards.back().box;
-        return CBox{LAST.x, LAST.y + LAST.h + (specialTrayLabelBand() + TRAY_GAP) * MONITOR->m_scale, LAST.w, TRAY_ADD_HEIGHT * MONITOR->m_scale}.round();
+        const auto  VIS  = specialTrayVisualBox(LAST); // hug foreshortened card, not the flat render box
+        if (specialTrayOnBottom()) {
+            // vertical pill: same thickness as the side-tray + bar, height capped to the card (not card-wide —
+            // that overshoots the bottom tray)
+            const double ADD_W = TRAY_ADD_HEIGHT * MONITOR->m_scale;
+            return CBox{VIS.x + VIS.w + TRAY_GAP * MONITOR->m_scale, VIS.y, ADD_W, VIS.h}.round();
+        }
+        return CBox{VIS.x, LAST.y + LAST.h + (specialTrayLabelBand() + TRAY_GAP) * MONITOR->m_scale, VIS.w, TRAY_ADD_HEIGHT * MONITOR->m_scale}.round();
+    }
+
+    const auto  SIZE  = MONITOR->m_size;
+    float       width = sc<float>(ScrollOverview::Config::getValue<int>("plugin:gridoverview:special_tray_width", MONITOR));
+    if (specialTrayOnBottom()) {
+        const float ASPECT = sc<float>(SIZE.y / std::max(SIZE.x, 1.0));
+        const float HEIGHT = width * ASPECT;
+        const float ROW    = HEIGHT + specialTrayLabelBand();
+        const float EDGE   = TRAY_MARGIN + TRAY_DOCK_PAD;
+        const float HIDDEN = specialTrayAutohide() && trayReveal ? (1.F - trayReveal->value()) * (ROW + EDGE + TRAY_MARGIN) : 0.F;
+        const float ADD_W  = TRAY_ADD_HEIGHT;
+        const float X      = (sc<float>(SIZE.x) - ADD_W) / 2.F;
+        const float Y      = sc<float>(SIZE.y) - EDGE - ROW + HIDDEN;
+        return CBox{X, Y, ADD_W, HEIGHT}.scale(MONITOR->m_scale).round();
     }
 
     // no cards: a lone "+" in the tray column, vertically centred
-    const auto  SIZE   = MONITOR->m_size;
     const float TOP    = gridWorkAreaTop(MONITOR) + TRAY_MARGIN;
     const float AVAILH = sc<float>(SIZE.y) - TOP - TRAY_MARGIN;
-    float       width  = sc<float>(ScrollOverview::Config::getValue<int>("plugin:gridoverview:special_tray_width", MONITOR));
     const float HIDDEN = specialTrayAutohide() && trayReveal ? (1.F - trayReveal->value()) * (width + 2.F * TRAY_MARGIN) : 0.F;
-    const float X      = sc<float>(SIZE.x) - TRAY_MARGIN - width + HIDDEN;
+    const float X      = specialTrayOnLeft() ? TRAY_MARGIN - HIDDEN : sc<float>(SIZE.x) - TRAY_MARGIN - width + HIDDEN;
     const float Y      = TOP + std::max(0.F, (AVAILH - TRAY_ADD_HEIGHT) / 2.F);
     return CBox{X, Y, width, TRAY_ADD_HEIGHT}.scale(MONITOR->m_scale).round();
 }
@@ -538,7 +678,8 @@ std::optional<size_t> CScrollOverview::specialTrayCardAt(const Vector2D& pointLo
 
     const auto CARDS = specialTrayCards();
     for (size_t i = 0; i < CARDS.size(); ++i) {
-        if (CARDS[i].box.containsPoint(pointLocal))
+        // visual box: with perspective the foreshortened strip; flat mode == card.box
+        if (specialTrayVisualBox(CARDS[i].box).containsPoint(pointLocal))
             return i;
     }
     return std::nullopt;
@@ -561,7 +702,8 @@ CScrollOverview::STrayPill CScrollOverview::specialTrayPill(const STrayCard& car
     const float TEXTW   = NAMED ? sc<float>(textSize.x) : 0.F;
     const float HEIGHT  = std::max(TRAY_PILL * UNIT, TEXTH + 2.F * PAD);
     const float WIDTH   = PAD + PAD + PENCIL + GAP + (NAMED ? TEXTW + GAP : 0.F) + GRIP + PAD + PAD;
-    const float CENTERX = card.box.middle().x;
+    const auto  VIS     = specialTrayVisualBox(card.box);
+    const float CENTERX = VIS.middle().x;
     const float CENTERY = card.box.y + card.box.h + specialTrayLabelOffset() * UNIT;
     out.pill            = CBox{CENTERX - WIDTH / 2.F, CENTERY - HEIGHT / 2.F, WIDTH, HEIGHT}.round();
     out.pencil          = CBox{out.pill.x + PAD, out.pill.y, PENCIL + PAD, out.pill.h}.round();
@@ -577,7 +719,10 @@ CBox CScrollOverview::specialTrayCloseBox(const STrayCard& card) const {
     if (!MONITOR)
         return {};
     const float SIZE = TRAY_CLOSE_SIZE * MONITOR->m_scale;
-    return CBox{card.box.x + card.box.w - SIZE / 2.F, card.box.y - SIZE / 2.F, SIZE, SIZE}.round();
+    const auto  VIS  = specialTrayVisualBox(card.box);
+    // sit on the outer/near top corner (right tray: top-right; left tray: top-left)
+    const float CX = specialTrayOnLeft() ? VIS.x : VIS.x + VIS.w;
+    return CBox{CX - SIZE / 2.F, VIS.y - SIZE / 2.F, SIZE, SIZE}.round();
 }
 
 std::optional<size_t> CScrollOverview::specialTrayGripAt(const Vector2D& pointLocal) const {
@@ -602,18 +747,59 @@ std::optional<size_t> CScrollOverview::specialTrayGripAt(const Vector2D& pointLo
     return std::nullopt;
 }
 
+std::optional<size_t> CScrollOverview::specialTrayShowingClose() const {
+    if (closing || specialTrayRenameBusy || dragActiveWindow || specialTrayReorderActive)
+        return std::nullopt;
+    if (specialTrayAutohide() && trayReveal && trayReveal->goal() < 0.5F)
+        return std::nullopt;
+
+    const auto MONITOR = pMonitor.lock();
+    if (!MONITOR || !isOverviewPointerOnMonitor(MONITOR))
+        return std::nullopt;
+
+    const auto CARDS = specialTrayCards();
+    if (CARDS.empty())
+        return std::nullopt;
+
+    const int TEXTSIZE = std::max(1, sc<int>(std::round(TRAY_LABEL_SIZE * MONITOR->m_scale)));
+
+    // protruding × under the pointer wins
+    for (size_t i = 0; i < CARDS.size(); ++i) {
+        if (specialTrayCloseBox(CARDS[i]).containsPoint(lastMousePosLocal))
+            return i;
+    }
+
+    if (const auto CARD = specialTrayCardAt(lastMousePosLocal))
+        return CARD;
+
+    // name pill counts as hover on that card (pencil / label / grip)
+    for (size_t i = 0; i < CARDS.size(); ++i) {
+        const auto KEY     = CARDS[i].name + "\n" + std::to_string(TEXTSIZE) + "\ntray";
+        const auto TEXTURE = contextLabelTextures.contains(KEY) ? contextLabelTextures.at(KEY) : SP<Render::ITexture>{};
+        const auto SIZE    = !isAnonymousTrayName(CARDS[i].name) && TEXTURE && TEXTURE->m_size.x > 0
+                                  ? TEXTURE->m_size
+                                  : Vector2D{isAnonymousTrayName(CARDS[i].name) ? 0.0 : TRAY_LABEL_SIZE * 4.0 * MONITOR->m_scale, TRAY_LABEL_SIZE * MONITOR->m_scale};
+        if (specialTrayPill(CARDS[i], SIZE).pill.containsPoint(lastMousePosLocal))
+            return i;
+    }
+
+    return std::nullopt;
+}
+
 std::optional<size_t> CScrollOverview::specialTrayCloseAt(const Vector2D& pointLocal) const {
     if (closing || specialTrayRenameBusy || (specialTrayAutohide() && trayReveal && trayReveal->goal() < 0.5F))
         return std::nullopt;
 
-    const auto CARDS = specialTrayCards();
-    for (size_t i = 0; i < CARDS.size(); ++i) {
-        auto card = CARDS[i];
-        if (specialTrayReorderActive && specialTrayReorderFrom == i)
-            card.box.y += lastMousePosLocal.y - dragStartMouseLocal.y;
-        if (specialTrayCloseBox(card).containsPoint(pointLocal))
-            return i;
-    }
+    const auto SHOWING = specialTrayShowingClose();
+    if (!SHOWING)
+        return std::nullopt;
+
+    auto card = specialTrayCards()[*SHOWING];
+    if (specialTrayReorderActive && specialTrayReorderFrom == *SHOWING)
+        card.box.y += lastMousePosLocal.y - dragStartMouseLocal.y;
+    if (specialTrayCloseBox(card).containsPoint(pointLocal))
+        return *SHOWING;
+
     return std::nullopt;
 }
 
@@ -672,17 +858,49 @@ static bool applySpecialTrayRename(const std::string& oldName, const std::string
             return false;
     }
 
-    PHLWORKSPACE workspace;
+    PHLWORKSPACE oldWs;
     for (const auto& w : State::workspaceState()->workspaces()) {
         if (const auto WS = w.lock(); valid(WS) && WS->type() == Workspace::eWorkspaceType::SPECIAL && specialTrayName(WS->addressableName()) == oldName) {
-            workspace = WS;
+            oldWs = WS;
             break;
         }
     }
 
-    if (workspace) {
-        // Hyprland specials keep the special: prefix in their addressable name
-        (void)Config::Actions::renameWorkspace(workspace, std::string{SPECIAL_PREFIX} + NEW);
+    // Hyprland's CHLWorkspace::rename is a no-op for SPECIAL. Migrate windows onto a new special instead;
+    // empty / roster-only cards only need the roster name updated (new special is created on first use).
+    if (oldWs) {
+        std::vector<PHLWINDOW> windows;
+        for (const auto& w : Desktop::windowState()->windows()) {
+            if (w && w->m_workspace == oldWs)
+                windows.push_back(w);
+        }
+
+        if (!windows.empty()) {
+            const auto MONITOR = oldWs->m_monitor ? oldWs->m_monitor.lock() : Desktop::focusState()->monitor();
+            if (!MONITOR)
+                return false;
+
+            const auto ADDRESS = std::string{SPECIAL_PREFIX} + NEW;
+            PHLWORKSPACE newWs;
+            for (const auto& w : State::workspaceState()->workspaces()) {
+                if (const auto WS = w.lock(); valid(WS) && WS->type() == Workspace::eWorkspaceType::SPECIAL && WS->addressableName() == ADDRESS) {
+                    newWs = WS;
+                    break;
+                }
+            }
+            if (!newWs)
+                newWs = State::workspaceState()->createSpecial(ADDRESS, MONITOR);
+            if (!newWs)
+                return false;
+
+            for (const auto& window : windows)
+                Desktop::globalWindowController()->moveWindowToWorkspace(window, newWs);
+
+            for (const auto& mon : State::monitorState()->monitors()) {
+                if (mon && mon->m_activeSpecialWorkspace == oldWs)
+                    mon->setSpecialWorkspace(newWs);
+            }
+        }
     }
 
     if (const auto IT = std::ranges::find(g_trayRoster, oldName); IT != g_trayRoster.end())
@@ -733,8 +951,13 @@ void CScrollOverview::finishSpecialTrayRename() {
     const auto OLD  = specialTrayRenameOld;
     const auto TEXT = specialTrayRenameText;
     cancelSpecialTrayRename();
-    if (!TEXT.empty())
+    if (!TEXT.empty()) {
         renameSpecialTrayCard(OLD, TEXT);
+        return;
+    }
+    // empty field: put named cards back into the anonymous scratch / scratch-N series
+    if (!isAnonymousTrayName(OLD))
+        renameSpecialTrayCard(OLD, newSpecialWorkspaceName(nullptr));
     else
         damage();
 }
@@ -765,10 +988,10 @@ bool CScrollOverview::handleSpecialTrayRenameKey(xkb_keysym_t keysym) {
 
     char utf8[8] = {};
     const int N  = xkb_keysym_to_utf8(keysym, utf8, sizeof(utf8));
-    // N includes the trailing NUL; only keep name-safe characters (same set as sanitizeTrayName)
+    // N includes the trailing NUL; only A–Z/a–z/0–9/_/- (case preserved; no spaces/umlauts/emoji)
     if (N > 1) {
         for (int i = 0; i < N - 1; ++i) {
-            const char C = sc<char>(std::tolower(sc<unsigned char>(utf8[i])));
+            const char C = utf8[i];
             if (std::isalnum(sc<unsigned char>(C)) || C == '_' || C == '-') {
                 if (specialTrayRenameText.size() < 48)
                     specialTrayRenameText.push_back(C);
@@ -798,10 +1021,10 @@ void CScrollOverview::renderSpecialTrayRenameOverlay(PHLMONITOR monitor, float a
     dim.color = CHyprColor{0.F, 0.F, 0.F, 0.35F * alpha};
     Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(dim));
 
-    const auto BACKGROUND = ScrollOverview::Config::getContextLabelBackground(monitor);
     CRectPassElement::SRectData plate;
     plate.box   = FIELD;
-    plate.color = (BACKGROUND.a > 0.F ? BACKGROUND : CHyprColor{0.F, 0.F, 0.F, 0.75F}).modifyA(std::min(1.F, (BACKGROUND.a > 0.F ? sc<float>(BACKGROUND.a) : 0.75F) * alpha));
+    // darker than the tray pills so the modal field reads clearly against the dimmed overview
+    plate.color = CHyprColor{0.F, 0.F, 0.F, 0.92F * alpha};
     plate.round = sc<int>(FIELD.h / 2.0);
     Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(plate));
 
@@ -862,17 +1085,27 @@ size_t CScrollOverview::specialTrayReorderInsertAt(const Vector2D& pointLocal, s
     if (CARDS.empty())
         return 0;
 
+    const bool BOTTOM = specialTrayOnBottom();
     size_t best = CARDS.size();
     double bestDist = std::numeric_limits<double>::max();
     for (size_t slot = 0; slot <= CARDS.size(); ++slot) {
-        double y = 0;
-        if (slot == 0)
-            y = CARDS.front().box.y;
-        else if (slot == CARDS.size())
-            y = CARDS.back().box.y + CARDS.back().box.h;
-        else
-            y = (CARDS[slot - 1].box.y + CARDS[slot - 1].box.h + CARDS[slot].box.y) / 2.0;
-        const double DIST = std::abs(pointLocal.y - y);
+        double mark = 0;
+        if (BOTTOM) {
+            if (slot == 0)
+                mark = CARDS.front().box.x;
+            else if (slot == CARDS.size())
+                mark = CARDS.back().box.x + CARDS.back().box.w;
+            else
+                mark = (CARDS[slot - 1].box.x + CARDS[slot - 1].box.w + CARDS[slot].box.x) / 2.0;
+        } else {
+            if (slot == 0)
+                mark = CARDS.front().box.y;
+            else if (slot == CARDS.size())
+                mark = CARDS.back().box.y + CARDS.back().box.h;
+            else
+                mark = (CARDS[slot - 1].box.y + CARDS[slot - 1].box.h + CARDS[slot].box.y) / 2.0;
+        }
+        const double DIST = std::abs((BOTTOM ? pointLocal.x : pointLocal.y) - mark);
         if (DIST < bestDist) {
             bestDist = DIST;
             best     = slot;
@@ -1019,9 +1252,9 @@ PHLWORKSPACE CScrollOverview::ensureSpecialWorkspace(const STrayCard& card) cons
     return State::workspaceState()->createSpecial(ADDRESS, pMonitor.lock());
 }
 
-// app icons on the bottom edge of a card, half over it, side by side from the right edge (the tray is at the right
-// screen edge), like macOS Stage Manager: one per app, the topmost window's on the right, as many as fit (the name
-// sits below them, see specialTrayLabelOffset)
+// app icons on the bottom edge of a card, half over it, side by side from the outer screen edge, like macOS Stage
+// Manager: one per app, the topmost window's outermost, as many as fit (the name sits below them, see
+// specialTrayLabelOffset)
 // an app without an icon still gets something to take it by: its first letter
 static SP<Render::ITexture> appLetterTexture(const std::string& appID, int sizePx) {
     static std::unordered_map<std::string, SP<Render::ITexture>> cache;
@@ -1039,17 +1272,20 @@ std::vector<CScrollOverview::STrayIcon> CScrollOverview::specialTrayIcons(const 
     if (!MONITOR)
         return {};
 
+    const auto  VIS   = specialTrayVisualBox(card.box);
     const float ICON  = ScrollOverview::Config::getValue<int>("plugin:gridoverview:special_tray_icon_size", MONITOR) * MONITOR->m_scale;
     const float PLATE = ICON * TRAY_ICON_PLATE;
     const float GAP   = 6.F * MONITOR->m_scale;
     const float INSET = 10.F * MONITOR->m_scale;
-    const int   FIT   = std::max(1, sc<int>((card.box.w - 2.F * INSET + GAP) / (PLATE + GAP)));
+    const int   FIT   = std::max(1, sc<int>((VIS.w - 2.F * INSET + GAP) / (PLATE + GAP)));
     const auto  THEME = ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:icon_theme", MONITOR);
 
     std::vector<std::string> apps;
     std::vector<STrayIcon>   icons;
-    float                    right  = card.box.x + card.box.w - INSET;
-    const float              CENTER = card.box.y + card.box.h;
+    // side trays: pack from the outer screen edge; bottom tray: pack from the left
+    const bool               FROM_LEFT = specialTrayOnLeft() || specialTrayOnBottom();
+    float                    cursorX   = FROM_LEFT ? VIS.x + INSET : VIS.x + VIS.w - INSET;
+    const float              CENTER    = VIS.y + VIS.h;
     for (auto it = windows.rbegin(); it != windows.rend() && sc<int>(icons.size()) < FIT; ++it) {
         const auto APP = (*it)->metadata().appID();
         if (std::ranges::find(apps, APP) != apps.end())
@@ -1063,7 +1299,7 @@ std::vector<CScrollOverview::STrayIcon> CScrollOverview::specialTrayIcons(const 
         if (!texture || texture->m_size.x <= 0)
             continue;
 
-        const float    MIDX = right - PLATE / 2.F;
+        const float    MIDX = FROM_LEFT ? cursorX + PLATE / 2.F : cursorX - PLATE / 2.F;
         const Vector2D SIZE = LETTER ? texture->m_size : Vector2D{ICON, ICON};
         icons.push_back({
             .window  = *it,
@@ -1071,7 +1307,7 @@ std::vector<CScrollOverview::STrayIcon> CScrollOverview::specialTrayIcons(const 
             .plate   = CBox{MIDX - PLATE / 2.F, CENTER - PLATE / 2.F, PLATE, PLATE}.round(),
             .icon    = CBox{MIDX - SIZE.x / 2.0, CENTER - SIZE.y / 2.0, SIZE.x, SIZE.y}.round(),
         });
-        right -= PLATE + GAP;
+        cursorX += FROM_LEFT ? PLATE + GAP : -(PLATE + GAP);
     }
     return icons;
 }
@@ -1113,6 +1349,98 @@ void CScrollOverview::renderSpecialTrayIcons(PHLMONITOR monitor, const STrayCard
     }
 }
 
+// special_tray_perspective: Hyprland's tex pass only draws axis-aligned rectangles, so window contents go into a
+// monitor-sized buffer first and come back as strips that taper toward the screen centre. Icons / name pills stay
+// flat afterwards. Returns false if the buffer is unavailable (caller then draws the windows flat).
+bool CScrollOverview::renderSpecialTrayPerspective(PHLMONITOR monitor, const std::vector<CBox>& cards, float shrink,
+                                                   ETrayPerspectiveTaper taper, const std::function<void()>& drawContents) {
+    static constexpr int STRIPS = 24;
+
+    if (!monitor || !g_pHyprRenderer || cards.empty() || shrink <= 0.001F || !drawContents)
+        return false;
+    if (g_pHyprRenderer->type() != Render::IHyprRenderer::RT_GL)
+        return false;
+
+    auto& ctx = g_pHyprRenderer->context();
+    if (!ctx.m_data.currentFB)
+        return false;
+
+    const auto SIZE   = monitor->m_transformedSize;
+    const auto FORMAT = ctx.m_data.currentFB->m_drmFormat;
+    if (!trayPerspectiveFB)
+        trayPerspectiveFB = g_pHyprRenderer->createFB("gridoverview_tray_perspective");
+    if (!trayPerspectiveFB)
+        return false;
+    if (!trayPerspectiveFB->isAllocated() || trayPerspectiveFB->m_size != SIZE || trayPerspectiveFB->m_drmFormat != FORMAT) {
+        trayPerspectiveFB->release();
+        if (!trayPerspectiveFB->alloc(sc<int>(SIZE.x), sc<int>(SIZE.y), FORMAT))
+            return false;
+    }
+    trayPerspectiveFB->setImageDescription(monitor->workBufferImageDescription());
+
+    OverviewRender::flushPass(ctx, monitor);
+    {
+        auto bind = g_pHyprRenderer->bindTempFB(ctx, trayPerspectiveFB);
+        g_pHyprRenderer->draw(ctx, CClearPassElement::SClearData{CHyprColor{0.F, 0.F, 0.F, 0.F}}, CRegion{CBox{{}, SIZE}});
+        drawContents();
+        OverviewRender::flushPass(ctx, monitor);
+    }
+
+    const auto TEXTURE = trayPerspectiveFB->getTexture();
+    if (!TEXTURE)
+        return true;
+
+    const auto restoreUV = Hyprutils::Utils::CScopeGuard([&ctx] {
+        ctx.m_data.primarySurfaceUVTopLeft     = Vector2D{-1, -1};
+        ctx.m_data.primarySurfaceUVBottomRight = Vector2D{-1, -1};
+    });
+
+    const bool HORIZONTAL = taper == ETrayPerspectiveTaper::TowardTop;
+    // Depth foreshortening: a plane tipped away is not only tapered on the far edge — its projected
+    // span along the depth axis also shrinks (otherwise side trays keep flat width and look stretched).
+    const double DEPTH = std::clamp(sc<double>(shrink), 0.0, 0.9);
+    for (const auto& box : cards) {
+        if (box.w <= 1 || box.h <= 1)
+            continue;
+        for (int i = 0; i < STRIPS; ++i) {
+            const double U0 = sc<double>(i) / STRIPS, U1 = sc<double>(i + 1) / STRIPS;
+            const double ALONG = (U0 + U1) / 2.0;
+            CTexPassElement::SRenderData data;
+            data.tex           = TEXTURE;
+            data.allowCustomUV = true;
+            if (HORIZONTAL) {
+                // bottom tray: tip back → top (toward centre) is far. Anchor near edge at the bottom.
+                const double projH = box.h * (1.0 - DEPTH);
+                const double yNear = box.y + box.h;
+                const double yFar  = yNear - projH;
+                const double Y0 = yFar + projH * U0, Y1 = yFar + projH * U1;
+                // far (U→0) narrower; UV still covers the full flat card (vertical squash = foreshortening)
+                const double W = box.w * (1.0 - DEPTH * (1.0 - ALONG));
+                ctx.m_data.primarySurfaceUVTopLeft     = Vector2D{box.x / SIZE.x, (box.y + box.h * U0) / SIZE.y};
+                ctx.m_data.primarySurfaceUVBottomRight = Vector2D{(box.x + box.w) / SIZE.x, (box.y + box.h * U1) / SIZE.y};
+                data.box = CBox{box.x + (box.w - W) / 2.0, Y0, W, std::max(1.0, Y1 - Y0)};
+            } else {
+                // left/right tray: yaw around the outer (near) edge; far edge toward screen centre
+                const double projW = box.w * (1.0 - DEPTH);
+                const bool   farIsLeft = taper == ETrayPerspectiveTaper::TowardLeft;
+                const double xNear = farIsLeft ? box.x + box.w : box.x;
+                const double xFar  = farIsLeft ? xNear - projW : xNear + projW;
+                const double xMin  = std::min(xNear, xFar);
+                const double X0 = xMin + projW * U0, X1 = xMin + projW * U1;
+                // TowardLeft: U=0 at far (left); TowardRight: U=0 at near (left) — match strip order to UV
+                const double T = farIsLeft ? (1.0 - ALONG) : ALONG;
+                const double H = box.h * (1.0 - DEPTH * T);
+                ctx.m_data.primarySurfaceUVTopLeft     = Vector2D{(box.x + box.w * U0) / SIZE.x, box.y / SIZE.y};
+                ctx.m_data.primarySurfaceUVBottomRight = Vector2D{(box.x + box.w * U1) / SIZE.x, (box.y + box.h) / SIZE.y};
+                data.box = CBox{X0, box.y + (box.h - H) / 2.0, std::max(1.0, X1 - X0), H};
+            }
+            Render::IHyprRenderer::currentPass(ctx).add(makeUnique<CTexPassElement>(std::move(data)));
+            OverviewRender::flushPass(ctx, monitor);
+        }
+    }
+    return true;
+}
+
 void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_tp& now) {
     if (!ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray", monitor))
         return;
@@ -1138,11 +1466,24 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
     const auto  CHROME     = ScrollOverview::Config::getContextLabelColor(monitor);
     const bool  ICONS      = ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray_icons", monitor);
 
-    // one dock behind all cards and the "+" (or the "+" alone when every scratchpad was closed)
-    const float PAD  = TRAY_DOCK_PAD * monitor->m_scale;
-    const auto  TOPY = CARDS.empty() ? ADD.y : CARDS.front().box.y;
-    const auto  DOCK = CBox{ADD.x - PAD, TOPY - PAD, ADD.w + 2.F * PAD, ADD.y + ADD.h + PAD - (TOPY - PAD)}.round();
-    const bool  BLUR = ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray_blur", monitor) && ScrollOverview::Config::getValue<int>("decoration:blur:enabled");
+    // one dock behind the foreshortened cards and the "+" (not the flat render box — that left a purple strip)
+    const float PAD = TRAY_DOCK_PAD * monitor->m_scale;
+    CBox        DOCK;
+    if (specialTrayOnBottom()) {
+        const auto   FRONT  = CARDS.empty() ? ADD : specialTrayVisualBox(CARDS.front().box);
+        const double LEFT   = FRONT.x - PAD;
+        const double TOP    = FRONT.y - PAD;
+        const double RIGHT  = ADD.x + ADD.w + PAD;
+        const double BOTTOM = std::max(ADD.y + ADD.h, (CARDS.empty() ? ADD.y + ADD.h : CARDS.front().box.y + CARDS.front().box.h + specialTrayLabelBand() * monitor->m_scale)) + PAD;
+        DOCK                = CBox{LEFT, TOP, RIGHT - LEFT, BOTTOM - TOP}.round();
+    } else {
+        const auto FRONT = CARDS.empty() ? ADD : specialTrayVisualBox(CARDS.front().box);
+        const auto TOPY  = CARDS.empty() ? ADD.y : CARDS.front().box.y;
+        const double LEFT  = std::min(FRONT.x, ADD.x) - PAD;
+        const double RIGHT = std::max(FRONT.x + FRONT.w, ADD.x + ADD.w) + PAD;
+        DOCK = CBox{LEFT, TOPY - PAD, RIGHT - LEFT, ADD.y + ADD.h + PAD - (TOPY - PAD)}.round();
+    }
+    const bool BLUR = ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray_blur", monitor) && ScrollOverview::Config::getValue<int>("decoration:blur:enabled");
     CRectPassElement::SRectData dock;
     dock.box   = DOCK;
     dock.color = CHyprColor{0.F, 0.F, 0.F, (BLUR ? 0.4F : 0.5F) * ALPHA};
@@ -1151,53 +1492,111 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
     dock.blurA = ALPHA;
     Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(dock));
 
-    const bool  REORDERING = specialTrayReorderActive && specialTrayReorderFrom;
-    const double REORDERY  = REORDERING ? lastMousePosLocal.y - dragStartMouseLocal.y : 0.0;
+    const bool   REORDERING = specialTrayReorderActive && specialTrayReorderFrom;
+    const double REORDERDX  = REORDERING && specialTrayOnBottom() ? lastMousePosLocal.x - dragStartMouseLocal.x : 0.0;
+    const double REORDERDY  = REORDERING && !specialTrayOnBottom() ? lastMousePosLocal.y - dragStartMouseLocal.y : 0.0;
 
+    // tilt only the window stack; icons / name pills stay flat. Strength follows the overview open progress.
+    const bool WANT_PERSPECTIVE = ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray_perspective", monitor);
+    const float PERSPECTIVE_AMOUNT = TRAY_PERSPECTIVE_SHRINK * PROGRESS;
+
+    struct SCardDraw {
+        STrayCard              card;
+        bool                   target = false;
+        bool                   moving = false;
+        float                  scale  = 1.F;
+        int                    rounding = 0;
+        float                  alpha  = 1.F;
+        std::vector<PHLWINDOW> windows;
+    };
+    std::vector<SCardDraw> draws;
+    draws.reserve(CARDS.size());
     for (size_t i = 0; i < CARDS.size(); ++i) {
-        auto        CARD     = CARDS[i];
-        const bool  MOVING   = REORDERING && *specialTrayReorderFrom == i;
-        if (MOVING)
-            CARD.box.y += REORDERY;
-        const bool  TARGET   = !REORDERING && HOVERED == i && (!DRAGGED || DRAGGED->m_workspace != CARD.workspace);
-        const float SCALE    = specialTrayRenderScale(CARD);
-        const auto  ROUNDING = sc<int>(std::round(ScrollOverview::Config::getValue<int>("decoration:rounding") * monitor->m_scale * SCALE));
-        const float CARDALPHA = ALPHA * (MOVING ? 0.85F : REORDERING ? 0.55F : 1.F);
-
-        auto windows = specialTrayWindows(CARD);
-        std::erase(windows, DRAGGED);
-
-        if (TARGET || MOVING) {
-            CRectPassElement::SRectData card;
-            card.box   = CARD.box;
-            card.color = CHyprColor{1.F, 1.F, 1.F, (MOVING ? 0.12F : 0.08F) * CARDALPHA};
-            card.round = ROUNDING;
-            Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(card));
+        SCardDraw draw;
+        draw.card = CARDS[i];
+        draw.moving = REORDERING && *specialTrayReorderFrom == i;
+        if (draw.moving) {
+            draw.card.box.x += REORDERDX;
+            draw.card.box.y += REORDERDY;
         }
+        draw.target   = !REORDERING && HOVERED == i && (!DRAGGED || DRAGGED->m_workspace != draw.card.workspace);
+        draw.scale    = specialTrayRenderScale(draw.card);
+        draw.rounding = sc<int>(std::round(ScrollOverview::Config::getValue<int>("decoration:rounding") * monitor->m_scale * draw.scale));
+        draw.alpha    = ALPHA * (draw.moving ? 0.85F : REORDERING ? 0.55F : 1.F);
+        draw.windows  = specialTrayWindows(draw.card);
+        std::erase(draw.windows, DRAGGED);
+        draws.push_back(std::move(draw));
+    }
+
+    const auto drawWindows = [&](const SCardDraw& draw) {
+        if (draw.windows.empty() || !draw.card.workspace)
+            return;
+        const auto WORKSPACE         = draw.card.workspace;
+        const bool WASVISIBLE        = WORKSPACE->visible();
+        const bool WASFORCERENDERING = WORKSPACE->m_forceRendering;
+        // a scratchpad that was just left fades out (workspace alpha -> 0), also after the overview opened.
+        // Window contents follow the workspace alpha, borders and shadows the render alpha: both get the
+        // tray's own fade. Only the drawn value is replaced, Hyprland's fade keeps running.
+        // Shadows stay off in the tray (and especially in the perspective FB — they crashed the old experiment).
+        const float WASALPHA = WORKSPACE->m_alpha ? WORKSPACE->m_alpha->value() : 1.F;
+        WORKSPACE->setVisible(true);
+        WORKSPACE->m_forceRendering = true;
+        if (WORKSPACE->m_alpha)
+            WORKSPACE->m_alpha->value() = draw.alpha;
+        auto restoreWorkspaceState = Hyprutils::Utils::CScopeGuard([WORKSPACE, WASVISIBLE, WASFORCERENDERING, WASALPHA] {
+            WORKSPACE->setVisible(WASVISIBLE);
+            WORKSPACE->m_forceRendering = WASFORCERENDERING;
+            if (WORKSPACE->m_alpha)
+                WORKSPACE->m_alpha->value() = WASALPHA;
+        });
+
+        for (const auto& window : draw.windows)
+            renderWindowLive(monitor, window, specialTrayWindowBox(draw.card, window), draw.scale, now, &draw.card.box, false, draw.alpha, false);
+    };
+
+    // hover plates under the windows (same order as the flat path) — visual/foreshortened bounds
+    for (const auto& draw : draws) {
+        if (!(draw.target || draw.moving))
+            continue;
+        CRectPassElement::SRectData card;
+        card.box   = specialTrayVisualBox(draw.card.box);
+        card.color = CHyprColor{1.F, 1.F, 1.F, (draw.moving ? 0.12F : 0.08F) * draw.alpha};
+        card.round = draw.rounding;
+        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(card));
+    }
+
+    std::vector<CBox> perspectiveCards;
+    if (WANT_PERSPECTIVE) {
+        for (const auto& draw : draws) {
+            if (!draw.windows.empty())
+                perspectiveCards.push_back(draw.card.box);
+        }
+    }
+    // bottom uses the same yaw as left (toward the right / screen centre from a left-edge tray)
+    const auto TAPER = (specialTrayOnLeft() || specialTrayOnBottom()) ? ETrayPerspectiveTaper::TowardRight :
+                                                                        ETrayPerspectiveTaper::TowardLeft;
+    const bool PERSPECTIVE = WANT_PERSPECTIVE && !perspectiveCards.empty() &&
+        renderSpecialTrayPerspective(monitor, perspectiveCards, PERSPECTIVE_AMOUNT, TAPER, [&] {
+            for (const auto& draw : draws)
+                drawWindows(draw);
+        });
+
+    for (size_t i = 0; i < draws.size(); ++i) {
+        const auto& draw      = draws[i];
+        const auto& CARD      = draw.card;
+        const float CARDALPHA = draw.alpha;
+        const auto  ROUNDING  = draw.rounding;
+        const bool  TARGET    = draw.target;
+        const bool  MOVING    = draw.moving;
+        const auto& windows   = draw.windows;
+
+        const auto VISUAL = specialTrayVisualBox(CARD.box);
 
         if (windows.empty())
-            renderEmptyWorkspaceMarker(monitor, CARD.box, scale->value(), CARDALPHA, TARGET || MOVING);
+            renderEmptyWorkspaceMarker(monitor, VISUAL, scale->value(), CARDALPHA, TARGET || MOVING);
         else {
-            const auto WORKSPACE         = CARD.workspace;
-            const bool WASVISIBLE        = WORKSPACE->visible();
-            const bool WASFORCERENDERING = WORKSPACE->m_forceRendering;
-            // a scratchpad that was just left fades out (workspace alpha -> 0), also after the overview opened.
-            // Window contents follow the workspace alpha, borders and shadows the render alpha: both get the
-            // tray's own fade. Only the drawn value is replaced, Hyprland's fade keeps running.
-            const float WASALPHA = WORKSPACE->m_alpha ? WORKSPACE->m_alpha->value() : 1.F;
-            WORKSPACE->setVisible(true);
-            WORKSPACE->m_forceRendering = true;
-            if (WORKSPACE->m_alpha)
-                WORKSPACE->m_alpha->value() = CARDALPHA;
-            auto restoreWorkspaceState = Hyprutils::Utils::CScopeGuard([WORKSPACE, WASVISIBLE, WASFORCERENDERING, WASALPHA] {
-                WORKSPACE->setVisible(WASVISIBLE);
-                WORKSPACE->m_forceRendering = WASFORCERENDERING;
-                if (WORKSPACE->m_alpha)
-                    WORKSPACE->m_alpha->value() = WASALPHA;
-            });
-
-            for (const auto& window : windows)
-                renderWindowLive(monitor, window, specialTrayWindowBox(CARD, window), SCALE, now, &CARD.box, false, CARDALPHA, false);
+            if (!PERSPECTIVE)
+                drawWindows(draw);
 
             if (TARGET || MOVING) {
                 auto color = ScrollOverview::Config::getEmptyColor(monitor);
@@ -1206,13 +1605,14 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
                 gradient.m_colors = {color};
                 gradient.updateColorsOk();
                 Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CBorderPassElement>(CBorderPassElement::SBorderData{
-                    .box        = CARD.box,
+                    .box        = VISUAL,
                     .grad1      = gradient,
                     .round      = ROUNDING,
                     .borderSize = std::max(1, sc<int>(std::round(2.F * monitor->m_scale))),
                 }));
             }
 
+            // icons stay flat on top of the (possibly tilted) window stack
             if (ICONS)
                 renderSpecialTrayIcons(monitor, CARD, windows, CARDALPHA);
         }
@@ -1254,34 +1654,53 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
         const float GRIPSIZE = std::min(sc<float>(pillGeom.grip.w), sc<float>(pillGeom.grip.h)) * 0.85F;
         GridIcons::drawUiIcon("grip", CBox{pillGeom.grip.middle().x - GRIPSIZE / 2.F, pillGeom.grip.middle().y - GRIPSIZE / 2.F, GRIPSIZE, GRIPSIZE}, CHROME_A, chrome);
 
-        // × centred on the card's top-right corner (after windows so it stays on top)
-        const auto CLOSEBOX = specialTrayCloseBox(CARD);
-        CRectPassElement::SRectData plate;
-        plate.box   = CLOSEBOX.copy().scaleFromCenter(0.92).round();
-        plate.color = CHyprColor{0.F, 0.F, 0.F, 0.55F * CARDALPHA};
-        plate.round = sc<int>(plate.box.h / 2.0);
-        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(plate));
-        auto closeColor = CHROME;
-        closeColor.a    = 1.F;
-        GridIcons::drawUiIcon("close", CLOSEBOX.copy().scaleFromCenter(0.78), CARDALPHA, closeColor);
+        // × only while this card (or its protruding button / name pill) is hovered
+        if (!REORDERING && !DRAGGED && specialTrayShowingClose() == i) {
+            const auto CLOSEBOX = specialTrayCloseBox(CARD);
+            CRectPassElement::SRectData plate;
+            plate.box   = CLOSEBOX.copy().scaleFromCenter(0.92).round();
+            plate.color = CHyprColor{0.F, 0.F, 0.F, 0.55F * CARDALPHA};
+            plate.round = sc<int>(plate.box.h / 2.0);
+            Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(plate));
+            auto closeColor = CHROME;
+            closeColor.a    = 1.F;
+            GridIcons::drawUiIcon("close", CLOSEBOX.copy().scaleFromCenter(0.78), CARDALPHA, closeColor);
+        }
     }
 
     // drop line while reordering
     if (REORDERING && specialTrayReorderInsert && !CARDS.empty()) {
         const auto SLOT = *specialTrayReorderInsert;
-        double     y    = 0;
-        if (SLOT == 0)
-            y = CARDS.front().box.y - 4.F * monitor->m_scale;
-        else if (SLOT >= CARDS.size())
-            y = CARDS.back().box.y + CARDS.back().box.h + 4.F * monitor->m_scale;
-        else
-            y = (CARDS[SLOT - 1].box.y + CARDS[SLOT - 1].box.h + CARDS[SLOT].box.y) / 2.0;
-        auto color = ScrollOverview::Config::getEmptyColor(monitor);
-        color.a    = std::min(1.F, sc<float>(color.a) * 2.F) * ALPHA;
+        auto       color = ScrollOverview::Config::getEmptyColor(monitor);
+        color.a          = std::min(1.F, sc<float>(color.a) * 2.F) * ALPHA;
         CRectPassElement::SRectData line;
-        line.box   = CBox{CARDS.front().box.x, y - 1.5F * monitor->m_scale, CARDS.front().box.w, 3.F * monitor->m_scale}.round();
         line.color = color;
-        line.round = sc<int>(line.box.h / 2.0);
+        if (specialTrayOnBottom()) {
+            const auto FRONT = specialTrayVisualBox(CARDS.front().box);
+            const auto BACK  = specialTrayVisualBox(CARDS.back().box);
+            double     x     = 0;
+            if (SLOT == 0)
+                x = FRONT.x - 4.F * monitor->m_scale;
+            else if (SLOT >= CARDS.size())
+                x = BACK.x + BACK.w + 4.F * monitor->m_scale;
+            else {
+                const auto A = specialTrayVisualBox(CARDS[SLOT - 1].box);
+                const auto B = specialTrayVisualBox(CARDS[SLOT].box);
+                x            = (A.x + A.w + B.x) / 2.0;
+            }
+            line.box = CBox{x - 1.5F * monitor->m_scale, FRONT.y, 3.F * monitor->m_scale, FRONT.h}.round();
+        } else {
+            const auto FRONT = specialTrayVisualBox(CARDS.front().box);
+            double     y     = 0;
+            if (SLOT == 0)
+                y = CARDS.front().box.y - 4.F * monitor->m_scale;
+            else if (SLOT >= CARDS.size())
+                y = CARDS.back().box.y + CARDS.back().box.h + 4.F * monitor->m_scale;
+            else
+                y = (CARDS[SLOT - 1].box.y + CARDS[SLOT - 1].box.h + CARDS[SLOT].box.y) / 2.0;
+            line.box = CBox{FRONT.x, y - 1.5F * monitor->m_scale, FRONT.w, 3.F * monitor->m_scale}.round();
+        }
+        line.round = sc<int>(std::min(line.box.w, line.box.h) / 2.0);
         Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(line));
     }
 
@@ -1290,11 +1709,12 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
     const bool ADDTARGET  = ADDHOVERED && DRAGGED;
     const auto UNIT       = monitor->m_scale;
 
+    const auto ADD_ROUND = sc<int>(std::min(ADD.w, ADD.h) / 2.0);
     if (ADDHOVERED) {
         CRectPassElement::SRectData addBackground;
         addBackground.box   = ADD;
         addBackground.color = CHyprColor{1.F, 1.F, 1.F, 0.08F * ALPHA};
-        addBackground.round = sc<int>(ADD.h / 2.0);
+        addBackground.round = ADD_ROUND;
         Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(addBackground));
     }
 
@@ -1306,7 +1726,7 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
     Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CBorderPassElement>(CBorderPassElement::SBorderData{
         .box        = ADD,
         .grad1      = gradient,
-        .round      = sc<int>(ADD.h / 2.0),
+        .round      = ADD_ROUND,
         .borderSize = std::max(1, sc<int>(std::round((ADDTARGET ? 3.F : 2.F) * UNIT))),
     }));
 
