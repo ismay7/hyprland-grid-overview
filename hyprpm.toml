@@ -1,9 +1,13 @@
 [repository]
 name = "hyprland-grid-overview"
 authors = ["maxg", "yayuuu"]
-# The commit pins of hyprland-scroll-overview point at upstream commits without the grid features; this fork
-# builds its HEAD for the installed Hyprland version until it gets pins of its own.
-commit_pins = []
+# commit_pins: [hyprland_git_commit, plugin_git_commit]
+# When hyprpm builds for a Hyprland whose commit matches the left hash, it checks out the
+# right hash of this repo. No match → build default-branch HEAD (same as empty pins).
+# After each Hyprland release you dogfood: append ["<hl-tag-commit>", "<this-repo-commit-that-builds>"].
+commit_pins = [
+    ["11cbc6c577b84ffb1edf4df3fc5b6128c3ae6947", "5a563bc205f4d508ffe574d2a2666674dd9f0266"], # 0.57.2
+]
 
 [gridoverview]
 description = "See Hyprland, then shape it. Free workspace grid — drag & drop, groups, pins, scratchpad tray, continuous zoom."
