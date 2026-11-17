@@ -20,9 +20,9 @@ views and zoom have dispatchers to bind.
 - **Drag windows anywhere**: onto another workspace, onto the edge of a window to insert it on that side (dwindle;
   the preview shows the half it will take), onto its middle to swap both. Holding a dragged window at a screen
   edge scrolls to the neighbouring workspace.
-- **Scratchpads at hand**: a tray at the right screen edge shows Hyprland's special workspaces as live cards
-  with the icons of their apps, starting with the default one, `special`. Drag a window into a card or out of it onto any workspace; a click
-  shows that scratchpad. New cards are anonymous by default (`scratch`, `scratch-2`, … — no name in the pill); the
+- **Scratchpads at hand**: a tray at the screen edge (default right, auto-hiding until the pointer touches it) shows Hyprland's special
+  workspaces as live cards with the icons of their apps, starting with the default one, `special`. Drag a window into a card or out of it
+  onto any workspace; a click shows that scratchpad. New cards are anonymous by default (`scratch`, `scratch-2`, … — no name in the pill); the
   pencil opens a centred rename field (Enter confirms, Escape cancels). × closes their windows and removes them from the
   persistent roster (`~/.local/state/gridoverview/special_workspaces`; config `special_workspaces` only seeds it once).
   The "+" stays when every card is gone. The grip reorders (or Alt+drag; order in `tray_order`). Drop on "+" can
@@ -49,9 +49,8 @@ Everything below is optional; see [Configuration](#configuration-lua) for the op
   only while dragging or only under the pointer (`empty_marker`), app icons (`window_icons`) and action chrome
   (`window_chrome`) on the windows, own curves for moving and switching views (`transition_bezier`,
   `view_switch_bezier`).
-- **Scratchpad tray**: cards that are always there, also while empty (`special_workspaces`), their size
-  (`special_tray_width`), or hidden until the pointer touches the right edge, like an auto-hiding dock
-  (`special_tray_autohide`).
+- **Scratchpad tray**: which edge (`special_tray_edge`), card size (`special_tray_width`), always-visible instead of
+  auto-hide (`special_tray_autohide = false`), and which cards seed the roster (`special_workspaces`).
 - **Keys**: `overview("zoomout" | "zoomin")` (e.g. on `SUPER + CTRL + wheel`) zooms from the desktop into the
   centred view and on to the whole grid, stays where released and is remembered; `overview("fit" | "center" |
   "togglefit")` for the views. The example module adds keys for moving through the grid (with or without the
@@ -149,11 +148,12 @@ workspaces of a context are created on its monitor. A separate grid per monitor 
 | `window_icon_size` | int | icon size on screen in layout px, independent of the zoom (at most 60 % of a window's short side incl. plate) | `64` |
 | `window_icon_plate_color` | color | plate behind the icon | `rgba(0,0,0,0.45)` |
 | `icon_theme` | string | icon theme searched before hicolor (e.g. `Papirus-Dark`); empty = hicolor only | empty |
-| `special_tray` | bool | special workspaces (scratchpads) as cards at the right screen edge; the whole-grid view keeps that space free | `true` |
+| `special_tray` | bool | special workspaces (scratchpads) as cards at a screen edge; the whole-grid view keeps that space free when the tray is shown | `true` |
+| `special_tray_edge` | string | which edge holds the tray: `right`, `left`, or `bottom` | `right` |
 | `special_tray_icons` | bool | app icons on the bottom edge of the cards, right-aligned like macOS Stage Manager (one per app, as many as fit, the name moves below them; drag an icon to move the app's topmost window, click it to show the scratchpad with that window focused; theme and plate colour from `icon_theme` / `window_icon_plate_color`) | `true` |
 | `special_tray_blur` | bool | blur behind the tray's dock (with Hyprland's `decoration:blur` settings); off: a solid dark dock | `true` |
 | `special_tray_icon_size` | int | size of those icons in layout px | `36` |
-| `special_tray_autohide` | bool | hide the tray until the pointer touches the right screen edge, like an auto-hiding dock; it stays while the pointer is over it, also while a window is dragged. The whole-grid view keeps no space free | `false` |
+| `special_tray_autohide` | bool | hide the tray until the pointer touches its screen edge, like an auto-hiding dock; it stays while the pointer is over it, also while a window is dragged. The whole-grid view keeps no space free | `true` |
 | `special_workspaces` | string | seeds the persistent tray roster once (`~/.local/state/gridoverview/special_workspaces`); afterwards × / + / rename edit that file. `special` is Hyprland's unnamed scratchpad | `special` |
 | `special_tray_auto_name` | string | name when dropping a window on +: `off` (anonymous `scratch-N`, default), `category` (desktop `Categories=`, else app), or `app` | `off` |
 | `special_tray_width` | int | card width in layout px (cards shrink when they do not fit the screen height) | `300` |

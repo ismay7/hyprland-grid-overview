@@ -77,7 +77,7 @@ With `grid = true`, workspace `R*10+C` sits in row `R`, column `C`. Empty plus-w
 | special_tray_icons | bool | app icons on card bottoms | `true` |
 | special_tray_blur | bool | blur behind the tray dock | `true` |
 | special_tray_icon_size | int | tray icon size in layout px | `36` |
-| special_tray_autohide | bool | hide until the pointer touches the tray edge | `false` |
+| special_tray_autohide | bool | hide until the pointer touches the tray edge | `true` |
 | special_workspaces | string | seeds the persistent tray roster once | `special` |
 | special_tray_auto_name | string | name on +: `off`, `category`, or `app` | `off` |
 | special_tray_width | int | card width in layout px | `300` |

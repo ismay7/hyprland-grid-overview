@@ -479,7 +479,7 @@ static void defineConfigValues() {
                                     false));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:special_tray_autohide",
                                     "hide the scratchpad tray until the pointer touches its screen edge (also while dragging a window)",
-                                    false));
+                                    true));
     addValue(makeShared<CStringValue>("plugin:gridoverview:special_workspaces",
                                       "comma-separated special workspace names that seed the tray roster (also when empty); afterwards the roster lives in "
                                       "~/.local/state/gridoverview/special_workspaces; \"special\" is Hyprland's unnamed one",

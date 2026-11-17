@@ -1,4 +1,4 @@
-With `special_tray = true` (default), Hyprland special workspaces appear as live cards at a screen edge (`special_tray_edge`, default `right`).
+With `special_tray = true` (default), Hyprland special workspaces appear as live cards at a screen edge (`special_tray_edge`, default `right`). By default the tray auto-hides until the pointer touches that edge (`special_tray_autohide = true`).
 
 ## Using the tray
 
@@ -21,8 +21,9 @@ With `special_tray = true` (default), Hyprland special workspaces appear as live
 | option | default | notes |
 | --- | --- | --- |
 | `special_tray` | `true` | master switch |
+| `special_tray_edge` | `right` | screen edge: `right`, `left`, or `bottom` |
 | `special_tray_width` | `300` | card width; cards shrink if they do not fit |
-| `special_tray_autohide` | `false` | hide until the pointer touches the tray edge |
+| `special_tray_autohide` | `true` | hide until the pointer touches the tray edge |
 | `special_tray_blur` | `true` | blur behind the dock (needs Hyprland blur) |
 | `special_tray_icons` | `true` | app icons on card bottoms |
 | `special_tray_icon_size` | `36` | icon size in layout px |
