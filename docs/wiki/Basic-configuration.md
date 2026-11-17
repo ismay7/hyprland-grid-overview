@@ -123,8 +123,6 @@ hl.plugin.gridoverview.gesture({ fingers = 4, direction = "vertical", mod = "SUP
 hl.plugin.gridoverview.gesture({ fingers = 3, direction = "vertical", action = "unset" })
 ```
 
-You can also use the Hyprland keyword `gridoverview-gesture`.
-
 | field | type | description | default |
 | --- | --- | --- | --- |
 | fingers | number | finger count (2–9) | required |

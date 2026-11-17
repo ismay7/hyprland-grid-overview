@@ -33,7 +33,7 @@ hyprctl dispatch 'hl.plugin.gridoverview.navigate("left")'
 hyprctl dispatch 'hl.plugin.gridoverview.window("close")'
 ```
 
-Native Hyprland dispatchers are also registered as `gridoverview:overview`, `gridoverview:navigate`, and `gridoverview:window`.
+The same actions are also available over IPC as `gridoverview:overview`, `gridoverview:navigate`, and `gridoverview:window` (e.g. for scripts via `hyprctl dispatch`).
 
 ## Available dispatchers
 

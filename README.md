@@ -70,21 +70,17 @@ hyprpm update
 hyprpm enable gridoverview
 ```
 
-Load on startup with `hyprpm reload` (e.g. from `hyprland.start`). Then **one keybind** — the plugin has none of its own:
+Lua only. Load on startup with `hyprpm reload` from `hyprland.start`, then **bind a toggle** — required; the plugin has no keybinds of its own:
 
 ```lua
-hl.bind("SUPER + D", function()  -- or your mainMod
+hl.bind("SUPER + D", function()  -- your main modifier + any key
     if hl.plugin and hl.plugin.gridoverview then
         hl.plugin.gridoverview.overview("toggle")
     end
 end)
 ```
 
-```ini
-bind = $mainMod, D, gridoverview:overview, toggle
-```
-
-That is enough: free grid and the other defaults are on. Optional headstart for grid keys / zoom / contexts:
+Until that bind exists, you cannot open the overview from the keyboard. After it does: free grid and the other defaults are on. Optional headstart for grid keys / zoom / contexts:
 [examples/gridoverview.lua](examples/gridoverview.lua) → `~/.config/hypr/gridoverview.lua` + `require("gridoverview")`.
 Details: [docs/wiki/Installation.md](docs/wiki/Installation.md).
 
