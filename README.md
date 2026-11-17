@@ -6,10 +6,9 @@ your workspaces, windows and scratchpads as one grid you can grab with the mouse
 Hyprland can do a lot: as many workspaces as you like, scratchpads, floating windows, groups. Most of it sits behind
 keybinds you have to know first. gridoverview puts it on screen instead: open the overview and everything is
 there to drag, drop and click, so you can find out what Hyprland can do before you learn a single shortcut.
-Nothing has to be configured first; every feature works out of the box and can be refined later — optional row
-labels (contexts), wallpapers, keybinds, animations. **Building up, never required.** Contexts are opt-in; the
-free grid is the default. The keyboard stays first-class: Hyprland's own keybinds keep working, and the overview's
-views and zoom have dispatchers to bind.
+Nothing has to be configured first — free grid, scratchpad tray and zoom work out of the box. Refine later if you
+want: looks, keys, animations, optional named rows. **Building up, never required.** The keyboard stays first-class:
+Hyprland's own keybinds keep working, and the overview's views and zoom have dispatchers to bind.
 
 ## Out of the box
 
