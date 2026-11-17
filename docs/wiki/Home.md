@@ -4,6 +4,6 @@
 
 Workspace ids follow `row * 10 + column` (11–19, 21–29, …). The grid grows as you need it: every row gets an empty workspace past its last used one, and below the last used row there is an empty row, so a window can always be dropped somewhere new. Tiled drop-into-split is built for **Dwindle** (other layouts untested for that).
 
-- [Installation](Installation.md) — hyprpm or build from source, optional starter module
+- [Installation](Installation.md) — hyprpm, one keybind; optional starter module
 - [Configuration](Configuration.md) — options, dispatchers, gestures
 - [Advanced configuration](Advanced-configuration.md) — contexts, scratchpad tray, multi-monitor

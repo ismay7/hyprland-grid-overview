@@ -18,7 +18,7 @@
    hyprpm enable gridoverview
    ```
 
-4. To load enabled plugins automatically when Hyprland starts, run `hyprpm reload` from the `hyprland.start` event handler in your Lua configuration:
+4. Load enabled plugins when Hyprland starts — Lua:
 
    ```lua
    hl.on("hyprland.start", function()
@@ -26,7 +26,35 @@
    end)
    ```
 
-5. Configure and enjoy. A complete starter module lives at [examples/gridoverview.lua](../../examples/gridoverview.lua) — save it as `~/.config/hypr/gridoverview.lua` and `require("gridoverview")` from `hyprland.lua`. Contexts (named rows, labels, wallpapers) are **opt-in** in that module (`useContexts`, `context_labels`, …); the free grid works without them. The module's binds use `settings.mainMod` (default `SUPER`); change that if your main modifier is not Super — the plugin itself registers no keybinds.
+   or in a classic `.conf`:
+
+   ```ini
+   exec-once = hyprpm reload
+   ```
+
+5. **Add one keybind** so you can open the overview (the plugin registers no binds of its own). Use your main modifier — examples below use Super:
+
+   Lua:
+
+   ```lua
+   hl.bind("SUPER + D", function()
+       if hl.plugin and hl.plugin.gridoverview then
+           hl.plugin.gridoverview.overview("toggle")
+       end
+   end)
+   ```
+
+   Hyprlang (`.conf`), if you use `$mainMod`:
+
+   ```ini
+   bind = $mainMod, D, gridoverview:overview, toggle
+   ```
+
+   Reload Hyprland (or the config). Press the bind — free grid, scratchpad tray, groups/pins chrome and zoom defaults are already on.
+
+### Optional: starter module
+
+For grid workspace keys (`R*10+C`), continuous zoom on the wheel, and opt-in contexts, copy [examples/gridoverview.lua](../../examples/gridoverview.lua) to `~/.config/hypr/gridoverview.lua` and `require("gridoverview")` from `hyprland.lua`. Set `settings.mainMod` if your main modifier is not Super. Contexts stay opt-in (`useContexts`, `context_labels`, …).
 
 **Layout:** Grid Overview is designed for Hyprland's **Dwindle** layout. Edge-insert while dragging relies on Dwindle splits; other layouts are untested for that path.
 
@@ -51,9 +79,11 @@
    hyprctl plugin load "$(pwd)/gridoverview.so"
    ```
 
-4. To load the plugin automatically when Hyprland starts, add it to your Lua configuration using an absolute path — or prefer `hyprpm` so updates stay consistent:
+4. Prefer `hyprpm` for updates, or load from Lua with an absolute path:
 
    ```lua
    local pluginPath = "/absolute/path/to/hyprland-grid-overview/gridoverview.so"
    hl.plugin.load(pluginPath)
    ```
+
+5. Add the same **one keybind** as in the hyprpm steps above.

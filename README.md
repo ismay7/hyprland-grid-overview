@@ -70,12 +70,25 @@ hyprpm update
 hyprpm enable gridoverview
 ```
 
-Load on startup with `hyprpm reload` from `hyprland.start` (see [docs/wiki/Installation.md](docs/wiki/Installation.md)).
-Optional starter module: copy [examples/gridoverview.lua](examples/gridoverview.lua) to
-`~/.config/hypr/gridoverview.lua` and `require("gridoverview")` in `hyprland.lua`. Defaults keep contexts off
-so the grid stays free until you enable them.
+Load on startup with `hyprpm reload` (e.g. from `hyprland.start`). Then **one keybind** — the plugin has none of its own:
 
-For a manual build: `make all` produces `gridoverview.so` (needs the Hyprland headers of the running version).
+```lua
+hl.bind("SUPER + D", function()  -- or your mainMod
+    if hl.plugin and hl.plugin.gridoverview then
+        hl.plugin.gridoverview.overview("toggle")
+    end
+end)
+```
+
+```ini
+bind = $mainMod, D, gridoverview:overview, toggle
+```
+
+That is enough: free grid and the other defaults are on. Optional headstart for grid keys / zoom / contexts:
+[examples/gridoverview.lua](examples/gridoverview.lua) → `~/.config/hypr/gridoverview.lua` + `require("gridoverview")`.
+Details: [docs/wiki/Installation.md](docs/wiki/Installation.md).
+
+Manual build: `make all` → `gridoverview.so` (headers must match the running Hyprland).
 
 ## Configuration (Lua)
 
@@ -130,7 +143,7 @@ workspaces of a context are created on its monitor. A separate grid per monitor 
 
 | option | type | description | default |
 | --- | --- | --- | --- |
-| `grid` | bool | grid layout: workspace `R*10+C` in row `R`, column `C` | `false` |
+| `grid` | bool | grid layout: workspace `R*10+C` in row `R`, column `C` | `true` |
 | `grid_orientation` | string | contexts (workspaces `R*10+C` sharing `R`) as `rows` or `columns` | `rows` |
 | `grid_rows` / `grid_columns` | int | highest row / position within a row that gets placeholders (1–9; `grid_rows = 1` for a single row) | `9` |
 | `grid_buttons` | bool | buttons to switch between centred and whole-grid view | `true` |

@@ -1,4 +1,7 @@
--- Example Hyprland (Lua config) module for hyprland-grid-overview.
+-- Optional starter module for hyprland-grid-overview (not required to open the overview).
+--
+-- Minimum install is: hyprpm enable gridoverview + one toggle bind (see docs/wiki/Installation.md).
+-- This file adds grid workspace keys, continuous zoom, and opt-in contexts on top of the plugin defaults.
 --
 -- Save as ~/.config/hypr/gridoverview.lua and add `require("gridoverview")` to hyprland.lua. Remove or
 -- rebind your own workspace keys that clash with the ones below (mainMod + [1-9], mainMod + SHIFT + arrows, ...).

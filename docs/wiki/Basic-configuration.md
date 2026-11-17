@@ -1,4 +1,4 @@
-The configuration below is a solid starting point for Grid Overview: free grid, centred scale, wallpaper on the selected workspace, window chrome (groups / pins / …), scratchpad tray, and `SUPER + D` to toggle. Prefer the complete starter module at [examples/gridoverview.lua](../../examples/gridoverview.lua) for grid keys, continuous zoom, and optional contexts.
+After [Installation](Installation.md) (`hyprpm enable` + one toggle bind), the plugin defaults are already a usable Grid Overview. The snippet below is optional tuning. For grid workspace keys, continuous zoom binds and opt-in contexts, use the starter module at [examples/gridoverview.lua](../../examples/gridoverview.lua).
 
 Out of the box, tiled **groups** show a tab strip (click to switch, drag a tab away to detach, drop onto tabs to join). **Pins** use the chrome pin button; pinned floaters sit on a pin rail on the focused workspace card. The 2×3 chrome dock (`window_chrome`) also covers float, maximize, fullscreen, group and close.
 
@@ -43,13 +43,13 @@ hl.bind("SUPER + D", function()
 end)
 ```
 
-With `grid = true`, workspace `R*10+C` sits in row `R`, column `C`. Empty plus-workspaces appear automatically while the overview is open; unused ones disappear again. Outside the overview, moving between cells is plain Hyprland: focus/move to `row * 10 + column` (the starter module binds that for you).
+With the default `grid = true`, workspace `R*10+C` sits in row `R`, column `C`. Empty plus-workspaces appear automatically while the overview is open; unused ones disappear again. Outside the overview, moving between cells is plain Hyprland: focus/move to `row * 10 + column` (the optional starter module binds that for you).
 
 ## Properties
 
 | property | type | description | default |
 | --- | --- | --- | --- |
-| grid | bool | place workspace `R*10+C` in a free grid | `false` (set `true` for this plugin) |
+| grid | bool | place workspace `R*10+C` in a free grid | `true` |
 | grid_orientation | string | contexts as `rows` or `columns` | `rows` |
 | grid_rows / grid_columns | int | highest row / column that gets placeholders (1–9) | `9` |
 | grid_buttons | bool | buttons to switch centred ↔ whole-grid view | `true` |
