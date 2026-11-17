@@ -167,8 +167,8 @@ workspaces of a context are created on its monitor. A separate grid per monitor 
 | `view_switch_speed` | float | speed for `view_switch_bezier` | `3.5` |
 | `exec_on_open` / `exec_on_close` | string | shell command when the overview opens / starts closing | empty |
 
-The options, dispatchers, gestures and submaps of the original are documented in [docs/wiki](docs/wiki)
-(adapted to the `gridoverview` names).
+Options, dispatchers, gestures and further setup are documented in the
+[wiki](https://github.com/ismay7/hyprland-grid-overview/wiki) (sources under [docs/wiki](docs/wiki)).
 
 ## Testing
 

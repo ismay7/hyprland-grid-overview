@@ -1,4 +1,4 @@
-The configuration below is a good starting point for most users. It provides a balanced overview layout with workspace spacing, both wallpaper layers, blur, shadows, and a `SUPER + g` keybind that toggles the overview on all monitors. Adjust the individual values to match your workflow and visual preferences.
+The configuration below is a solid starting point for Grid Overview: free grid, centred scale, wallpaper on the selected workspace, scratchpad tray, and `SUPER + D` to toggle. Prefer the complete starter module at [examples/gridoverview.lua](../../examples/gridoverview.lua) for grid keys, continuous zoom, and optional contexts.
 
 ## Configuration
 
@@ -7,87 +7,127 @@ The configuration below is a good starting point for most users. It provides a b
 hl.config({
     plugin = {
         gridoverview = {
-            gesture_distance = 300, -- how far is the "max" for the gesture
-            scale = 0.5, -- preferred overview scale
-            workspace_gap = 100,
-            layout = "vertical", -- vertical, horizontal, or auto (per-monitor orientation)
-            wallpaper = 2, -- 0: global only, 1: per-workspace only, 2: both
-            blur = true, -- blur only the main overview wallpaper
-
+            grid = true,
+            grid_orientation = "rows", -- or "columns"
+            grid_rows = 9,
+            grid_columns = 9,
+            scale = 0.5,
+            workspace_gap = 40,
+            wallpaper = 2, -- 0 global only, 1 per-workspace only, 2 both
+            blur = true,
             shadow = {
                 enabled = true,
                 range = 50,
             },
+            highlight_selected = true,
+            highlight_padding = 40,
+            empty_marker = "always", -- always | drag | hover
+            grid_buttons = true,
+            zoom_step = 0.25,
+            window_chrome = true,
+            special_tray = true,
+            special_workspaces = "special",
         },
     },
 })
 
--- Toggle Grid Overview with SUPER+g
-hl.bind("SUPER + g", function()
-    hl.plugin.gridoverview.overview("toggle all")
+-- Toggle Grid Overview with SUPER+D
+hl.bind("SUPER + D", function()
+    if hl.plugin and hl.plugin.gridoverview then
+        hl.plugin.gridoverview.overview("toggle")
+    end
 end)
 ```
+
+With `grid = true`, workspace `R*10+C` sits in row `R`, column `C`. Empty plus-workspaces appear automatically while the overview is open; unused ones disappear again. Outside the overview, moving between cells is plain Hyprland: focus/move to `row * 10 + column` (the starter module binds that for you).
 
 ## Properties
 
 | property | type | description | default |
 | --- | --- | --- | --- |
+| grid | bool | place workspace `R*10+C` in a free grid | `false` (set `true` for this plugin) |
+| grid_orientation | string | contexts as `rows` or `columns` | `rows` |
+| grid_rows / grid_columns | int | highest row / column that gets placeholders (1–9) | `9` |
+| grid_buttons | bool | buttons to switch centred ↔ whole-grid view | `true` |
+| grid_all_contexts | bool | always show the first workspace of each structural context slot | `false` |
+| context_count | int | how many context slots config reserved (with `grid_all_contexts`) | `0` |
+| context_labels | bool | name ··· pencil next to each context's first workspace | `false` |
 | gesture_distance | number | how far is the max for the gesture | `200` |
-| scale | float | overview scale, [0.1–0.9] | `0.5` |
-| workspace_gap | number | gap between visible workspaces in the overview, in pixels | `0` |
-| layout | string | overview layout: `vertical`, `horizontal`, or `auto`; auto uses horizontal on portrait monitors and vertical on landscape monitors | `vertical` |
-| cross_monitor_drag | bool | enable cross-monitor overview dragging and Hyprland move-drag adoption; does not affect `open all`, `toggle all`, or manually opened overviews | `false` |
-| wallpaper | int | wallpaper mode: `0` global only, `1` per-workspace only, `2` both | `0` |
-| wallpaper_layer | string | which layer holds the wallpaper: `auto` detects a full-screen surface without an exclusive zone on `BACKGROUND` or `BOTTOM`; `background` or `bottom` restricts detection to that layer | `auto` |
-| blur | bool | blur the main overview wallpaper without blurring workspace wallpapers | `false` |
-| input | structure | input configuration subcategory; accepts a structure containing the properties listed below | see below |
-| shadow | structure | shadow configuration subcategory; accepts a structure containing the properties listed below | see below |
+| scale | float | overview scale for the centred view, [0.1–0.9] | `0.5` |
+| workspace_gap | number | gap between workspace cards, in layout px | `0` |
+| cross_monitor_drag | bool | enable cross-monitor overview dragging | `false` |
+| wallpaper | int | `0` global only, `1` per-workspace only, `2` both | `0` |
+| wallpaper_layer | string | `auto`, `background`, or `bottom` | `auto` |
+| blur | bool | blur the main overview wallpaper | `false` |
+| highlight_selected | bool | wallpaper + shadow only on the selected workspace; empties as outline + plus | `false` |
+| highlight_padding | int | how far the highlight reaches past the work area | `0` |
+| empty_marker | string | when empties show outline: `always`, `drag`, `hover` | `always` |
+| empty_color | color | outline and plus colour | `rgba(255,255,255,0.35)` |
+| empty_halo_color | color | thin halo under outline/plus | `rgba(0,0,0,0.4)` |
+| empty_color_from_border | bool | use `general:col.active_border` with `empty_color`'s alpha | `false` |
+| zoom_step | float | continuous zoom levels per wheel notch (0 desktop → 1 centred → 2 whole grid) | `0.25` |
+| zoom_follow_mouse | bool | zooming in selects the workspace under the cursor | `false` |
+| window_icons | bool | app icon on a plate in the middle of every window | `false` |
+| window_chrome | bool | 2×3 action dock under focused/hovered window | `true` |
+| window_icon_size | int | icon size in layout px | `64` |
+| window_icon_plate_color | color | plate behind the icon | `rgba(0,0,0,0.45)` |
+| icon_theme | string | icon theme before hicolor; empty = hicolor only | empty |
+| special_tray | bool | special workspaces as cards at a screen edge | `true` |
+| special_tray_edge | string | `right`, `left`, or `bottom` | `right` |
+| special_tray_icons | bool | app icons on card bottoms | `true` |
+| special_tray_blur | bool | blur behind the tray dock | `true` |
+| special_tray_icon_size | int | tray icon size in layout px | `36` |
+| special_tray_autohide | bool | hide until the pointer touches the tray edge | `false` |
+| special_workspaces | string | seeds the persistent tray roster once | `special` |
+| special_tray_auto_name | string | name on +: `off`, `category`, or `app` | `off` |
+| special_tray_width | int | card width in layout px | `300` |
+| transition_bezier | string | bezier for moving between workspaces; empty = `windowsMove` | empty |
+| transition_speed | float | speed for `transition_bezier` | `4` |
+| view_switch_bezier | string | bezier for centred ↔ whole-grid; empty = built-in | empty |
+| view_switch_speed | float | speed for `view_switch_bezier` | `3.5` |
+| exec_on_open / exec_on_close | string | shell command when the overview opens / starts closing | empty |
+| input | structure | input overrides inside the overview | see below |
+| shadow | structure | workspace-card shadows | see below |
+
+Mouse wheel in the overview steps along the grid axes (`SHIFT` or the horizontal wheel for the other axis). Middle mouse pans; middle click without moving closes the window under the pointer (also in the tray).
 
 ### Subcategory `input`
 
-gridoverview respects Hyprland's global `input.left_handed` and `input.touchpad.scroll_factor` settings. The `left_handed` override and `touchpad_scroll_factor` multiplier below let you adjust their behavior inside the overview only, without changing the global input configuration.
-
 | property | type | description | default |
 | --- | --- | --- | --- |
-| left_handed | int | swap left and right mouse button actions in overview: `0` disabled, `1` enabled | `input.left_handed` |
-| scroll_event_delay | number | in ms, delay between scroll events (to prevent multiple activation) | `200` |
-| touchpad_scroll_factor | float | overview touchpad workspace scroll distance multiplier | `1` |
-| scrolling_mode | int | mouse wheel behavior: `0` layout-aware default, `1` inverted, `2` vertical scroll changes workspace and horizontal scroll changes columns, `3` vertical scroll changes columns and horizontal scroll changes workspace | `0` |
-| drag_mode | int | mouse drag behavior: `0` main button drags windows and middle button pans scrolling workspaces, `1` main button pans scrolling workspaces and middle button drags windows | `0` |
-| drag_threshold | int | movement threshold in pixels before a mouse press becomes drag/pan/resize instead of click; `0` disables the threshold | `10` |
+| left_handed | int | swap left/right mouse in overview: `0` off, `1` on, `2` follow `input.left_handed` | `2` |
+| scroll_event_delay | number | ms delay between discrete scroll steps | `200` |
+| touchpad_scroll_factor | float | touchpad scroll distance multiplier | `1` |
+| drag_mode | int | `0` main button drags windows / middle pans, `1` swapped | `0` |
+| drag_threshold | int | px before press becomes drag/pan; `0` disables | `10` |
 
 ### Subcategory `shadow`
-
-Controls the shadow around each workspace card. `enabled` defaults to `false`; all other unset values fall back to `decoration.shadow.*`.
 
 | property | type | description | default |
 | --- | --- | --- | --- |
 | enabled | bool | draw a shadow around each workspace card | `false` |
 | range | int | shadow range in layout px | `decoration.shadow.range` |
 | render_power | int | shadow falloff power | `decoration.shadow.render_power` |
-| color | color or gradient | shadow color or gradient | `decoration.shadow.color` |
+| color | color or gradient | shadow color | `decoration.shadow.color` |
+| active_color | color or gradient | shadow of the selected workspace | unset |
 
 ## Gestures
 
-The overview can be opened and closed with a trackpad swipe gesture.
-
-Call `hl.plugin.gridoverview.gesture({ ... })` from your Lua configuration.
-
 ```lua
--- hyprland.lua
 hl.plugin.gridoverview.gesture({ fingers = 3, direction = "vertical" })
 hl.plugin.gridoverview.gesture({ fingers = 4, direction = "vertical", mod = "SUPER", scale = 1.5 })
-hl.plugin.gridoverview.gesture({ fingers = 4, direction = "vertical", disable_inhibit = true })
 hl.plugin.gridoverview.gesture({ fingers = 3, direction = "vertical", action = "unset" })
 ```
+
+You can also use the Hyprland keyword `gridoverview-gesture`.
 
 | field | type | description | default |
 | --- | --- | --- | --- |
 | fingers | number | finger count (2–9) | required |
-| direction | string | swipe direction (`up`, `down`, `left`, `right`, …) | required |
+| direction | string | swipe direction (`up`, `down`, `left`, `right`, `vertical`, …) | required |
 | action | string | `overview` to register, `unset` to remove | `overview` |
-| mod | string | modifier mask held during the gesture (e.g. `SUPER`) | none |
+| mod | string | modifier held during the gesture | none |
 | scale | number | gesture delta scale, [0.1–10] | `1.0` |
-| disable_inhibit | bool | fire the gesture even when an app inhibits gestures | `false` |
+| disable_inhibit | bool | fire even when an app inhibits gestures | `false` |
 
 [Back to Configuration](Configuration.md)

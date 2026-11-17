@@ -1,61 +1,37 @@
-`hl.plugin.gridoverview.configure(options)` accepts a table of the gridoverview
-properties listed in [Basic configuration](Basic-configuration.md). Without `output`, it is shorthand for
-`hl.config({ plugin = { gridoverview = options } })` and keeps the same global
-configuration behavior. You can use either form for global settings.
+`hl.plugin.gridoverview.configure(options)` accepts a table of the gridoverview properties listed in [Basic configuration](Basic-configuration.md). Without `output`, it is shorthand for `hl.config({ plugin = { gridoverview = options } })`.
 
-With `output`, it stores overrides for that monitor. This is useful when two
-landscape monitors should use different overview layouts:
+With `output`, it stores overrides for that monitor — useful when outputs need different scale, gaps, or tray width:
 
 ```lua
--- Global settings inherited by all monitors.
 hl.plugin.gridoverview.configure({
-    layout = "auto",
+    grid = true,
     scale = 0.5,
-    workspace_gap = 100,
+    workspace_gap = 40,
     shadow = { enabled = true, range = 50 },
 })
 
--- Only these fields differ on DP-1.
 hl.plugin.gridoverview.configure({
     output = "DP-1",
-    layout = "vertical",
-    input = { scrolling_mode = 2 },
+    scale = 0.45,
+    special_tray_width = 260,
 })
 
--- HDMI-A-2 still inherits workspace_gap and shadow.range from global settings.
 hl.plugin.gridoverview.configure({
     output = "HDMI-A-2",
-    layout = "horizontal",
     scale = 0.4,
-    shadow = { enabled = false },
+    special_tray = false,
 })
 
-hl.bind("SUPER + g", function()
+hl.bind("SUPER + D", function()
     hl.plugin.gridoverview.overview("toggle all")
 end)
 ```
 
-- `output` must be a non-empty string matching the exact connector name from
-  `hyprctl monitors`, such as `DP-1` or `HDMI-A-2`. It does not accept `all`,
-  wildcards, or monitor-description selectors. A monitor may be disconnected when
-  its settings are configured; its overrides apply when it is connected.
-- Every overview property can be overridden, including individual `input` and
-  `shadow` fields. Hyprland options outside gridoverview remain global.
+- `output` must match the exact connector name from `hyprctl monitors` (e.g. `DP-1`). No `all`, wildcards, or description selectors. A monitor may be disconnected when configured; overrides apply when it connects.
+- Every overview property can be overridden, including individual `input` and `shadow` fields. Hyprland options outside gridoverview remain global.
 - Missing fields inherit the current global value.
-- Repeated calls for the same output merge fields - the last supplied value for a
-  field wins. An empty subtable leaves previous overrides unchanged.
+- Repeated calls for the same output merge fields — last value wins. An empty subtable leaves previous overrides unchanged.
 - On config reload, monitor overrides are cleared and rebuilt from the config.
-  Remove an override and reload to return that field to its global setting.
-- Monitor-specific values use Hyprland's value parsers and the option ranges
-  listed below. Unknown fields or invalid values reject the entire monitor-specific
-  call without applying any of its changes.
-- These settings are used for keybinds, gestures, and overviews opened during
-  window dragging. `cross_monitor_drag` is read from the monitor where the drag
-  starts; it does not block dropping into an overview that is already open.
-- Layout is chosen when an overview is created. Close and reopen existing
-  overviews after changing configuration to apply the complete new setup.
-  `auto` retains its usual behavior: horizontal on portrait monitors, vertical on
-  landscape monitors.
+- `hl.config({ plugin = { gridoverview = ... } })` alone does not create a monitor rule; use `configure({ output = ... })` for that.
 
-`output` is a selector for `configure()` only. Putting it inside
-`hl.config({ plugin = { gridoverview = ... } })` does not create a monitor rule.
+For which *workspaces* live on which monitor, see [Multi-monitor](Multi-monitor.md).

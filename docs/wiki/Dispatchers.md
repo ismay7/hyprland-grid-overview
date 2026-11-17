@@ -1,65 +1,67 @@
-Dispatchers are runtime actions exposed by gridoverview for controlling the plugin. They let you open, close, or toggle the overview on one or more monitors, move the current selection between windows and workspaces, and select or close windows from inside the overview.
+Dispatchers are runtime actions exposed by gridoverview. They let you open, close, or toggle the overview, switch views and zoom, move the selection between windows and workspaces, and act on the window under the pointer.
 
-You can call dispatchers directly from your Lua configuration using `hl.plugin.gridoverview.<dispatcher>(...)`. This makes them suitable for keybinds, submaps, event handlers, and custom Lua functions. The same actions can also be invoked externally over Hyprland IPC with `hyprctl dispatch`, which is useful for shell scripts, status bars, launchers, and other automation.
+Call them from Lua with `hl.plugin.gridoverview.<dispatcher>(...)`, or from the shell with `hyprctl dispatch`.
 
 ## Usage examples
 
 ### Keybind
 
-Bind `SUPER + g` to toggle the overview on all monitors:
-
 ```lua
--- hyprland.lua
-hl.bind("SUPER + g", function()
-    hl.plugin.gridoverview.overview("toggle all")
+hl.bind("SUPER + D", function()
+    if hl.plugin and hl.plugin.gridoverview then
+        hl.plugin.gridoverview.overview("toggle")
+    end
 end)
+
+-- Continuous zoom (e.g. SUPER + CTRL + wheel), as in the starter module:
+hl.bind("SUPER + CTRL + mouse_down", function()
+    hl.plugin.gridoverview.overview("zoomin")
+end, { mouse = true })
+hl.bind("SUPER + CTRL + mouse_up", function()
+    hl.plugin.gridoverview.overview("zoomout")
+end, { mouse = true })
 ```
 
-A dispatcher does not have to be used only as a standalone keybind action. It can be called from any Lua function and combined with conditions, configuration changes, timers, or other dispatchers as part of a larger script.
-
-For navigation and window-action binds used while the overview is open, see [Keybind submap](Keybind-submap.md).
+For navigation binds while the overview is open, see [Keybind submap](Keybind-submap.md). Without a submap, arrow keys, Enter and Escape are built in.
 
 ### CLI
 
-Pass the corresponding Lua dispatcher expression to `hyprctl dispatch`:
-
 ```bash
 hyprctl dispatch 'hl.plugin.gridoverview.overview("toggle")'
+hyprctl dispatch 'hl.plugin.gridoverview.overview("fit")'
 hyprctl dispatch 'hl.plugin.gridoverview.navigate("left")'
 hyprctl dispatch 'hl.plugin.gridoverview.window("close")'
 ```
+
+Native Hyprland dispatchers are also registered as `gridoverview:overview`, `gridoverview:navigate`, and `gridoverview:window`.
 
 ## Available dispatchers
 
 ### `hl.plugin.gridoverview.overview`
 
-Controls the overview state.
-
 | option | description |
 | --- | --- |
 | `toggle [monitor\|all]` | toggle the active monitor, a named monitor, or every monitor |
+| `open` / `on` `[monitor\|all]` | open on the active monitor, a named monitor, or every monitor |
+| `close` / `off` `[monitor\|all]` | close every overview by default, or only the named monitor |
 | `select` | select the workspace under the cursor |
-| `close [monitor\|all]` | close every overview by default, or only the named monitor |
-| `off [monitor\|all]` | same as `close` |
-| `open [monitor\|all]` | open on the active monitor, a named monitor, or every monitor |
-| `on [monitor\|all]` | same as `open` |
+| `fit` | switch to the whole-grid view |
+| `center` | switch to the centred view |
+| `togglefit` | toggle between centred and whole-grid view |
+| `zoomin` | continuous zoom in (desktop → centred → whole grid); level is remembered |
+| `zoomout` | continuous zoom out |
 
-For example, `toggle DP-1` targets only `DP-1`, while `toggle all` opens all missing overviews or closes them when they are all already open. A bare `toggle` still targets only the active monitor, and a bare `close` closes all open overviews.
+Bare `toggle` targets the active monitor; `toggle all` opens any missing overviews or closes them when all are open. Bare `close` closes all open overviews.
 
 ### `hl.plugin.gridoverview.navigate`
 
-Moves the overview selection/focus between windows in the current workspace. If there are no more windows in that direction, it selects the next workspace when the direction matches the configured overview layout.
+Moves the selection between windows on the current workspace, then to the neighbouring grid cell in that direction when there are no more windows that way.
 
 | option | description |
 | --- | --- |
-| `left` | move selection left |
-| `right` | move selection right |
-| `up` | move selection up |
-| `down` | move selection down |
+| `left` / `right` / `up` / `down` | move selection in that direction |
 
 ### `hl.plugin.gridoverview.window`
-
-Acts on the window under the mouse cursor.
 
 | option | description |
 | --- | --- |

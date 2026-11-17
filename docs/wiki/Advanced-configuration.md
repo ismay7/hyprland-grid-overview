@@ -1,6 +1,8 @@
-Lua makes it possible to use gridoverview far beyond its default behavior. By combining the plugin's runtime configuration and dispatchers with Hyprland events, keybinds, and custom logic, you can build workflows tailored to the way you use your desktop or extend the plugin with entirely new interactions. The examples below are practical starting points that can be used as-is or adapted to your own configuration.
+Beyond the defaults: name rows, tune the scratchpad tray, or adapt the overview per monitor.
 
-- [Per-monitor configuration](Per-monitor-configuration.md) — apply different overview settings for each monitor
-- [Dynamic workspaces](Dynamic-workspaces.md) — create a new workspace by scrolling past the last populated workspace
-- [ALT + Tab overview](ALT-Tab-overview.md) — use Grid Overview as a visual window switcher
-- [Toggle scroll direction](Toggle-scroll-direction.md) — temporarily change the scrolling mode while holding Shift
+- [Contexts](Contexts.md) — opt-in row labels, wallpapers, and structural slots
+- [Scratchpad tray](Scratchpad-tray.md) — special workspaces as cards at the screen edge
+- [Multi-monitor](Multi-monitor.md) — shared grid, context → monitor rules
+- [Per-monitor configuration](Per-monitor-configuration.md) — different overview options per output
+- [ALT + Tab overview](ALT-Tab-overview.md) — compact visual window switcher
+- [Wallpaper layers](Wallpaper-layers.md) — how the overview finds your wallpaper
