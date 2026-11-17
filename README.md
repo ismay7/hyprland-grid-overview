@@ -182,6 +182,10 @@ for the foreshortened UI silhouette, `perspective_depth`, plus `add` / icons / c
 
 ## Known limitations
 
+- **Designed for Dwindle.** Edge-insert while dragging (split preview, drop onto a window side) uses Dwindle's
+  preselect/split path. Other Hyprland layouts (Master, …) are not a supported target: the overview still opens and
+  you can move windows between workspaces/scratchpads, but tiled drop-into-split behaviour is untested and may be
+  wrong or no-op.
 - Options changed at runtime with `hyprctl eval 'hl.config({ plugin = { gridoverview = { ... } } })'` reach the
   plugin only if they are already set in the config file (and for strings not even then); after a config reload
   everything applies.
