@@ -1,0 +1,62 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+      - ".github/workflows/publish-wiki.yml"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+      - ".github/workflows/publish-wiki.yml"
+  workflow_dispatch:
+  schedule:
+    # Catch Hyprland main ABI breaks early (non-blocking job below).
+    - cron: "17 6 * * 1"
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Supported release: must stay green.
+  hyprland-0-57-2:
+    name: Hyprland v0.57.2
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Build gridoverview against Hyprland v0.57.2
+        run: |
+          nix build -L .#gridoverview \
+            --override-input hyprland "github:hyprwm/Hyprland/v0.57.2"
+
+      - name: Show artifact
+        run: ls -lh result/lib/
+
+  # Early warning only — may fail until we pin/adapt.
+  hyprland-main:
+    name: Hyprland main (smoke)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    continue-on-error: true
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Build gridoverview against Hyprland main
+        run: |
+          nix build -L .#gridoverview \
+            --override-input hyprland "github:hyprwm/Hyprland"

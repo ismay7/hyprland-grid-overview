@@ -1,5 +1,5 @@
 {
-    description = "A scrollable overview plugin for Hyprland with optional hyprbars integration";
+    description = "Workspace grid overview plugin for Hyprland (gridoverview)";
 
     inputs = {
         nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
@@ -54,8 +54,8 @@
                     '';
 
                     meta = {
-                        description = "Scrollable workspace overview plugin for Hyprland";
-                        homepage = "https://github.com/yayuuu/hyprland-scroll-overview";
+                        description = "Free workspace grid overview for Hyprland";
+                        homepage = "https://github.com/ismay7/hyprland-grid-overview";
                         license = pkgs.lib.licenses.bsd3;
                         platforms = pkgs.lib.platforms.linux;
                     };
