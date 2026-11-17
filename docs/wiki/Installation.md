@@ -6,8 +6,6 @@
    hyprpm add https://github.com/ismay7/hyprland-grid-overview
    ```
 
-   The repository may be private: cloning needs access (SSH key or token that Hyprland/`hyprpm` can use).
-
 2. Build and fetch dependencies:
 
    ```bash

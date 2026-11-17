@@ -1,4 +1,4 @@
-Dispatchers are runtime actions exposed by ScrollOverview for controlling the plugin. They let you open, close, or toggle the overview on one or more monitors, move the current selection between windows and workspaces, and select or close windows from inside the overview.
+Dispatchers are runtime actions exposed by gridoverview for controlling the plugin. They let you open, close, or toggle the overview on one or more monitors, move the current selection between windows and workspaces, and select or close windows from inside the overview.
 
 You can call dispatchers directly from your Lua configuration using `hl.plugin.gridoverview.<dispatcher>(...)`. This makes them suitable for keybinds, submaps, event handlers, and custom Lua functions. The same actions can also be invoked externally over Hyprland IPC with `hyprctl dispatch`, which is useful for shell scripts, status bars, launchers, and other automation.
 

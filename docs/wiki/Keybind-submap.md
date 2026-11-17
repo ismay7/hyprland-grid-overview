@@ -2,7 +2,7 @@ Defining a `gridoverview` submap replaces the built-in keyboard navigation in th
 
 While the submap is active, regular Hyprland keybinds defined outside it are not handled by default. Add `{ submap_universal = true }` to every standard bind that should remain available while the overview is open.
 
-Mouse wheel actions can also be bound inside the submap. If a scroll action is not bound, ScrollOverview continues to use its built-in behavior for that action. Defining a matching scroll bind overrides the built-in action for as long as the submap is active.
+Mouse wheel actions can also be bound inside the submap. If a scroll action is not bound, gridoverview continues to use its built-in behavior for that action. Defining a matching scroll bind overrides the built-in action for as long as the submap is active.
 
 ```lua
 -- hyprland.lua

@@ -1,4 +1,4 @@
-`hl.plugin.gridoverview.configure(options)` accepts a table of the ScrollOverview
+`hl.plugin.gridoverview.configure(options)` accepts a table of the gridoverview
 properties listed in [Basic configuration](Basic-configuration.md). Without `output`, it is shorthand for
 `hl.config({ plugin = { gridoverview = options } })` and keeps the same global
 configuration behavior. You can use either form for global settings.
@@ -31,7 +31,7 @@ hl.plugin.gridoverview.configure({
 })
 
 hl.bind("SUPER + g", function()
-    overview.overview("toggle all")
+    hl.plugin.gridoverview.overview("toggle all")
 end)
 ```
 
@@ -40,7 +40,7 @@ end)
   wildcards, or monitor-description selectors. A monitor may be disconnected when
   its settings are configured; its overrides apply when it is connected.
 - Every overview property can be overridden, including individual `input` and
-  `shadow` fields. Hyprland options outside ScrollOverview remain global.
+  `shadow` fields. Hyprland options outside gridoverview remain global.
 - Missing fields inherit the current global value.
 - Repeated calls for the same output merge fields - the last supplied value for a
   field wins. An empty subtable leaves previous overrides unchanged.

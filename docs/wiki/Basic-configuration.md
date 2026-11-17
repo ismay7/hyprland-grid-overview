@@ -22,7 +22,7 @@ hl.config({
     },
 })
 
--- Toggle ScrollOverview with SUPER+g
+-- Toggle Grid Overview with SUPER+g
 hl.bind("SUPER + g", function()
     hl.plugin.gridoverview.overview("toggle all")
 end)
@@ -45,7 +45,7 @@ end)
 
 ### Subcategory `input`
 
-ScrollOverview respects Hyprland's global `input.left_handed` and `input.touchpad.scroll_factor` settings. The `left_handed` override and `touchpad_scroll_factor` multiplier below let you adjust their behavior inside the overview only, without changing the global input configuration.
+gridoverview respects Hyprland's global `input.left_handed` and `input.touchpad.scroll_factor` settings. The `left_handed` override and `touchpad_scroll_factor` multiplier below let you adjust their behavior inside the overview only, without changing the global input configuration.
 
 | property | type | description | default |
 | --- | --- | --- | --- |

@@ -71,8 +71,6 @@ hyprpm enable gridoverview
 ```
 
 Load on startup with `hyprpm reload` from `hyprland.start` (see [docs/wiki/Installation.md](docs/wiki/Installation.md)).
-The repository may be private: cloning needs access (SSH key or token).
-
 Optional starter module: copy [examples/gridoverview.lua](examples/gridoverview.lua) to
 `~/.config/hypr/gridoverview.lua` and `require("gridoverview")` in `hyprland.lua`. Defaults keep contexts off
 so the grid stays free until you enable them.
