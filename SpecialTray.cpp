@@ -443,6 +443,10 @@ float CScrollOverview::specialTrayPerspectiveDepth() const {
     return TRAY_PERSPECTIVE_SHRINK * PROGRESS;
 }
 
+// Two geometries per card:
+//   card.box              — Render/FB rect: flat live window contents (and perspective strip source)
+//   specialTrayVisualBox  — UI silhouette after depth foreshortening: dock, +, empty outline, hits, pills, icons
+// Flat mode (perspective off / depth≈0): visual == card.box.
 CBox CScrollOverview::specialTrayVisualBox(const CBox& cardBox) const {
     const float DEPTH = specialTrayPerspectiveDepth();
     if (DEPTH <= 0.001F || cardBox.empty())
@@ -1091,12 +1095,17 @@ size_t CScrollOverview::specialTrayReorderInsertAt(const Vector2D& pointLocal, s
     for (size_t slot = 0; slot <= CARDS.size(); ++slot) {
         double mark = 0;
         if (BOTTOM) {
+            const auto FRONT = specialTrayVisualBox(CARDS.front().box);
+            const auto BACK  = specialTrayVisualBox(CARDS.back().box);
             if (slot == 0)
-                mark = CARDS.front().box.x;
+                mark = FRONT.x;
             else if (slot == CARDS.size())
-                mark = CARDS.back().box.x + CARDS.back().box.w;
-            else
-                mark = (CARDS[slot - 1].box.x + CARDS[slot - 1].box.w + CARDS[slot].box.x) / 2.0;
+                mark = BACK.x + BACK.w;
+            else {
+                const auto A = specialTrayVisualBox(CARDS[slot - 1].box);
+                const auto B = specialTrayVisualBox(CARDS[slot].box);
+                mark         = (A.x + A.w + B.x) / 2.0;
+            }
         } else {
             if (slot == 0)
                 mark = CARDS.front().box.y;
@@ -1780,18 +1789,20 @@ std::string CScrollOverview::specialTrayLayoutJson() const {
             const auto TEXTURE = contextLabelTextures.contains(KEY) ? contextLabelTextures.at(KEY) : SP<Render::ITexture>{};
             size               = TEXTURE && TEXTURE->m_size.x > 0 ? TEXTURE->m_size : Vector2D{TRAY_LABEL_SIZE * 4.0 * MONITOR->m_scale, TRAY_LABEL_SIZE * MONITOR->m_scale};
         }
-        const auto PILL = specialTrayPill(card, size);
-        auto       box  = global(card.box);
-        box.insert(1, std::format("\"name\": {}, \"anonymous\": {}, \"exists\": {}, \"icons\": [{}], \"close\": {}, \"pencil\": {}, \"grip\": {}, ",
-                                  jsonString(card.name), NAMED ? "false" : "true", card.workspace ? "true" : "false", icons, global(specialTrayCloseBox(card)),
-                                  global(PILL.pencil), global(PILL.grip)));
+        const auto PILL    = specialTrayPill(card, size);
+        const auto VISUAL  = specialTrayVisualBox(card.box);
+        auto       box     = global(card.box);
+        box.insert(1, std::format("\"name\": {}, \"anonymous\": {}, \"exists\": {}, \"visual\": {}, \"icons\": [{}], \"close\": {}, \"pencil\": {}, \"grip\": {}, ",
+                                  jsonString(card.name), NAMED ? "false" : "true", card.workspace ? "true" : "false", global(VISUAL), icons,
+                                  global(specialTrayCloseBox(card)), global(PILL.pencil), global(PILL.grip)));
         cards += box;
     }
 
     const auto ADD   = specialTrayAddBox(CARDS);
     const bool SHOWN = !ADD.empty() && !(specialTrayAutohide() && trayReveal && trayReveal->goal() < 0.5F);
-    return std::format("{{\"open\": {}, \"monitor\": {}, \"shown\": {}, \"cards\": [{}], \"add\": {}}}", closing ? "false" : "true", jsonString(MONITOR->m_name),
-                       SHOWN ? "true" : "false", cards, ADD.empty() ? "null" : global(ADD));
+    const float DEPTH = specialTrayPerspectiveDepth();
+    return std::format("{{\"open\": {}, \"monitor\": {}, \"shown\": {}, \"perspective_depth\": {:.4f}, \"cards\": [{}], \"add\": {}}}", closing ? "false" : "true",
+                       jsonString(MONITOR->m_name), SHOWN ? "true" : "false", DEPTH, cards, ADD.empty() ? "null" : global(ADD));
 }
 
 int trayLayoutLua(lua_State* L) {

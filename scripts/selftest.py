@@ -506,6 +506,80 @@ class SelfTest:
             dispatch(f'hl.dsp.window.move({{ workspace = {self.args.workspace}, follow = false, window = "address:{window["address"]}" }})')
             time.sleep(0.6)
 
+    def test_tray_visual_geometry(self):
+        """Perspective foreshortening: visual silhouette vs flat render box (tray_layout)."""
+        self.open_overview()
+        layout = self.reveal_tray()
+        cards = layout.get("cards") or []
+        if not cards:
+            print("SKIP tray visual geometry (no cards)")
+            self.close_overview()
+            return
+        depth = float(layout.get("perspective_depth") or 0)
+        card = cards[0]
+        box_w = float(card.get("w") or 0)
+        visual = card.get("visual") or {}
+        vis_w = float(visual.get("w") or 0)
+        if depth > 0.01:
+            self.check("perspective_depth reported while overview open", depth > 0.01, f"{depth}")
+            self.check("visual card narrower than render box under perspective", vis_w < box_w * 0.99 and vis_w > 0,
+                       f"visual={vis_w} box={box_w} depth={depth}")
+            add = layout.get("add") or {}
+            add_w = float(add.get("w") or 0)
+            if add_w > 0:
+                self.check("+ width tracks visual card width", abs(add_w - vis_w) < max(4.0, vis_w * 0.05),
+                           f"add={add_w} visual={vis_w}")
+        else:
+            self.check("flat tray: visual width matches render box", abs(vis_w - box_w) < 2.0,
+                       f"visual={vis_w} box={box_w}")
+        self.close_overview()
+
+    def test_pin_morph_cycle(self):
+        """Pin/unpin while overview stays open (reconcile + morph); window must remain usable."""
+        window = test_window()
+        if not window:
+            print("SKIP pin morph (no test window)")
+            return
+        addr = window["address"]
+        dispatch(f'hl.dsp.focus({{ window = "address:{addr}" }})')
+        time.sleep(0.3)
+        self.open_overview()
+        cx, cy, _ = self.monitor_center()
+        self.input.warp(cx, cy)
+        self.input.nudge()
+        # same path as Super+Shift+T: Hyprland float+pin while overview listens via reconcile
+        dispatch(f'hl.dsp.window.float({{ action = "enable", window = "address:{addr}" }})')
+        dispatch(f'hl.dsp.window.pin({{ action = "enable", window = "address:{addr}" }})')
+        pinned = wait_for(
+            lambda: (lambda w: w if w and w.get("pinned") else None)(next((c for c in clients() if c.get("address") == addr), None)),
+            timeout=2.5,
+        )
+        if not self.check("pin while overview open", bool(pinned), "pinned flag"):
+            self.close_overview()
+            return
+        time.sleep(0.7)  # let morph finish
+        dispatch(f'hl.dsp.window.pin({{ action = "disable", window = "address:{addr}" }})')
+        unpinned = wait_for(
+            lambda: (lambda w: w if w and not w.get("pinned") else None)(next((c for c in clients() if c.get("address") == addr), None)),
+            timeout=2.5,
+        )
+        self.check("unpin while overview open", bool(unpinned), "pinned cleared")
+        time.sleep(0.7)
+        # brief drag after unpin must not destroy the window (regression: morph stuck → snapback/ghost)
+        self.input.warp(cx, cy)
+        self.input.nudge()
+        self.input.button(True)
+        self.input.rel_x(80, steps=10)
+        self.input.button(False)
+        time.sleep(0.4)
+        still = next((c for c in clients() if c.get("address") == addr), None)
+        self.check("window survives drag after unpin morph", still is not None)
+        self.close_overview()
+        w = test_window()
+        if w and w.get("floating"):
+            dispatch(f'hl.dsp.window.float({{ action = "disable", window = "address:{addr}" }})')
+            time.sleep(0.3)
+
     def test_middle_drag(self):
         self.open_overview()
         x, y, _ = self.monitor_center()
@@ -542,6 +616,8 @@ class SelfTest:
             self.test_views()
             self.test_drag_cancel()
             self.test_tray()
+            self.test_tray_visual_geometry()
+            self.test_pin_morph_cycle()
             self.test_middle_drag()
             self.test_middle_click()
         finally:
@@ -563,7 +639,8 @@ def main():
     args = parser.parse_args()
     if args.list:
         print("keys (example Lua module), views and zoom, cancelled drag, tray: reveal, drop on +, icon click and drag, "
-              "pill × removes scratchpad, card reorder by grip, emptied scratchpad, card click, middle drag pans, middle click closes a window; at the end: your windows unchanged, back on the start workspace")
+              "pill × removes scratchpad, card reorder by grip, emptied scratchpad, card click, tray visual vs render geometry, "
+              "pin/unpin morph while overview open, middle drag pans, middle click closes a window; at the end: your windows unchanged, back on the start workspace")
         return 0
     if args.workspace < 11 or args.workspace % 10 == 0 or args.workspace // 10 < 2:
         parser.error("--workspace must be a grid workspace below the first row, e.g. 91")

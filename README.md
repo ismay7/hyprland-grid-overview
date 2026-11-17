@@ -169,7 +169,8 @@ The options, dispatchers, gestures and submaps of the original are documented in
 keyboard (python-evdev, write access to `/dev/uinput`) on its own test window on workspace 91 (`--workspace`) and
 checks keys of the example module, views and zoom, a cancelled drag and the scratchpad tray (reveal, drop on "+",
 icon click and drag, card reorder by grip, card click, middle click closing a window). Your windows stay where they are; exit code 0 when everything passed. For scripts,
-`hl.plugin.gridoverview.tray_layout()` returns the tray of the overview under the pointer as JSON.
+`hl.plugin.gridoverview.tray_layout()` returns the tray of the overview under the pointer as JSON (`cards[].visual`
+for the foreshortened UI silhouette, `perspective_depth`, plus `add` / icons / chrome hitboxes).
 
 ## Known limitations
 

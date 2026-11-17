@@ -130,19 +130,23 @@ class CScrollOverview : public IOverview {
     CBox                   pinnedRailSlotBox(const PHLWINDOW& window, float* contentRenderScale = nullptr) const;
     CBox                   pinnedRailWindowBox(const PHLWINDOW& window, float* contentRenderScale = nullptr) const; // icon plate, lerped while opening
     // overview-local morph when pinning/unpinning (card ↔ rail), like open/close
+    // Lifecycle: Idle (no pinMorph) → PendingTarget → Animating → Idle via endPinMorph()
+    enum class EPinMorphPhase { PendingTarget, Animating };
     struct SPinMorph {
-        PHLWINDOWREF window;
-        CBox         from;
-        CBox         to;
-        bool         pinning = true; // true: card→rail, false: rail→card
-        bool         toReady = false;
+        PHLWINDOWREF   window;
+        CBox           from;
+        CBox           to;
+        bool           pinning = true; // true: card→rail, false: rail→card
+        EPinMorphPhase phase   = EPinMorphPhase::PendingTarget;
     };
     void                   beginPinMorph(const PHLWINDOW& window, const CBox& from, bool pinning);
+    void                   endPinMorph(); // sole cleanup path (onEnd, tick, close, drag)
     void                   retargetPinMorphIfNeeded();
-    void                   clearPinMorphIfFinished();
+    void                   tickPinMorph(); // retarget + finish if animation done
     void                   snapshotPinMorphSources();
     void                   maybeAutoBeginPinMorphFromSnapshot();
     bool                   isPinMorphWindow(const PHLWINDOW& window) const;
+    bool                   isPinMorphAnimating() const;
     CBox                   pinMorphBox(float* contentRenderScale = nullptr) const;
     float                  pinMorphLiveAlpha() const;
     float                  pinMorphIconAlpha() const;
@@ -151,6 +155,8 @@ class CScrollOverview : public IOverview {
     PHLANIMVAR<float>        pinMorphProgress;
     std::unordered_map<std::string, CBox> pinMorphSourceBoxes; // last settled host boxes (card or rail)
     std::unordered_set<std::string>       pinMorphSourcePinned;
+    // pin list drift (e.g. Super+Shift+T) → schedule rebuild without shotgun hooks
+    bool                   reconcilePinnedFloatingWindows();
     bool                   windowChromePressed = false;
     PHLWINDOWREF           hoveredChromeWindow;
     std::unordered_map<std::string, Vector2D> rememberedFloatSizes; // window address → last overview float size
@@ -164,7 +170,8 @@ class CScrollOverview : public IOverview {
     struct STrayCard {
         std::string  name;      // without the "special:" prefix
         PHLWORKSPACE workspace; // null for a configured name that does not exist yet
-        CBox         box;       // render px on this monitor
+        // Render/FB rectangle (flat window contents). UI/dock/hit/outline use specialTrayVisualBox(box).
+        CBox         box;
     };
     struct STrayPill {
         CBox pill;
