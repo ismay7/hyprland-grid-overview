@@ -4,7 +4,7 @@ The overview draws the wallpaper behind the workspace cards. The plugin finds it
 
 Other `BACKGROUND` and `BOTTOM` surfaces (widgets) are drawn on each card in every wallpaper mode.
 
-To see what the plugin detects, run with `SCROLLOVERVIEW_DEBUG_WALLPAPER=1` and read the compositor's stderr. Each overview open logs the wallpaper and widget surfaces for the monitor.
+To see what the plugin detects, set `SCROLLOVERVIEW_DEBUG_WALLPAPER=1` (legacy env name) and read the compositor's stderr. Each overview open logs the wallpaper and widget surfaces for the monitor.
 
 ## Shell layer usage
 

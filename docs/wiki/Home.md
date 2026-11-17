@@ -5,5 +5,5 @@
 Workspace ids follow `row * 10 + column` (11–19, 21–29, …). The grid grows as you need it: every row gets an empty workspace past its last used one, and below the last used row there is an empty row, so a window can always be dropped somewhere new.
 
 - [Installation](Installation.md) — hyprpm or build from source, optional starter module
-- [Configuration](Configuration.md) — options, dispatchers, gestures, keybind submap
-- [Advanced configuration](Advanced-configuration.md) — contexts, scratchpad tray, multi-monitor, examples
+- [Configuration](Configuration.md) — options, dispatchers, gestures
+- [Advanced configuration](Advanced-configuration.md) — contexts, scratchpad tray, multi-monitor

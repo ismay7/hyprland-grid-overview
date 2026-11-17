@@ -11,10 +11,6 @@ labels (contexts), wallpapers, keybinds, animations. **Building up, never requir
 free grid is the default. The keyboard stays first-class: Hyprland's own keybinds keep working, and the overview's
 views and zoom have dispatchers to bind.
 
-hyprland-grid-overview is a fork of [hyprland-scroll-overview](https://github.com/yayuuu/hyprland-scroll-overview)
-by Vaxry and yayuuu, a niri-like overview plugin. Everything the original does still works; the grid
-features are additions on top of it (see [Credits](#credits)).
-
 ## Out of the box
 
 - **A free grid**: workspace `R*10+C` sits in row `R`, column `C` (11–19, 21–29, …). It grows as you need it:
@@ -184,8 +180,7 @@ for the foreshortened UI silhouette, `perspective_depth`, plus `add` / icons / c
 - Options changed at runtime with `hyprctl eval 'hl.config({ plugin = { gridoverview = { ... } } })'` reach the
   plugin only if they are already set in the config file (and for strings not even then); after a config reload
   everything applies.
-- Dragging windows across monitors (`cross_monitor_drag`, from the original) has not been tested together with the
-  scratchpad tray.
+- Dragging windows across monitors (`cross_monitor_drag`) has not been tested together with the scratchpad tray.
 
 ## Credits
 

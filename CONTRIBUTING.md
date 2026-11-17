@@ -1,32 +1,17 @@
 # Contributing
 
-Contributions are welcome. Feel free to open a pull request with fixes,
-cleanup, or small functional improvements. I will review it when I have time.
+Contributions are welcome — fixes, cleanup, and small improvements. Open a pull request; it will be reviewed when there is time.
 
-I would prefer the project to stay close to what the overview in Niri offers.
-Small usability and compatibility improvements are fine, but larger feature
-ideas should be discussed first so the plugin does not drift too far from that
-scope.
+This project is a **workspace grid overview** for Hyprland (free grid, scratchpad tray, mouse-first). Please keep changes aligned with that: building up on the defaults, not requiring config for core behaviour. Larger feature ideas are best discussed first.
 
-## Bug Reports and Fixes
+## Bug reports and fixes
 
-Bug fixes always take priority. I will not start working on new functionality
-while there are reported bugs that still need attention.
+Bug fixes take priority over new functionality.
 
-If you find a bug, please try to narrow down which Hyprland config option causes
-or exposes it. This makes it much easier for me to reproduce the issue. Most
-bugs happen because I cannot test every possible Hyprland configuration after
-each change.
+If you find a bug, try to narrow down which Hyprland or plugin option exposes it. That makes reproduction much easier — most issues show up only with specific configs.
 
-## Development Notes
+## Development notes
 
-I have hardware to test whether the overview renders correctly in HDR, on
-vertical and horizontal monitors, and at high refresh rates. I will also
-review new pull requests with these modes in mind, to make sure changes do not
-break anything. I know that HDR mode in Hyprland itself is not perfect yet.
-This plugin will not try to fix what is broken in Hyprland; it will just use
-the same functions and hopefully things will improve over time.
+Useful test coverage includes multi-monitor setups, high refresh rates, and the scratchpad tray together with the free grid. Gesture input help is welcome; a PR with a working implementation is more useful than a feature request alone.
 
-I do not have any device that supports gesture input, so development help with
-gesture behavior is especially welcome. If you want to improve gestures, a pull
-request with the actual implementation would be very useful.
+The in-session check is `python3 scripts/selftest.py` (needs write access to `/dev/uinput`).
