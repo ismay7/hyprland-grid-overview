@@ -12,6 +12,8 @@
 #include <hyprland/src/render/pass/BorderPassElement.hpp>
 #include <hyprland/src/desktop/state/FocusState.hpp>
 #include <hyprland/src/desktop/view/window/Window.hpp>
+#include <hyprland/src/desktop/view/window/WindowGroupMembership.hpp>
+#include <hyprland/src/desktop/view/Group.hpp>
 #include <hyprland/src/config/shared/actions/ConfigActions.hpp>
 #include <hyprland/src/managers/input/InputManager.hpp>
 #include <hyprland/src/managers/fullscreen/FullscreenController.hpp>
@@ -19,6 +21,30 @@
 #include <algorithm>
 #include <cmath>
 #include <unordered_set>
+
+namespace {
+
+struct SChromeButtonsBounds {
+    float left = 0.F, top = 0.F, right = 0.F, bot = 0.F;
+};
+
+template <typename Buttons>
+SChromeButtonsBounds chromeButtonsBounds(const Buttons& buttons) {
+    SChromeButtonsBounds b;
+    if (buttons.empty())
+        return b;
+    b.left = b.right = sc<float>(buttons.front().box.x);
+    b.top = b.bot = sc<float>(buttons.front().box.y);
+    for (const auto& btn : buttons) {
+        b.left  = std::min(b.left, sc<float>(btn.box.x));
+        b.top   = std::min(b.top, sc<float>(btn.box.y));
+        b.right = std::max(b.right, sc<float>(btn.box.x + btn.box.w));
+        b.bot   = std::max(b.bot, sc<float>(btn.box.y + btn.box.h));
+    }
+    return b;
+}
+
+} // namespace
 
 void CScrollOverview::renderWindowIcons(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale) {
     if (!ScrollOverview::Config::getValue<bool>("plugin:gridoverview:window_icons", monitor))
@@ -210,11 +236,10 @@ void CScrollOverview::updateHoveredChromeWindow() {
             return true;
         if (BUTTONS.empty())
             return false;
-        const auto& FIRST = BUTTONS.front().box;
-        const auto& LAST  = BUTTONS.back().box;
-        const float TOP   = std::min(sc<float>(BOX.y), sc<float>(FIRST.y));
-        const float BOT   = std::max(sc<float>(BOX.y + BOX.h), sc<float>(FIRST.y + FIRST.h));
-        const CBox  BRIDGE{BOX.x, TOP, (LAST.x + LAST.w) - BOX.x, BOT - TOP};
+        const auto  EXT = chromeButtonsBounds(BUTTONS);
+        const float TOP = std::min(sc<float>(BOX.y), EXT.top);
+        const float BOT = std::max(sc<float>(BOX.y + BOX.h), EXT.bot);
+        const CBox  BRIDGE{BOX.x, TOP, EXT.right - BOX.x, BOT - TOP};
         return BRIDGE.containsPoint(lastMousePosLocal);
     };
 
@@ -237,8 +262,9 @@ std::vector<CScrollOverview::SWindowChromeButton> CScrollOverview::windowActionC
     if (!window || !monitor || windowBox.empty())
         return buttons;
 
-    static constexpr int   COUNT = 5;
-    static constexpr float GAP   = 6.F;
+    static constexpr int   COLS = 3;
+    static constexpr int   ROWS = 2;
+    static constexpr float GAP  = 6.F;
     const bool PINNEDHOST = shouldShowPinnedFloatingOverviewWindow(window);
     const bool ICONS = ScrollOverview::Config::getValue<bool>("plugin:gridoverview:window_icons", monitor);
     const float SIZE  = ScrollOverview::Config::getValue<int>("plugin:gridoverview:window_icon_size", monitor) * monitor->m_scale;
@@ -248,40 +274,49 @@ std::vector<CScrollOverview::SWindowChromeButton> CScrollOverview::windowActionC
     // pin rail: chrome opens to the right of the icon at a fixed readable size (not cramped to the plate)
     float BTN = PINNEDHOST ? std::clamp(28.F * monitor->m_scale, 22.F * monitor->m_scale, 34.F * monitor->m_scale) :
                              std::clamp(PLATE * 0.72F, 18.F * monitor->m_scale, 40.F * monitor->m_scale);
-    float WIDTH = COUNT * BTN + (COUNT - 1) * GAPPX;
+    float WIDTH  = COLS * BTN + (COLS - 1) * GAPPX;
+    float HEIGHT = ROWS * BTN + (ROWS - 1) * GAPPX;
     if (!PINNEDHOST) {
         const float MAXW = std::max(sc<float>(windowBox.width) * 0.92F, 1.F);
         if (WIDTH > MAXW) {
-            BTN = (MAXW - (COUNT - 1) * GAPPX) / COUNT;
+            BTN = (MAXW - (COLS - 1) * GAPPX) / COLS;
             if (BTN < 14.F * monitor->m_scale)
                 return buttons;
-            WIDTH = COUNT * BTN + (COUNT - 1) * GAPPX;
+            WIDTH  = COLS * BTN + (COLS - 1) * GAPPX;
+            HEIGHT = ROWS * BTN + (ROWS - 1) * GAPPX;
         }
     }
 
-    const auto  MID = windowBox.middle();
-    float       X   = MID.x - WIDTH / 2.F;
-    float       Y   = ICONS ? MID.y + PLATE / 2.F + 8.F * monitor->m_scale : MID.y - BTN / 2.F;
+    const auto MID = windowBox.middle();
+    float      X   = MID.x - WIDTH / 2.F;
+    float      Y   = ICONS ? MID.y + PLATE / 2.F + 8.F * monitor->m_scale : MID.y - HEIGHT / 2.F;
     if (PINNEDHOST) {
         // flush against the icon so hover can travel onto the dock without a dead gap
         X = sc<float>(windowBox.x + windowBox.w) + 2.F * monitor->m_scale;
-        Y = MID.y - BTN / 2.F;
+        Y = MID.y - HEIGHT / 2.F;
     }
 
     const bool FLOATING   = window->isFloating();
     const bool PINNED     = FLOATING && (window->m_state & Desktop::View::WINDOW_STATE_PINNED);
+    const bool GROUPED    = !!window->grouping().group();
     const auto FS         = Fullscreen::controller()->getFullscreenModes(window);
     const bool MAXIMIZED  = FS.internal == Fullscreen::FSMODE_MAXIMIZED || FS.client == Fullscreen::FSMODE_MAXIMIZED;
     const bool FULLSCREEN = FS.internal == Fullscreen::FSMODE_FULLSCREEN || FS.client == Fullscreen::FSMODE_FULLSCREEN;
 
-    const EWindowChromeAction ORDER[COUNT] = {EWindowChromeAction::Float, EWindowChromeAction::Maximize, EWindowChromeAction::Fullscreen, EWindowChromeAction::Pin,
-                                              EWindowChromeAction::Close};
-    for (int i = 0; i < COUNT; ++i) {
+    // row1: layout — row2: specials
+    static constexpr EWindowChromeAction ORDER[ROWS * COLS] = {
+        EWindowChromeAction::Float, EWindowChromeAction::Maximize, EWindowChromeAction::Fullscreen,
+        EWindowChromeAction::Group, EWindowChromeAction::Pin,       EWindowChromeAction::Close,
+    };
+    for (int i = 0; i < ROWS * COLS; ++i) {
+        const int row = i / COLS;
+        const int col = i % COLS;
         SWindowChromeButton b;
         b.action = ORDER[i];
-        b.box    = CBox{X + i * (BTN + GAPPX), Y, BTN, BTN}.round();
+        b.box    = CBox{X + col * (BTN + GAPPX), Y + row * (BTN + GAPPX), BTN, BTN}.round();
         b.active = (b.action == EWindowChromeAction::Float && FLOATING) || (b.action == EWindowChromeAction::Maximize && MAXIMIZED) ||
-            (b.action == EWindowChromeAction::Fullscreen && FULLSCREEN) || (b.action == EWindowChromeAction::Pin && PINNED);
+            (b.action == EWindowChromeAction::Fullscreen && FULLSCREEN) || (b.action == EWindowChromeAction::Group && GROUPED) ||
+            (b.action == EWindowChromeAction::Pin && PINNED);
         buttons.push_back(b);
     }
     return buttons;
@@ -365,6 +400,12 @@ void CScrollOverview::applyWindowChromeAction(const PHLWINDOW& window, EWindowCh
             (void)Config::Actions::fullscreenWindow(ON ? Fullscreen::FSMODE_FULLSCREEN : Fullscreen::FSMODE_NONE, true, window);
             break;
         }
+        case A::Group: {
+            focusChromeWindow();
+            (void)Config::Actions::toggleGroup(window);
+            closeOnWindow = window;
+            break;
+        }
         case A::Pin: {
             const bool PINNED = window->isFloating() && (window->m_state & Desktop::View::WINDOW_STATE_PINNED);
             const CBox FROM   = windowActionChromeHostBox(window);
@@ -429,17 +470,18 @@ void CScrollOverview::drawWindowActionChromeButtons(const PHLWINDOW& window, con
     if (BUTTONS.empty())
         return;
 
-    const auto  FIRST = BUTTONS.front().box, LAST = BUTTONS.back().box;
-    const float PAD   = 5.F * monitor->m_scale;
+    const auto EXT = chromeButtonsBounds(BUTTONS);
+
+    const float PAD        = 5.F * monitor->m_scale;
     const bool  PINNEDHOST = shouldShowPinnedFloatingOverviewWindow(window);
     CRectPassElement::SRectData dock;
-    // pin rail: dock starts at the icon edge so chrome reads as attached
+    // pin rail: dock starts at the icon edge so chrome reads as attached; cover the full 2×3 grid
     if (PINNEDHOST)
-        dock.box = CBox{windowBox.x + windowBox.w - PAD, FIRST.y - PAD, LAST.x + LAST.w - (windowBox.x + windowBox.w - PAD) + PAD, FIRST.h + 2.F * PAD}.round();
+        dock.box = CBox{windowBox.x + windowBox.w - PAD, EXT.top - PAD, EXT.right - (windowBox.x + windowBox.w - PAD) + PAD, EXT.bot - EXT.top + 2.F * PAD}.round();
     else
-        dock.box = CBox{FIRST.x - PAD, FIRST.y - PAD, LAST.x + LAST.w - FIRST.x + 2.F * PAD, FIRST.h + 2.F * PAD}.round();
+        dock.box = CBox{EXT.left - PAD, EXT.top - PAD, EXT.right - EXT.left + 2.F * PAD, EXT.bot - EXT.top + 2.F * PAD}.round();
     dock.color = CHyprColor{0.F, 0.F, 0.F, 0.55F * alpha};
-    dock.round = sc<int>(dock.box.h / 2.0);
+    dock.round = sc<int>(std::min(dock.box.w, dock.box.h) * 0.22);
     Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(dock));
 
     for (const auto& btn : BUTTONS) {
@@ -457,6 +499,7 @@ void CScrollOverview::drawWindowActionChromeButtons(const PHLWINDOW& window, con
             case EWindowChromeAction::Float: icon = "float"; break;
             case EWindowChromeAction::Maximize: icon = "maximize"; break;
             case EWindowChromeAction::Fullscreen: icon = "fullscreen"; break;
+            case EWindowChromeAction::Group: icon = "group"; break;
             case EWindowChromeAction::Pin: icon = "pin"; break;
             case EWindowChromeAction::Close: icon = "close"; break;
         }

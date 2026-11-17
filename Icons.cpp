@@ -296,6 +296,16 @@ namespace {
   <path d="M9 4.5c0 3.5-1.5 5.5-1.5 7.5 0 1.5 1.5 2 4.5 2s4.5-.5 4.5-2c0-2-1.5-4-1.5-7.5"/>
 </svg>)SVG";
 
+    // group: tab-bar crop only — body is a single top edge; active tab open onto it, inactive floats above
+    constexpr std::string_view UI_GROUP = R"SVG(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.15" stroke-linecap="round" stroke-linejoin="round">
+  <!-- body: just the top edge -->
+  <path d="M2.2 17h19.6"/>
+  <!-- inactive tab (shorter, detached — line runs under it) -->
+  <path d="M12.4 15.2V8.6c0-.9.7-1.6 1.6-1.6h5.2c.9 0 1.6.7 1.6 1.6v5.0c0 .9-.7 1.6-1.6 1.6H12.4" opacity="0.48" fill="#FFFFFF" fill-opacity="0.14"/>
+  <!-- active tab (taller, open bottom → fused with the body line) -->
+  <path d="M3.4 17V7.8c0-1 .8-1.8 1.8-1.8h5.4c1 0 1.8.8 1.8 1.8V17" fill="#FFFFFF" fill-opacity="0.28"/>
+</svg>)SVG";
+
     std::optional<std::string_view> uiSvgSource(std::string_view name) {
         if (name == "grip")
             return UI_GRIP;
@@ -317,6 +327,8 @@ namespace {
             return UI_FULLSCREEN;
         if (name == "pin")
             return UI_PIN;
+        if (name == "group")
+            return UI_GROUP;
         return std::nullopt;
     }
 

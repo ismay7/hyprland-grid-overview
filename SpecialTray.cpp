@@ -571,8 +571,8 @@ CBox CScrollOverview::specialTrayBandBox() const {
     const double SCREENW = MONITOR->m_size.x * MONITOR->m_scale;
     const double SCREENH = MONITOR->m_size.y * MONITOR->m_scale;
     if (specialTrayOnBottom()) {
-        const auto   FRONT = CARDS.empty() ? ADD : specialTrayVisualBox(CARDS.front().box);
-        const double TOP   = FRONT.y - MARGIN;
+        // flat card top (not visual.y) — same rule as the dock; foreshortening must not shrink the band
+        const double TOP = (CARDS.empty() ? ADD.y : CARDS.front().box.y) - MARGIN;
         return CBox{0, TOP, SCREENW, SCREENH - TOP};
     }
     const auto   FRONT  = CARDS.empty() ? ADD : specialTrayVisualBox(CARDS.front().box);
@@ -717,16 +717,15 @@ CScrollOverview::STrayPill CScrollOverview::specialTrayPill(const STrayCard& car
     return out;
 }
 
-// × centred on the card's top-right corner (half inside the card, half outside)
+// × centred on the card's top-right corner (half inside the card, half outside).
+// Always top-right — also on the left tray (users expect × there; outer-edge mirroring is the exception).
 CBox CScrollOverview::specialTrayCloseBox(const STrayCard& card) const {
     const auto MONITOR = pMonitor.lock();
     if (!MONITOR)
         return {};
     const float SIZE = TRAY_CLOSE_SIZE * MONITOR->m_scale;
     const auto  VIS  = specialTrayVisualBox(card.box);
-    // sit on the outer/near top corner (right tray: top-right; left tray: top-left)
-    const float CX = specialTrayOnLeft() ? VIS.x : VIS.x + VIS.w;
-    return CBox{CX - SIZE / 2.F, VIS.y - SIZE / 2.F, SIZE, SIZE}.round();
+    return CBox{VIS.x + VIS.w - SIZE / 2.F, VIS.y - SIZE / 2.F, SIZE, SIZE}.round();
 }
 
 std::optional<size_t> CScrollOverview::specialTrayGripAt(const Vector2D& pointLocal) const {
@@ -1475,15 +1474,17 @@ void CScrollOverview::renderSpecialTray(PHLMONITOR monitor, const Time::steady_t
     const auto  CHROME     = ScrollOverview::Config::getContextLabelColor(monitor);
     const bool  ICONS      = ScrollOverview::Config::getValue<bool>("plugin:gridoverview:special_tray_icons", monitor);
 
-    // one dock behind the foreshortened cards and the "+" (not the flat render box — that left a purple strip)
+    // Dock: hug foreshortening only on the depth axis (side: width via visual; bottom: none on height —
+    // rotate the side rule 90°). Side uses flat card.y for the long axis so the BG keeps padding;
+    // bottom must use flat card.y too — visual.y is the foreshortened top and made the dock too short.
     const float PAD = TRAY_DOCK_PAD * monitor->m_scale;
     CBox        DOCK;
     if (specialTrayOnBottom()) {
-        const auto   FRONT  = CARDS.empty() ? ADD : specialTrayVisualBox(CARDS.front().box);
-        const double LEFT   = FRONT.x - PAD;
-        const double TOP    = FRONT.y - PAD;
+        const auto   FLAT   = CARDS.empty() ? ADD : CARDS.front().box;
+        const double LEFT   = FLAT.x - PAD;
+        const double TOP    = FLAT.y - PAD;
         const double RIGHT  = ADD.x + ADD.w + PAD;
-        const double BOTTOM = std::max(ADD.y + ADD.h, (CARDS.empty() ? ADD.y + ADD.h : CARDS.front().box.y + CARDS.front().box.h + specialTrayLabelBand() * monitor->m_scale)) + PAD;
+        const double BOTTOM = std::max(ADD.y + ADD.h, FLAT.y + FLAT.h + specialTrayLabelBand() * monitor->m_scale) + PAD;
         DOCK                = CBox{LEFT, TOP, RIGHT - LEFT, BOTTOM - TOP}.round();
     } else {
         const auto FRONT = CARDS.empty() ? ADD : specialTrayVisualBox(CARDS.front().box);

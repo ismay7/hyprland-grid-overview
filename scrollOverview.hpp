@@ -101,8 +101,9 @@ class CScrollOverview : public IOverview {
     void   renderSelectedHighlight(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale, int wallpaperMode, const Time::steady_tp& now);
     void   renderSelectedEmptyMarker(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale);
     void   renderWindowIcons(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale);
-    // hover/focus chrome under the app icon (or centred where the icon would be): float, maximize, fullscreen, pin, close
-    enum class EWindowChromeAction : uint8_t { Float, Maximize, Fullscreen, Pin, Close };
+    // hover/focus chrome under the app icon (or centred where the icon would be): 2×3 grid
+    // row1 layout: float / maximize / fullscreen — row2 specials: group / pin / close
+    enum class EWindowChromeAction : uint8_t { Float, Maximize, Fullscreen, Group, Pin, Close };
     struct SWindowChromeButton {
         EWindowChromeAction action = EWindowChromeAction::Close;
         CBox                box;
@@ -160,7 +161,8 @@ class CScrollOverview : public IOverview {
     // group create/dissolve has no EventBus hook → detect overview window-set drift
     bool                   reconcileOverviewWindows();
     bool                   windowChromePressed = false;
-    bool                   groupTabPressed     = false; // tab click: switch member, swallow release (stay in overview)
+    // tab press: click = switch member; drag past threshold = drag-away (detach)
+    PHLWINDOWREF           groupTabDragCandidate;
     PHLWINDOWREF           hoveredChromeWindow;
     std::unordered_map<std::string, Vector2D> rememberedFloatSizes; // window address → last overview float size
     void   renderContextLabels(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale);

@@ -1303,9 +1303,18 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
             if (!dragActiveWindow && !scrollingPanPointerDown && !specialTrayReorderFrom &&
                 dragStartMouseLocal.distanceSq(lastMousePosLocal) > DRAGTHRESHOLDSQ) {
                 if (!INVERT_DRAG_MODE) {
-                    beginWindowDrag(specialTrayPressed ? specialTrayWindowAt(dragStartMouseLocal) : windowAtOverviewPoint(dragStartMouseLocal));
-                } else
+                    PHLWINDOW toDrag;
+                    if (groupTabDragCandidate)
+                        toDrag = groupTabDragCandidate.lock();
+                    else if (specialTrayPressed)
+                        toDrag = specialTrayWindowAt(dragStartMouseLocal);
+                    else
+                        toDrag = windowAtOverviewPoint(dragStartMouseLocal);
+                    beginWindowDrag(toDrag);
+                } else {
+                    groupTabDragCandidate.reset();
                     beginScrollingPanAtPoint(dragStartMouseLocal);
+                }
             }
         }
 
@@ -1512,18 +1521,14 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
 
             if (event.state == WL_POINTER_BUTTON_STATE_PRESSED) {
                 updateHoveredChromeWindow();
-                // group tab: switch active member, keep overview open
+                // group tab: click switches member; drag past threshold detaches (drag-away)
                 if (const auto TAB = groupTabAtOverviewPoint(lastMousePosLocal)) {
-                    if (const auto GROUP = TAB->grouping().group()) {
-                        GROUP->setCurrent(TAB);
-                        Desktop::focusState()->fullWindowFocus(TAB, Desktop::FOCUS_REASON_DESKTOP_STATE_CHANGE);
-                        OverviewWindow::forceDecoRecalc(TAB);
-                        damage();
-                    }
-                    groupTabPressed = true;
+                    groupTabDragCandidate = TAB;
+                    dragPendingPrimary    = true;
+                    dragStartMouseLocal   = lastMousePosLocal;
                     return;
                 }
-                // window action chrome (float / maximize / fullscreen / pin / close)
+                // window action chrome (2×3: float/max/FS · group/pin/close)
                 if (const auto HIT = windowChromeActionAt(lastMousePosLocal)) {
                     applyWindowChromeAction(HIT->first, HIT->second);
                     windowChromePressed = true;
@@ -1618,9 +1623,19 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
                 return;
             }
 
-            if (groupTabPressed) {
-                groupTabPressed = false;
-                return;
+            // tab click (no drag): switch member, stay in overview
+            if (const auto TAB = groupTabDragCandidate.lock()) {
+                groupTabDragCandidate.reset();
+                dragPendingPrimary = false;
+                if (!dragActiveWindow) {
+                    if (const auto GROUP = TAB->grouping().group()) {
+                        GROUP->setCurrent(TAB);
+                        Desktop::focusState()->fullWindowFocus(TAB, Desktop::FOCUS_REASON_DESKTOP_STATE_CHANGE);
+                        OverviewWindow::forceDecoRecalc(TAB);
+                        damage();
+                    }
+                    return;
+                }
             }
 
             if (specialTrayChromePressed) {
@@ -3706,6 +3721,17 @@ void CScrollOverview::initializeWindowDrag(const SWindowDragSnapshot& snapshot, 
 }
 
 void CScrollOverview::beginWindowDrag(PHLWINDOW window) {
+    // tab drag-away: detach this member so we drag its own target, not the group card
+    const auto TABMEMBER = groupTabDragCandidate.lock();
+    if (TABMEMBER && window == TABMEMBER) {
+        if (const auto GROUP = TABMEMBER->grouping().group()) {
+            GROUP->remove(TABMEMBER);
+            rebuildPending = true;
+        }
+        groupTabDragCandidate.reset();
+        window = TABMEMBER;
+    }
+
     const auto WINDOW = getOverviewWindowToShow(window);
     const auto TARGET = WINDOW ? WINDOW->layoutTarget() : nullptr;
     if (!shouldShowOverviewWindow(WINDOW) || !TARGET)
@@ -4066,6 +4092,7 @@ void CScrollOverview::cancelWindowDrag() {
 
 void CScrollOverview::clearDragPending() {
     dragPendingPrimary          = false;
+    groupTabDragCandidate.reset();
     dragActiveWindow.reset();
     dragOriginalWorkspace.reset();
     dragStartedTiled            = false;
