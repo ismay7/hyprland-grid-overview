@@ -1,4 +1,6 @@
-The configuration below is a solid starting point for Grid Overview: free grid, centred scale, wallpaper on the selected workspace, scratchpad tray, and `SUPER + D` to toggle. Prefer the complete starter module at [examples/gridoverview.lua](../../examples/gridoverview.lua) for grid keys, continuous zoom, and optional contexts.
+The configuration below is a solid starting point for Grid Overview: free grid, centred scale, wallpaper on the selected workspace, window chrome (groups / pins / …), scratchpad tray, and `SUPER + D` to toggle. Prefer the complete starter module at [examples/gridoverview.lua](../../examples/gridoverview.lua) for grid keys, continuous zoom, and optional contexts.
+
+Out of the box, tiled **groups** show a tab strip (click to switch, drag a tab away to detach, drop onto tabs to join). **Pins** use the chrome pin button; pinned floaters sit on a pin rail on the focused workspace card. The 2×3 chrome dock (`window_chrome`) also covers float, maximize, fullscreen, group and close.
 
 ## Configuration
 
@@ -68,7 +70,7 @@ With `grid = true`, workspace `R*10+C` sits in row `R`, column `C`. Empty plus-w
 | zoom_step | float | continuous zoom levels per wheel notch (0 desktop → 1 centred → 2 whole grid) | `0.25` |
 | zoom_follow_mouse | bool | zooming in selects the workspace under the cursor | `false` |
 | window_icons | bool | app icon on a plate in the middle of every window | `false` |
-| window_chrome | bool | 2×3 action dock under focused/hovered window | `true` |
+| window_chrome | bool | 2×3 action dock under focused/hovered window (float / maximize / fullscreen · group / pin / close; also on pin-rail icons) | `true` |
 | window_icon_size | int | icon size in layout px | `64` |
 | window_icon_plate_color | color | plate behind the icon | `rgba(0,0,0,0.45)` |
 | icon_theme | string | icon theme before hicolor; empty = hicolor only | empty |

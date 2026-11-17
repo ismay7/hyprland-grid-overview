@@ -3,12 +3,12 @@
 **See Hyprland, then shape it.** A workspace overview plugin for Hyprland (plugin name `gridoverview`) that shows
 your workspaces, windows and scratchpads as one grid you can grab with the mouse.
 
-Hyprland can do a lot: as many workspaces as you like, scratchpads, floating windows, groups. Most of it sits behind
-keybinds you have to know first. gridoverview puts it on screen instead: open the overview and everything is
-there to drag, drop and click, so you can find out what Hyprland can do before you learn a single shortcut.
-Nothing has to be configured first — free grid, scratchpad tray and zoom work out of the box. Refine later if you
-want: looks, keys, animations, optional named rows. **Building up, never required.** The keyboard stays first-class:
-Hyprland's own keybinds keep working, and the overview's views and zoom have dispatchers to bind.
+Hyprland can do a lot: as many workspaces as you like, scratchpads, floating windows, groups, pins. Most of it sits
+behind keybinds you have to know first. gridoverview puts those core features on screen instead: open the overview and
+reach them with the mouse and modifiers, so you can find out what Hyprland can do before you learn a single shortcut.
+Nothing has to be configured first — free grid, groups, pins, scratchpad tray and zoom work out of the box. Refine later
+if you want: looks, keys, animations, optional named rows. **Building up, never required.** The keyboard stays
+first-class: Hyprland's own keybinds keep working, and the overview's views and zoom have dispatchers to bind.
 
 ## Out of the box
 
@@ -19,6 +19,12 @@ Hyprland's own keybinds keep working, and the overview's views and zoom have dis
 - **Drag windows anywhere**: onto another workspace, onto the edge of a window to insert it on that side (dwindle;
   the preview shows the half it will take), onto its middle to swap both. Holding a dragged window at a screen
   edge scrolls to the neighbouring workspace.
+- **Groups**: tiled windows show a tab strip in the overview. Click a tab to switch member; drag a tab away to detach
+  it; drop a window onto a group's tabs (or the top of a grouped card) to join. The window chrome's group button
+  toggles grouping; dissolving a group rebuilds the layout.
+- **Pins**: pin from the window chrome (2×3 dock under the focused/hovered window: float / maximize / fullscreen ·
+  group / pin / close). Pinned floating windows sit as icons on a pin rail on the focused workspace card — hover for
+  chrome, drag them like any other window.
 - **Scratchpads at hand**: a tray at the screen edge (default right, auto-hiding until the pointer touches it) shows Hyprland's special
   workspaces as live cards with the icons of their apps, starting with the default one, `special`. Drag a window into a card or out of it
   onto any workspace; a click shows that scratchpad. New cards are anonymous by default (`scratch`, `scratch-2`, … — no name in the pill); the
@@ -45,8 +51,8 @@ Everything below is optional; see [Configuration](#configuration-lua) for the op
   optional monitor per row), not the display names. `grid_all_contexts` keeps those structural rows visible even
   while empty. Contexts as columns: `grid_orientation = "columns"`.
 - **Looks**: only the selected workspace with wallpaper and shadow (`highlight_selected`), empty workspaces always,
-  only while dragging or only under the pointer (`empty_marker`), app icons (`window_icons`) and action chrome
-  (`window_chrome`) on the windows, own curves for moving and switching views (`transition_bezier`,
+  only while dragging or only under the pointer (`empty_marker`), app icons (`window_icons`), or turn off the action
+  chrome (`window_chrome`, on by default). Own curves for moving and switching views (`transition_bezier`,
   `view_switch_bezier`).
 - **Scratchpad tray**: which edge (`special_tray_edge`), card size (`special_tray_width`), always-visible instead of
   auto-hide (`special_tray_autohide = false`), and which cards seed the roster (`special_workspaces`).
