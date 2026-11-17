@@ -23,9 +23,11 @@ hl.config({
             },
             highlight_selected = true,
             highlight_padding = 40,
-            empty_marker = "always", -- always | drag | hover
+            empty_marker = "hover", -- always | drag | hover
             grid_buttons = true,
             zoom_step = 0.25,
+            zoom_follow_mouse = true,
+            window_icons = true,
             window_chrome = true,
             special_tray = true,
             special_workspaces = "special",
@@ -33,7 +35,7 @@ hl.config({
     },
 })
 
--- Toggle Grid Overview with SUPER+D
+-- Toggle with your main modifier (starter module: settings.mainMod, default SUPER)
 hl.bind("SUPER + D", function()
     if hl.plugin and hl.plugin.gridoverview then
         hl.plugin.gridoverview.overview("toggle")
@@ -63,13 +65,13 @@ With `grid = true`, workspace `R*10+C` sits in row `R`, column `C`. Empty plus-w
 | blur | bool | blur the main overview wallpaper | `false` |
 | highlight_selected | bool | wallpaper + shadow only on the selected workspace; empties as outline + plus | `false` |
 | highlight_padding | int | how far the highlight reaches past the work area | `0` |
-| empty_marker | string | when empties show outline: `always`, `drag`, `hover` | `always` |
+| empty_marker | string | when empties show outline: `always`, `drag`, `hover` | `hover` |
 | empty_color | color | outline and plus colour | `rgba(255,255,255,0.35)` |
 | empty_halo_color | color | thin halo under outline/plus | `rgba(0,0,0,0.4)` |
 | empty_color_from_border | bool | use `general:col.active_border` with `empty_color`'s alpha | `false` |
 | zoom_step | float | continuous zoom levels per wheel notch (0 desktop → 1 centred → 2 whole grid) | `0.25` |
-| zoom_follow_mouse | bool | zooming in selects the workspace under the cursor | `false` |
-| window_icons | bool | app icon on a plate in the middle of every window | `false` |
+| zoom_follow_mouse | bool | zooming in selects the workspace under the cursor | `true` |
+| window_icons | bool | app icon on a plate in the middle of every window | `true` |
 | window_chrome | bool | 2×3 action dock under focused/hovered window (float / maximize / fullscreen · group / pin / close; also on pin-rail icons) | `true` |
 | window_icon_size | int | icon size in layout px | `64` |
 | window_icon_plate_color | color | plate behind the icon | `rgba(0,0,0,0.45)` |

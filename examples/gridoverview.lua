@@ -1,7 +1,7 @@
 -- Example Hyprland (Lua config) module for hyprland-grid-overview.
 --
 -- Save as ~/.config/hypr/gridoverview.lua and add `require("gridoverview")` to hyprland.lua. Remove or
--- rebind your own workspace keys that clash with the ones below (SUPER + [1-9], SUPER + SHIFT + arrows, ...).
+-- rebind your own workspace keys that clash with the ones below (mainMod + [1-9], mainMod + SHIFT + arrows, ...).
 --
 -- A free grid of workspaces: workspace id = row * 10 + position (row 1 = 11..19, 2 = 21..29, ...).
 -- orientation "rows": the rows are rows, their workspaces side by side;
@@ -10,15 +10,19 @@
 -- Contexts are opt-in (useContexts / context_labels / grid_all_contexts / contextWallpapers). Labels are
 -- renamed in the overview (pencil) and stored in ~/.local/state/gridoverview/context_names — not in this file.
 --
--- SUPER + SHIFT + arrow          next workspace / context in that direction, also onto the empty plus ones
---                                (same position in the other context, or the last reachable one before it)
--- SUPER + CTRL + SHIFT + arrow   same, taking the active window along
--- SUPER + [1-9]                  workspace 1-9 of the current context (+ SHIFT: move window there)
--- SUPER + Tab / SHIFT + Tab      next/previous workspace of the current context, incl. the new empty one
--- SUPER + scroll                 same as Tab; SUPER + SHIFT + scroll: next/previous context
--- SUPER + D                      grid overview; SUPER + CTRL + scroll zooms into / out of it continuously
+-- Binds use settings.mainMod (default SUPER). Change it if your Hyprland main modifier is not Super — the plugin
+-- itself has no keybinds; only this module does.
+--
+-- mainMod + SHIFT + arrow          next workspace / context in that direction, also onto the empty plus ones
+--                                  (same position in the other context, or the last reachable one before it)
+-- mainMod + CTRL + SHIFT + arrow   same, taking the active window along
+-- mainMod + [1-9]                  workspace 1-9 of the current context (+ SHIFT: move window there)
+-- mainMod + Tab / SHIFT + Tab      next/previous workspace of the current context, incl. the new empty one
+-- mainMod + scroll                 same as Tab; mainMod + SHIFT + scroll: next/previous context
+-- mainMod + D                      grid overview; mainMod + CTRL + scroll zooms into / out of it continuously
 
 local settings = {
+    mainMod     = "SUPER", -- change if your main modifier is not Super (e.g. "ALT")
     orientation = "rows",
     workspaces  = 9,  -- per context
     monitor     = "", -- monitor of the first workspace (11); empty = Hyprland's choice
@@ -60,14 +64,14 @@ local settings = {
         },
         highlight_selected = true, -- wallpaper + shadow only on the selected workspace, empty ones as outline + plus
         highlight_padding = 40,
-        empty_marker = "always",   -- always | drag (while dragging) | hover (only under the pointer)
+        empty_marker = "hover",    -- always | drag (while dragging) | hover (only under the pointer)
         zoom_step = 0.25,          -- continuous zoom per wheel notch (1 = desktop -> centred view)
-        zoom_follow_mouse = false, -- continuous zoom: zooming in goes towards the workspace under the cursor
+        zoom_follow_mouse = true,  -- continuous zoom: zooming in goes towards the workspace under the cursor
         -- opt-in with useContexts: reserve first WS per contexts{} row; show name···pencil labels
         grid_all_contexts = false,
         context_labels = false,
         context_label_size = 20,
-        window_icons = false,
+        window_icons = true,
         window_chrome = true,  -- float / maximize / fullscreen · group / pin / close (also on pin-rail icons)
         window_icon_size = 64,
         -- scratchpads (special workspaces) as cards at the right edge: drag windows in and out, click one to show it
@@ -87,7 +91,7 @@ local settings = {
 
 -- ---------------------------------------------------------------------------------------------------------------
 
-local mainMod           = "SUPER"
+local mainMod           = settings.mainMod or "SUPER"
 local contexts          = settings.useContexts ~= false and settings.contexts or {}
 local gridRows          = math.max(1, math.min(9, settings.rows or 9))
 local gridCols          = settings.workspaces

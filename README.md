@@ -94,7 +94,9 @@ if hl.plugin and hl.plugin.gridoverview then
                 shadow = { enabled = true, range = 50 },
                 highlight_selected = true,
                 highlight_padding = 40,
-                empty_marker = "always",
+                empty_marker = "hover",
+                zoom_follow_mouse = true,
+                window_icons = true,
                 transition_bezier = "easeOutQuint",
                 transition_speed = 3.0,
             },
@@ -134,13 +136,13 @@ workspaces of a context are created on its monitor. A separate grid per monitor 
 | `grid_buttons` | bool | buttons to switch between centred and whole-grid view | `true` |
 | `highlight_selected` | bool | wallpaper + shadow only on the selected workspace; empty ones as outline + plus | `false` |
 | `highlight_padding` | int | how far (layout px) the highlight reaches past the work area | `0` |
-| `empty_marker` | string | when empty workspaces show their outline: `always`, `drag` (while dragging), `hover` (only under the pointer or a dragged window; the selected one always) | `always` |
+| `empty_marker` | string | when empty workspaces show their outline: `always`, `drag` (while dragging), `hover` (only under the pointer or a dragged window; the selected one always) | `hover` |
 | `empty_color` | color | outline and plus colour | `rgba(255,255,255,0.35)` |
 | `empty_halo_color` | color | thin halo under outline and plus, for light wallpapers | `rgba(0,0,0,0.4)` |
 | `empty_color_from_border` | bool | use `general:col.active_border` (e.g. matugen) with `empty_color`'s alpha | `false` |
 | `shadow:active_color` | color | shadow colour of the selected workspace | unset |
 | `zoom_step` | float | continuous zoom: zoom levels per wheel notch (0 = desktop, 1 = centred view, 2 = whole grid) | `0.25` |
-| `zoom_follow_mouse` | bool | continuous zoom: zooming in selects the workspace under the cursor and zooms towards it | `false` |
+| `zoom_follow_mouse` | bool | continuous zoom: zooming in selects the workspace under the cursor and zooms towards it | `true` |
 | `grid_all_contexts` | bool | always show the first workspace of each structural context slot (`context_count`), even while empty; below the last used row there is always one empty row anyway (up to `grid_rows`) | `false` |
 | `context_count` | int | how many context rows the config reserved (wallpaper/monitor bindings); used with `grid_all_contexts` | `0` |
 | `context_labels` | bool | name ··· pencil next to each context's first workspace (left for rows, above for columns); rename → `~/.local/state/gridoverview/context_names` | `false` |
@@ -148,7 +150,7 @@ workspaces of a context are created on its monitor. A separate grid per monitor 
 | `context_label_size` | int | label font size in layout px, independent of the zoom | `20` |
 | `context_label_background` | color | pill behind the labels | `rgba(0,0,0,0.45)` |
 | `context_label_color` | color | label colour (the current context's label is fully opaque, others dimmed) | `rgba(255,255,255,0.9)` |
-| `window_icons` | bool | app icon on a rounded plate in the middle of every window | `false` |
+| `window_icons` | bool | app icon on a rounded plate in the middle of every window | `true` |
 | `window_chrome` | bool | 2×3 action dock under the focused/hovered window (float / maximize / fullscreen · group / pin / close; also on pin-rail icons) | `true` |
 | `window_icon_size` | int | icon size on screen in layout px, independent of the zoom (at most 60 % of a window's short side incl. plate) | `64` |
 | `window_icon_plate_color` | color | plate behind the icon | `rgba(0,0,0,0.45)` |

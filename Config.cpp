@@ -459,7 +459,7 @@ static void defineConfigValues() {
                                      "continuous zoom: zoom levels per wheel notch (1 = desktop -> centred view, 2 = whole grid)", 0.25F,
                                      SFloatValueOptions{.min = 0.01F, .max = 2.F}));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:zoom_follow_mouse",
-                                    "continuous zoom: zooming in selects the workspace under the cursor and zooms towards it", false));
+                                    "continuous zoom: zooming in selects the workspace under the cursor and zooms towards it", true));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:grid_all_contexts",
                                     "grid mode: always show the first workspace of each structural context slot (context_count), even while empty",
                                     false));
@@ -500,7 +500,7 @@ static void defineConfigValues() {
     addValue(makeShared<CIntValue>("plugin:gridoverview:context_label_size", "context label font size in layout px, independent of the zoom", 20,
                                    SIntValueOptions{.min = 6, .max = 200}));
     addValue(makeShared<CGradientValue>("plugin:gridoverview:context_label_color", "context label colour", -1));
-    addValue(makeShared<CBoolValue>("plugin:gridoverview:window_icons", "draw the app icon in the middle of every window", false));
+    addValue(makeShared<CBoolValue>("plugin:gridoverview:window_icons", "draw the app icon in the middle of every window", true));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:window_chrome",
                                    "float / maximize / fullscreen / pin / close buttons under the focused or hovered window", true));
     addValue(makeShared<CIntValue>("plugin:gridoverview:window_icon_size", "app icon size in screen (layout) px, independent of the overview zoom", 64,
@@ -515,7 +515,7 @@ static void defineConfigValues() {
     addValue(makeShared<CStringValue>("plugin:gridoverview:exec_on_close", "shell command run when the overview starts closing", Hyprlang::STRING{""}));
     addValue(makeShared<CStringValue>("plugin:gridoverview:empty_marker",
                                       "when empty workspaces show their outline: always, drag (while any window is dragged) or hover (only under the pointer or a dragged window)",
-                                      Hyprlang::STRING{"always"}));
+                                      Hyprlang::STRING{"hover"}));
 }
 
 static void initializeMonitorConfig() {

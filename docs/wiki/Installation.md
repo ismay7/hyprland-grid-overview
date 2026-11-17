@@ -26,7 +26,7 @@
    end)
    ```
 
-5. Configure and enjoy. A complete starter module lives at [examples/gridoverview.lua](../../examples/gridoverview.lua) — save it as `~/.config/hypr/gridoverview.lua` and `require("gridoverview")` from `hyprland.lua`. Contexts (named rows, labels, wallpapers) are **opt-in** in that module (`useContexts`, `context_labels`, …); the free grid works without them.
+5. Configure and enjoy. A complete starter module lives at [examples/gridoverview.lua](../../examples/gridoverview.lua) — save it as `~/.config/hypr/gridoverview.lua` and `require("gridoverview")` from `hyprland.lua`. Contexts (named rows, labels, wallpapers) are **opt-in** in that module (`useContexts`, `context_labels`, …); the free grid works without them. The module's binds use `settings.mainMod` (default `SUPER`); change that if your main modifier is not Super — the plugin itself registers no keybinds.
 
 **Layout:** Grid Overview is designed for Hyprland's **Dwindle** layout. Edge-insert while dragging relies on Dwindle splits; other layouts are untested for that path.
 
