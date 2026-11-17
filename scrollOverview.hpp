@@ -167,9 +167,17 @@ class CScrollOverview : public IOverview {
     std::unordered_map<std::string, Vector2D> rememberedFloatSizes; // window address → last overview float size
     void   renderContextLabels(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale);
     std::unordered_map<std::string, SP<Render::ITexture>> contextLabelTextures;
-    // where the labels were drawn last frame (pill box -> first workspace of the context), for clicks
-    std::vector<std::pair<CBox, size_t>> contextLabelHitboxes;
-    std::optional<size_t>            contextLabelPressed;
+    // where the labels were drawn last frame (name → jump; pencil → rename)
+    struct SContextLabelHit {
+        CBox   name;
+        CBox   pencil;
+        size_t workspaceIdx = 0;
+        int    context      = 0; // 1-based
+    };
+    std::vector<SContextLabelHit> contextLabelHits;
+    std::optional<size_t>         contextLabelPressed;  // jump to workspace
+    std::optional<int>            contextPencilPressed; // begin rename for this context
+    void                          beginContextRename(int contextIndex);
     // special_tray: scratchpads as cards at a screen edge, in screen coordinates (not zoomed / panned)
     enum class ESpecialTrayEdge { Right, Left, Bottom };
     struct STrayCard {
@@ -181,8 +189,8 @@ class CScrollOverview : public IOverview {
     struct STrayPill {
         CBox pill;
         CBox text;
-        CBox pencil; // rename
-        CBox grip;   // reorder handle at the right of the name pill
+        CBox pencil; // rename (after the name)
+        CBox grip;   // reorder handle after the pencil
     };
     ESpecialTrayEdge       specialTrayEdge() const; // right (default), left, or bottom
     bool                   specialTrayOnLeft() const { return specialTrayEdge() == ESpecialTrayEdge::Left; }
@@ -262,7 +270,8 @@ class CScrollOverview : public IOverview {
     void                   renderSpecialTrayRenameOverlay(PHLMONITOR monitor, float alpha);
     void                   renameSpecialTrayCard(const std::string& oldName, const std::string& newName);
     bool                   specialTrayRenameBusy = false;
-    std::string            specialTrayRenameOld;  // Hyprland name being edited
+    int                    renameContextIndex    = 0; // 0 = special-tray rename; >0 = 1-based context rename
+    std::string            specialTrayRenameOld;  // tray name or previous context name
     std::string            specialTrayRenameText; // field contents
     void                   renderSpecialTrayIcons(PHLMONITOR monitor, const STrayCard& card, const std::vector<PHLWINDOW>& windows, float alpha);
     std::optional<size_t>  specialTrayPressed;

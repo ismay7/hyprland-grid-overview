@@ -16,8 +16,14 @@
 #include <hyprland/src/event/EventBus.hpp>
 #include <hyprland/src/output/Monitor.hpp>
 
-#include <regex>
+#include <cctype>
 #include <cmath>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <regex>
+#include <sstream>
+#include <vector>
 
 extern "C" {
 #include <lauxlib.h>
@@ -455,7 +461,11 @@ static void defineConfigValues() {
     addValue(makeShared<CBoolValue>("plugin:gridoverview:zoom_follow_mouse",
                                     "continuous zoom: zooming in selects the workspace under the cursor and zooms towards it", false));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:grid_all_contexts",
-                                    "grid mode: every named context (context_names) always has its first workspace in the overview", false));
+                                    "grid mode: always show the first workspace of each structural context slot (context_count), even while empty",
+                                    false));
+    addValue(makeShared<CIntValue>("plugin:gridoverview:context_count",
+                                   "how many context rows the config reserved (wallpaper/monitor bindings); used with grid_all_contexts", 0,
+                                   SIntValueOptions{.min = 0, .max = 9}));
     addValue(makeShared<CBoolValue>("plugin:gridoverview:special_tray", "special workspaces (scratchpads) as cards at a screen edge", true));
     addValue(makeShared<CStringValue>("plugin:gridoverview:special_tray_edge",
                                       "which screen edge holds the scratchpad tray: right (default), left, or bottom",
@@ -480,9 +490,13 @@ static void defineConfigValues() {
                                       Hyprlang::STRING{"off"}));
     addValue(makeShared<CIntValue>("plugin:gridoverview:special_tray_width", "width of the special workspace cards in layout px", 300,
                                    SIntValueOptions{.min = 60, .max = 2000}));
-    addValue(makeShared<CBoolValue>("plugin:gridoverview:context_labels", "grid mode: name of every context next to its first workspace", false));
+    addValue(makeShared<CBoolValue>("plugin:gridoverview:context_labels",
+                                    "grid mode: name ··· pencil next to each context's first workspace (opt-in; labels in state)",
+                                    false));
     addValue(makeShared<CGradientValue>("plugin:gridoverview:context_label_background", "pill behind the context labels", -1));
-    addValue(makeShared<CStringValue>("plugin:gridoverview:context_names", "comma-separated context names (context 1, 2, ...)", Hyprlang::STRING{""}));
+    addValue(makeShared<CStringValue>("plugin:gridoverview:context_names",
+                                      "unused legacy seed; labels live only in ~/.local/state/gridoverview/context_names",
+                                      Hyprlang::STRING{""}));
     addValue(makeShared<CIntValue>("plugin:gridoverview:context_label_size", "context label font size in layout px, independent of the zoom", 20,
                                    SIntValueOptions{.min = 6, .max = 200}));
     addValue(makeShared<CGradientValue>("plugin:gridoverview:context_label_color", "context label colour", -1));
@@ -693,6 +707,138 @@ CHyprColor getContextLabelBackground(PHLMONITOR monitor) {
 
 CHyprColor getContextLabelColor(PHLMONITOR monitor) {
     return firstColorIfSet("plugin:gridoverview:context_label_color", monitor).value_or(CHyprColor{1.F, 1.F, 1.F, 0.9F});
+}
+
+namespace {
+
+std::filesystem::path contextStateDir() {
+    if (const char* state = std::getenv("XDG_STATE_HOME"); state && *state)
+        return std::filesystem::path{state} / "gridoverview";
+    const char* home = std::getenv("HOME");
+    return std::filesystem::path{home && *home ? home : "."} / ".local" / "state" / "gridoverview";
+}
+
+std::string trimContextName(std::string name) {
+    const auto FIRST = name.find_first_not_of(" \t");
+    const auto LAST  = name.find_last_not_of(" \t");
+    return FIRST == std::string::npos ? "" : name.substr(FIRST, LAST - FIRST + 1);
+}
+
+std::string sanitizeContextName(std::string name) {
+    name = trimContextName(std::move(name));
+    std::string out;
+    out.reserve(name.size());
+    for (unsigned char c : name) {
+        if (c == ',')
+            continue;
+        if (std::isalnum(c) || c == ' ' || c == '_' || c == '-')
+            out.push_back(sc<char>(c));
+    }
+    // collapse runs of spaces
+    std::string collapsed;
+    bool        wasSpace = false;
+    for (char c : out) {
+        if (c == ' ') {
+            if (wasSpace)
+                continue;
+            wasSpace = true;
+        } else
+            wasSpace = false;
+        collapsed.push_back(c);
+    }
+    collapsed = trimContextName(std::move(collapsed));
+    if (collapsed.size() > 48)
+        collapsed.resize(48);
+    return collapsed;
+}
+
+void writeContextNamesFile(const std::vector<std::string>& names) {
+    const auto PATH = contextStateDir() / "context_names";
+    std::error_code ec;
+    std::filesystem::create_directories(PATH.parent_path(), ec);
+    std::ofstream file{PATH, std::ios::trunc};
+    if (!file)
+        return;
+    for (const auto& name : names)
+        file << name << '\n';
+}
+
+void writeContextsJson(const std::vector<std::string>& names, PHLMONITOR monitor) {
+    const auto PATH = contextStateDir() / "contexts.json";
+    std::error_code ec;
+    std::filesystem::create_directories(PATH.parent_path(), ec);
+    std::ofstream file{PATH, std::ios::trunc};
+    if (!file)
+        return;
+    const auto ORIENT = getValue<std::string>("plugin:gridoverview:grid_orientation", monitor);
+    auto escape = [](const std::string& s) {
+        std::string o;
+        o.reserve(s.size() + 8);
+        for (char c : s) {
+            if (c == '\\' || c == '"')
+                o.push_back('\\');
+            o.push_back(c);
+        }
+        return o;
+    };
+    file << "{\"orientation\": \"" << escape(ORIENT.empty() ? "rows" : ORIENT) << "\", \"contexts\": [";
+    for (size_t i = 0; i < names.size(); ++i) {
+        if (i)
+            file << ", ";
+        file << '"' << escape(names[i]) << '"';
+    }
+    file << "]}\n";
+}
+
+} // namespace
+
+std::vector<std::string> g_contextNamesCache;
+std::filesystem::file_time_type g_contextNamesTime{};
+bool g_contextNamesHaveCache = false;
+
+std::vector<std::string> getContextNames(PHLMONITOR /*monitor*/) {
+    const auto PATH = contextStateDir() / "context_names";
+    std::error_code ec;
+    const auto      mt = std::filesystem::exists(PATH, ec) ? std::filesystem::last_write_time(PATH, ec) : std::filesystem::file_time_type{};
+    if (g_contextNamesHaveCache && mt == g_contextNamesTime)
+        return g_contextNamesCache;
+
+    std::vector<std::string> names;
+    if (std::filesystem::exists(PATH, ec)) {
+        std::ifstream file{PATH};
+        for (std::string line; std::getline(file, line);)
+            names.push_back(trimContextName(std::move(line)));
+        while (!names.empty() && names.back().empty())
+            names.pop_back();
+    }
+
+    g_contextNamesCache     = names;
+    g_contextNamesTime      = mt;
+    g_contextNamesHaveCache = true;
+    return g_contextNamesCache;
+}
+
+int getContextCount(PHLMONITOR monitor) {
+    return std::max(0, getValue<int>("plugin:gridoverview:context_count", monitor));
+}
+
+bool renameContext(int contextIndex, const std::string& newName) {
+    if (contextIndex < 1)
+        return false;
+    const auto NAME = sanitizeContextName(newName);
+    if (NAME.empty())
+        return false;
+
+    auto names = getContextNames(nullptr);
+    if (sc<size_t>(contextIndex) > names.size())
+        names.resize(sc<size_t>(contextIndex));
+    if (names[sc<size_t>(contextIndex - 1)] == NAME)
+        return false;
+    names[sc<size_t>(contextIndex - 1)] = NAME;
+    writeContextNamesFile(names);
+    writeContextsJson(names, nullptr);
+    g_contextNamesHaveCache = false;
+    return true;
 }
 
 CHyprColor getWindowIconPlateColor(PHLMONITOR monitor) {

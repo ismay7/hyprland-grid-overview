@@ -3,10 +3,12 @@
 -- Save as ~/.config/hypr/gridoverview.lua and add `require("gridoverview")` to hyprland.lua. Remove or
 -- rebind your own workspace keys that clash with the ones below (SUPER + [1-9], SUPER + SHIFT + arrows, ...).
 --
--- A free grid of workspaces: workspace id = row * 10 + position (row 1 = 11..19, 2 = 21..29, ...). Rows can have
--- a name (contexts below), they work the same without.
+-- A free grid of workspaces: workspace id = row * 10 + position (row 1 = 11..19, 2 = 21..29, ...).
 -- orientation "rows": the rows are rows, their workspaces side by side;
 --             "columns": they are columns, their workspaces stacked (keys and overview follow).
+--
+-- Contexts are opt-in (useContexts / context_labels / grid_all_contexts / contextWallpapers). Labels are
+-- renamed in the overview (pencil) and stored in ~/.local/state/gridoverview/context_names — not in this file.
 --
 -- SUPER + SHIFT + arrow          next workspace / context in that direction, also onto the empty plus ones
 --                                (same position in the other context, or the last reachable one before it)
@@ -25,22 +27,16 @@ local settings = {
     -- below the last used one, up to this many rows (1 = a single row, 9 at most)
     rows = 9,
 
-    -- false: the contexts below are ignored (no names, labels, reserved rows, context wallpapers or monitors), the
-    -- grid stays free; the entries stay and come back with true
-    useContexts = true,
+    -- opt-in: false = free grid (default). true = use contexts{} for wallpapers / optional monitors
+    useContexts = false,
 
-    -- optional names for the first rows, the contexts; rows without an entry work the same, just unnamed.
-    -- wallpaper is optional, monitor = "DP-2" keeps all workspaces of the context on that monitor (multi-monitor),
-    -- without it they stay where they are
+    -- Structure only when useContexts (no names). monitor = "DP-2" pins that context's workspaces.
     contexts = {
-        { name = "General" },
-        { name = "Development" },
-        { name = "Communication" },
-        -- { name = "Design", wallpaper = "abstract/waves.jpg", monitor = "HDMI-A-1" },
+        -- { wallpaper = "abstract/waves.jpg" },
+        -- { wallpaper = "nature/forest.jpg", monitor = "HDMI-A-1" },
     },
 
-    -- true: switch the wallpaper to the context's one whenever the context changes (contexts without one keep
-    -- the current wallpaper). false: the wallpaper is left alone.
+    -- opt-in: switch wallpaper on context change (needs wallpaper entries above + a wallpaperCommand)
     contextWallpapers = false,
     wallpaperDir      = "~/Pictures/Wallpapers", -- base for relative wallpaper paths (absolute / ~ paths work too)
     -- %s = the wallpaper path, e.g.
@@ -67,8 +63,9 @@ local settings = {
         empty_marker = "always",   -- always | drag (while dragging) | hover (only under the pointer)
         zoom_step = 0.25,          -- continuous zoom per wheel notch (1 = desktop -> centred view)
         zoom_follow_mouse = false, -- continuous zoom: zooming in goes towards the workspace under the cursor
-        grid_all_contexts = true,  -- every named context above always has its first workspace in the overview
-        context_labels = false,    -- context name next to the first workspace of each context (names from contexts)
+        -- opt-in with useContexts: reserve first WS per contexts{} row; show name···pencil labels
+        grid_all_contexts = false,
+        context_labels = false,
         context_label_size = 20,
         window_icons = false,
         window_chrome = true,  -- float / maximize / fullscreen / pin / close under focus/hover
@@ -322,16 +319,12 @@ if hl.plugin and hl.plugin.gridoverview then
     for key, value in pairs(settings.overview) do
         options[key] = value
     end
-    local names = {}
-    for _, context in ipairs(contexts) do
-        names[#names + 1] = (context.name or ""):gsub(",", " ")
-    end
-
     options.grid             = true
     options.grid_orientation = settings.orientation
     options.grid_rows        = gridRows
     options.grid_columns     = gridCols
-    options.context_names    = table.concat(names, ",")
+    options.context_count    = #contexts
+    options.context_names    = ""
 
     hl.config({ plugin = { gridoverview = options } })
 end

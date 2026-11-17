@@ -99,9 +99,10 @@ static constexpr float       TRAY_DOCK_PAD   = 14.F; // dock around the cards (w
 static constexpr float       TRAY_DOCK_ROUNDING = 18.F;
 // max depth foreshortening when the overview is fully open (also used by strip perspective)
 static constexpr float       TRAY_PERSPECTIVE_SHRINK = 0.28F;
-static constexpr float       TRAY_GRIP_WIDTH   = 16.F; // grip on the right of the name pill
-static constexpr float       TRAY_PENCIL_WIDTH = 16.F; // pencil on the left of the name pill
-static constexpr float       TRAY_GRIP_GAP     = 8.F;  // between the name / icons and the grip or pencil
+static constexpr float       TRAY_GRIP_WIDTH   = 16.F; // grip after the pencil
+static constexpr float       TRAY_PENCIL_WIDTH = 16.F; // pencil after the name
+static constexpr float       TRAY_ACTION_GAP   = 16.F; // gap between name and pencil/grip cluster
+static constexpr float       TRAY_ICON_GAP     = 6.F;  // gap between pencil and grip
 static constexpr float       TRAY_CLOSE_SIZE   = 36.F; // × hitbox; centre sits on the card's top-right corner
 static constexpr std::string_view SPECIAL_PREFIX = "special:";
 
@@ -689,31 +690,37 @@ std::optional<size_t> CScrollOverview::specialTrayCardAt(const Vector2D& pointLo
     return std::nullopt;
 }
 
-// name pill under the card: pencil (rename) + optional text + grip (reorder)
+// name pill under the card: name ··· pencil + grip (larger gap after the name)
 CScrollOverview::STrayPill CScrollOverview::specialTrayPill(const STrayCard& card, const Vector2D& textSize) const {
     const auto MONITOR = pMonitor.lock();
     STrayPill  out;
     if (!MONITOR)
         return out;
 
-    const bool  NAMED   = !isAnonymousTrayName(card.name) && textSize.x > 0;
-    const float UNIT    = MONITOR->m_scale;
-    const float PAD     = 6.F * UNIT;
-    const float GRIP    = TRAY_GRIP_WIDTH * UNIT;
-    const float PENCIL  = TRAY_PENCIL_WIDTH * UNIT;
-    const float GAP     = TRAY_GRIP_GAP * UNIT;
-    const float TEXTH   = NAMED ? sc<float>(textSize.y) : 0.F;
-    const float TEXTW   = NAMED ? sc<float>(textSize.x) : 0.F;
-    const float HEIGHT  = std::max(TRAY_PILL * UNIT, TEXTH + 2.F * PAD);
-    const float WIDTH   = PAD + PAD + PENCIL + GAP + (NAMED ? TEXTW + GAP : 0.F) + GRIP + PAD + PAD;
-    const auto  VIS     = specialTrayVisualBox(card.box);
-    const float CENTERX = VIS.middle().x;
-    const float CENTERY = card.box.y + card.box.h + specialTrayLabelOffset() * UNIT;
-    out.pill            = CBox{CENTERX - WIDTH / 2.F, CENTERY - HEIGHT / 2.F, WIDTH, HEIGHT}.round();
-    out.pencil          = CBox{out.pill.x + PAD, out.pill.y, PENCIL + PAD, out.pill.h}.round();
-    if (NAMED)
-        out.text = CBox{out.pencil.x + out.pencil.w + GAP - PAD, CENTERY - TEXTH / 2.F, TEXTW, TEXTH}.round();
-    out.grip = CBox{out.pill.x + out.pill.w - PAD - PAD - GRIP, out.pill.y, GRIP + PAD, out.pill.h}.round();
+    const bool  NAMED      = !isAnonymousTrayName(card.name) && textSize.x > 0;
+    const float UNIT       = MONITOR->m_scale;
+    const float PAD        = 6.F * UNIT;
+    const float GRIP       = TRAY_GRIP_WIDTH * UNIT;
+    const float PENCIL     = TRAY_PENCIL_WIDTH * UNIT;
+    const float ACTION_GAP = TRAY_ACTION_GAP * UNIT;
+    const float ICON_GAP   = TRAY_ICON_GAP * UNIT;
+    const float TEXTH      = NAMED ? sc<float>(textSize.y) : 0.F;
+    const float TEXTW      = NAMED ? sc<float>(textSize.x) : 0.F;
+    const float HEIGHT     = std::max(TRAY_PILL * UNIT, TEXTH + 2.F * PAD);
+    const float ACTIONS_W  = PENCIL + ICON_GAP + GRIP;
+    const float WIDTH      = PAD + (NAMED ? TEXTW + ACTION_GAP : 0.F) + ACTIONS_W + PAD;
+    const auto  VIS        = specialTrayVisualBox(card.box);
+    const float CENTERX    = VIS.middle().x;
+    const float CENTERY    = card.box.y + card.box.h + specialTrayLabelOffset() * UNIT;
+    out.pill               = CBox{CENTERX - WIDTH / 2.F, CENTERY - HEIGHT / 2.F, WIDTH, HEIGHT}.round();
+    float x                = out.pill.x + PAD;
+    if (NAMED) {
+        out.text = CBox{x, CENTERY - TEXTH / 2.F, TEXTW, TEXTH}.round();
+        x += TEXTW + ACTION_GAP;
+    }
+    out.pencil = CBox{x, out.pill.y, PENCIL + PAD * 0.5F, out.pill.h}.round();
+    x += PENCIL + ICON_GAP;
+    out.grip = CBox{x - PAD * 0.25F, out.pill.y, GRIP + PAD * 0.5F, out.pill.h}.round();
     return out;
 }
 
@@ -928,6 +935,7 @@ void cancelSpecialTrayRenameIfAny(CScrollOverview* overview) {
 
 void CScrollOverview::cancelSpecialTrayRename() {
     specialTrayRenameBusy = false;
+    renameContextIndex    = 0;
     specialTrayRenameOld.clear();
     specialTrayRenameText.clear();
 }
@@ -939,6 +947,7 @@ void CScrollOverview::beginSpecialTrayRename(size_t index) {
     if (index >= CARDS.size())
         return;
 
+    renameContextIndex    = 0;
     specialTrayRenameOld  = CARDS[index].name;
     // anonymous cards start empty; named ones keep the current name for editing
     specialTrayRenameText = isAnonymousTrayName(CARDS[index].name) ? "" : CARDS[index].name;
@@ -948,12 +957,30 @@ void CScrollOverview::beginSpecialTrayRename(size_t index) {
     damage();
 }
 
+void CScrollOverview::beginContextRename(int contextIndex) {
+    if (specialTrayRenameBusy || closing || contextIndex < 1)
+        return;
+    const auto NAMES = ScrollOverview::Config::getContextNames(pMonitor.lock());
+    renameContextIndex    = contextIndex;
+    specialTrayRenameOld  = sc<size_t>(contextIndex) <= NAMES.size() ? NAMES[sc<size_t>(contextIndex - 1)] : "";
+    specialTrayRenameText = specialTrayRenameOld;
+    specialTrayRenameBusy = true;
+    damage();
+}
+
 void CScrollOverview::finishSpecialTrayRename() {
     if (!specialTrayRenameBusy)
         return;
     const auto OLD  = specialTrayRenameOld;
     const auto TEXT = specialTrayRenameText;
+    const int  CTX  = renameContextIndex;
     cancelSpecialTrayRename();
+    if (CTX > 0) {
+        if (!TEXT.empty())
+            (void)ScrollOverview::Config::renameContext(CTX, TEXT);
+        damage();
+        return;
+    }
     if (!TEXT.empty()) {
         renameSpecialTrayCard(OLD, TEXT);
         return;
@@ -991,14 +1018,13 @@ bool CScrollOverview::handleSpecialTrayRenameKey(xkb_keysym_t keysym) {
 
     char utf8[8] = {};
     const int N  = xkb_keysym_to_utf8(keysym, utf8, sizeof(utf8));
-    // N includes the trailing NUL; only A–Z/a–z/0–9/_/- (case preserved; no spaces/umlauts/emoji)
+    // N includes the trailing NUL; tray: A–Z/a–z/0–9/_/- ; context rename also allows spaces
     if (N > 1) {
         for (int i = 0; i < N - 1; ++i) {
             const char C = utf8[i];
-            if (std::isalnum(sc<unsigned char>(C)) || C == '_' || C == '-') {
-                if (specialTrayRenameText.size() < 48)
-                    specialTrayRenameText.push_back(C);
-            }
+            const bool OK = std::isalnum(sc<unsigned char>(C)) || C == '_' || C == '-' || (renameContextIndex > 0 && C == ' ');
+            if (OK && specialTrayRenameText.size() < 48)
+                specialTrayRenameText.push_back(C);
         }
         damage();
         return true;

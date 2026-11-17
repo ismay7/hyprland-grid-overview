@@ -6,9 +6,10 @@ your workspaces, windows and scratchpads as one grid you can grab with the mouse
 Hyprland can do a lot: as many workspaces as you like, scratchpads, floating windows, groups. Most of it sits behind
 keybinds you have to know first. gridoverview puts it on screen instead: open the overview and everything is
 there to drag, drop and click, so you can find out what Hyprland can do before you learn a single shortcut.
-Nothing has to be configured first; every feature works out of the box and can be refined later — names for rows,
-wallpapers, keybinds, animations. **Building up, never required.** The keyboard stays first-class: Hyprland's own
-keybinds keep working, and the overview's views and zoom have dispatchers to bind.
+Nothing has to be configured first; every feature works out of the box and can be refined later — optional row
+labels (contexts), wallpapers, keybinds, animations. **Building up, never required.** Contexts are opt-in; the
+free grid is the default. The keyboard stays first-class: Hyprland's own keybinds keep working, and the overview's
+views and zoom have dispatchers to bind.
 
 hyprland-grid-overview is a fork of [hyprland-scroll-overview](https://github.com/yayuuu/hyprland-scroll-overview)
 by Vaxry and yayuuu, a niri-like overview plugin. Everything the original does still works; the grid
@@ -43,9 +44,11 @@ features are additions on top of it (see [Credits](#credits)).
 
 Everything below is optional; see [Configuration](#configuration-lua) for the options.
 
-- **Name your rows** (contexts, `context_names`, `context_labels`): labels next to the rows, which you can click,
-  and with the example Lua module a wallpaper and a monitor per context and a bar widget. Rows without a
-  name keep working the same. Contexts as columns instead of rows: `grid_orientation = "columns"`.
+- **Name your rows (opt-in contexts)**: turn on `context_labels` (and usually `useContexts` in the example module).
+  Labels sit next to the first workspace of each row; the pencil renames them into
+  `~/.local/state/gridoverview/context_names` (survives restarts). Config holds structure only (wallpaper /
+  optional monitor per row), not the display names. `grid_all_contexts` keeps those structural rows visible even
+  while empty. Contexts as columns: `grid_orientation = "columns"`.
 - **Looks**: only the selected workspace with wallpaper and shadow (`highlight_selected`), empty workspaces always,
   only while dragging or only under the pointer (`empty_marker`), app icons (`window_icons`) and action chrome
   (`window_chrome`) on the windows, own curves for moving and switching views (`transition_bezier`,
@@ -63,13 +66,18 @@ Everything below is optional; see [Configuration](#configuration-lua) for the op
 
 ```bash
 hyprpm add https://github.com/ismay7/hyprland-grid-overview
+hyprpm update
 hyprpm enable gridoverview
 ```
 
-The repository is private for now, so cloning needs access to it (SSH key or token).
+Load on startup with `hyprpm reload` from `hyprland.start` (see [docs/wiki/Installation.md](docs/wiki/Installation.md)).
+The repository may be private: cloning needs access (SSH key or token).
 
-For a manual build: `make all` produces `gridoverview.so` (needs the Hyprland headers of the running
-version).
+Optional starter module: copy [examples/gridoverview.lua](examples/gridoverview.lua) to
+`~/.config/hypr/gridoverview.lua` and `require("gridoverview")` in `hyprland.lua`. Defaults keep contexts off
+so the grid stays free until you enable them.
+
+For a manual build: `make all` produces `gridoverview.so` (needs the Hyprland headers of the running version).
 
 ## Configuration (Lua)
 
@@ -105,9 +113,9 @@ end)
 
 Moving between workspaces outside the overview (left/right within a context, up/down between contexts)
 is plain Hyprland config: focus/move to `row * 10 + column`. [examples/gridoverview.lua](examples/gridoverview.lua)
-is a complete module for that: contexts, grid keys, optional (togglable) wallpaper per context, the overview and its
-continuous zoom, and all plugin options in one settings table. Save it as `~/.config/hypr/gridoverview.lua`
-and add `require("gridoverview")` to `hyprland.lua`.
+is a complete module for that: grid keys, overview + continuous zoom, scratchpad tray options, and optional
+contexts (wallpapers / labels / `grid_all_contexts`) behind explicit flags. Save it as
+`~/.config/hypr/gridoverview.lua` and add `require("gridoverview")` to `hyprland.lua`.
 
 ### Multiple monitors
 
@@ -135,14 +143,15 @@ workspaces of a context are created on its monitor. A separate grid per monitor 
 | `shadow:active_color` | color | shadow colour of the selected workspace | unset |
 | `zoom_step` | float | continuous zoom: zoom levels per wheel notch (0 = desktop, 1 = centred view, 2 = whole grid) | `0.25` |
 | `zoom_follow_mouse` | bool | continuous zoom: zooming in selects the workspace under the cursor and zooms towards it | `false` |
-| `grid_all_contexts` | bool | every named context (`context_names`) always has its first workspace in the overview; below the last used row there is always one empty row anyway (up to `grid_rows`) | `false` |
-| `context_labels` | bool | name of every context next to its first workspace (left of it for rows, above for columns) | `false` |
-| `context_names` | string | comma-separated context names, context 1 first | empty |
+| `grid_all_contexts` | bool | always show the first workspace of each structural context slot (`context_count`), even while empty; below the last used row there is always one empty row anyway (up to `grid_rows`) | `false` |
+| `context_count` | int | how many context rows the config reserved (wallpaper/monitor bindings); used with `grid_all_contexts` | `0` |
+| `context_labels` | bool | name ··· pencil next to each context's first workspace (left for rows, above for columns); rename → `~/.local/state/gridoverview/context_names` | `false` |
+| `context_names` | string | legacy unused seed; labels live only in the state file | empty |
 | `context_label_size` | int | label font size in layout px, independent of the zoom | `20` |
 | `context_label_background` | color | pill behind the labels | `rgba(0,0,0,0.45)` |
 | `context_label_color` | color | label colour (the current context's label is fully opaque, others dimmed) | `rgba(255,255,255,0.9)` |
 | `window_icons` | bool | app icon on a rounded plate in the middle of every window | `false` |
-| `window_chrome` | bool | float / maximize / fullscreen / pin / close buttons under the focused or hovered window (and pin-rail icons) | `true` |
+| `window_chrome` | bool | 2×3 action dock under the focused/hovered window (float / maximize / fullscreen · group / pin / close; also on pin-rail icons) | `true` |
 | `window_icon_size` | int | icon size on screen in layout px, independent of the zoom (at most 60 % of a window's short side incl. plate) | `64` |
 | `window_icon_plate_color` | color | plate behind the icon | `rgba(0,0,0,0.45)` |
 | `icon_theme` | string | icon theme searched before hicolor (e.g. `Papirus-Dark`); empty = hicolor only | empty |

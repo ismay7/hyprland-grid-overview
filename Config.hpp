@@ -139,6 +139,12 @@ CHyprColor    getEmptyHaloColor(PHLMONITOR monitor);
 CHyprColor    getWindowIconPlateColor(PHLMONITOR monitor);
 CHyprColor    getContextLabelColor(PHLMONITOR monitor);
 CHyprColor    getContextLabelBackground(PHLMONITOR monitor);
+// display names for contexts 1..n from ~/.local/state/gridoverview/context_names (empty = unnamed)
+std::vector<std::string> getContextNames(PHLMONITOR monitor);
+// 1-based context index; persists to context_names (+ contexts.json for Dux)
+bool                     renameContext(int contextIndex, const std::string& newName);
+// how many structural context rows the config reserved (wallpaper / monitor bindings)
+int                      getContextCount(PHLMONITOR monitor);
 EEmptyMarker  getEmptyMarker(PHLMONITOR monitor);
 int           getHighlightPadding(PHLMONITOR monitor);
 bool          getGridButtons(PHLMONITOR monitor);

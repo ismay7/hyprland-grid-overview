@@ -1585,11 +1585,15 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
                     return;
                 }
 
-                // click on a context label: go to the first workspace of that context
-                if (!closing) {
-                    for (const auto& [box, idx] : contextLabelHitboxes) {
-                        if (box.containsPoint(lastMousePosLocal)) {
-                            contextLabelPressed = idx;
+                // context label: pencil renames; name (or pill) jumps to that context
+                if (!closing && !specialTrayRenameBusy) {
+                    for (const auto& hit : contextLabelHits) {
+                        if (hit.pencil.containsPoint(lastMousePosLocal)) {
+                            contextPencilPressed = hit.context;
+                            return;
+                        }
+                        if (hit.name.containsPoint(lastMousePosLocal)) {
+                            contextLabelPressed = hit.workspaceIdx;
                             return;
                         }
                     }
@@ -1677,6 +1681,13 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
                     }
                     return;
                 }
+            }
+
+            if (contextPencilPressed) {
+                const auto CTX = *contextPencilPressed;
+                contextPencilPressed.reset();
+                beginContextRename(CTX);
+                return;
             }
 
             if (contextLabelPressed) {
@@ -2592,19 +2603,12 @@ void CScrollOverview::ensureGridPlaceholders() {
         lastOccupiedRow      = std::max(lastOccupiedRow, ROW);
     }
 
-    // the grid grows by one row below the last used one; grid_all_contexts: every named context (context_names) also
-    // gets at least its first workspace
-    int namedRows = 0;
-    if (ScrollOverview::Config::getValue<bool>("plugin:gridoverview:grid_all_contexts", MONITOR)) {
-        std::stringstream all(ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:context_names", MONITOR));
-        int               row = 0;
-        for (std::string name; std::getline(all, name, ',');) {
-            ++row;
-            if (name.find_first_not_of(" \t") != std::string::npos)
-                namedRows = row;
-        }
-    }
-    const int LASTROW = std::min(std::max(lastOccupiedRow + 1, namedRows), MAXROWS);
+    // the grid grows by one row below the last used one; grid_all_contexts: every structural
+    // context slot (context_count / wallpaper bindings) gets at least its first workspace
+    int reservedRows = 0;
+    if (ScrollOverview::Config::getValue<bool>("plugin:gridoverview:grid_all_contexts", MONITOR))
+        reservedRows = ScrollOverview::Config::getContextCount(MONITOR);
+    const int LASTROW = std::min(std::max(lastOccupiedRow + 1, reservedRows), MAXROWS);
 
     // Multi-monitor: placeholders only for contexts of this monitor. A context belongs to the monitor a workspace
     // rule binds its first workspace to; without a rule to the monitor that already has workspaces of it, and a
@@ -6120,10 +6124,9 @@ void CScrollOverview::renderSelectedEmptyMarker(PHLMONITOR monitor, size_t activ
         renderEmptyWorkspaceMarker(monitor, BOX, renderScale, workspaceOverviewAlpha(viewportCurrentWorkspace), true);
 }
 
-// context_labels: the context name next to the first workspace of each context (left of it with contexts as rows,
-// above it with contexts as columns); fixed on-screen size, moving with zoom and pan
+// context_labels: name ··· pencil next to the first workspace of each context; fixed on-screen size
 void CScrollOverview::renderContextLabels(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale) {
-    contextLabelHitboxes.clear();
+    contextLabelHits.clear();
     if (!grid || !ScrollOverview::Config::getValue<bool>("plugin:gridoverview:context_labels", monitor))
         return;
 
@@ -6132,70 +6135,88 @@ void CScrollOverview::renderContextLabels(PHLMONITOR monitor, size_t activeIdx, 
     if (ALPHA <= 0.001F)
         return;
 
-    std::vector<std::string> names;
-    {
-        std::stringstream all(ScrollOverview::Config::getValue<std::string>("plugin:gridoverview:context_names", monitor));
-        for (std::string name; std::getline(all, name, ',');) {
-            const auto FIRST = name.find_first_not_of(" \t");
-            const auto LAST  = name.find_last_not_of(" \t");
-            names.emplace_back(FIRST == std::string::npos ? "" : name.substr(FIRST, LAST - FIRST + 1));
-        }
-    }
+    const auto names         = ScrollOverview::Config::getContextNames(monitor);
+    const int  CONTEXT_COUNT = ScrollOverview::Config::getContextCount(monitor);
 
     const auto contextOf = [this](size_t idx) -> int {
         const auto ID = idx < images.size() && images[idx] && images[idx]->pWorkspace ? images[idx]->pWorkspace->numberedID() : std::nullopt;
         return ID && *ID >= 11 && *ID % 10 != 0 ? sc<int>(*ID / 10) : 0;
     };
 
-    // the first (lowest position) workspace of every context
+    // first workspace of every context that appears in the overview (named or not — unnamed = pencil only)
     std::unordered_map<int, size_t> firstOfContext;
     for (size_t i = 0; i < images.size(); ++i) {
         const int CONTEXT = contextOf(i);
-        if (CONTEXT < 1 || CONTEXT > sc<int>(names.size()) || names[CONTEXT - 1].empty())
+        if (CONTEXT < 1)
             continue;
         const auto IT = firstOfContext.find(CONTEXT);
         if (IT == firstOfContext.end() || images[i]->pWorkspace->numberedID() < images[IT->second]->pWorkspace->numberedID())
             firstOfContext[CONTEXT] = i;
     }
 
-    const int   SIZE     = std::max(1, sc<int>(std::round(ScrollOverview::Config::getValue<int>("plugin:gridoverview:context_label_size", monitor) * monitor->m_scale)));
-    const auto  COLOR    = ScrollOverview::Config::getContextLabelColor(monitor);
-    const float GAP      = 24.F * monitor->m_scale;
-    const int   SELECTED = contextOf(viewportCurrentWorkspace);
-    // pill behind the label: PILLPADDING around the text, twice that left and right
+    const int   SIZE        = std::max(1, sc<int>(std::round(ScrollOverview::Config::getValue<int>("plugin:gridoverview:context_label_size", monitor) * monitor->m_scale)));
+    const auto  COLOR       = ScrollOverview::Config::getContextLabelColor(monitor);
+    const float GAP         = 24.F * monitor->m_scale;
+    const int   SELECTED    = contextOf(viewportCurrentWorkspace);
     const auto  BACKGROUND  = ScrollOverview::Config::getContextLabelBackground(monitor);
     const float PILLPADDING = 6.F * monitor->m_scale;
+    const float ACTION_GAP  = 16.F * monitor->m_scale;
+    const float PENCIL      = 16.F * monitor->m_scale;
     const auto  TRAYBAND    = specialTrayBandBox();
 
     for (const auto& [context, idx] : firstOfContext) {
-        const auto& NAME = names[context - 1];
-        const auto  KEY  = NAME + "\n" + std::to_string(SIZE) + "\n" + std::to_string(COLOR.r) + std::to_string(COLOR.g) + std::to_string(COLOR.b) + std::to_string(COLOR.a);
-
-        auto& texture = contextLabelTextures[KEY];
-        if (!texture)
-            texture = g_pHyprRenderer->renderText(NAME, COLOR, SIZE, false, "", 0, 600);
-        if (!texture || texture->m_size.x <= 0)
+        const std::string NAME = context <= sc<int>(names.size()) ? names[sc<size_t>(context - 1)] : "";
+        // skip free plus-rows far below configured slots when they have no label yet
+        if (NAME.empty() && CONTEXT_COUNT > 0 && context > CONTEXT_COUNT && context > sc<int>(names.size()))
             continue;
 
-        // centred between the screen edge (below the bar for columns) and the first workspace, at least GAP away from it
+        SP<Render::ITexture> texture;
+        Vector2D             TEXT{0, SIZE};
+        if (!NAME.empty()) {
+            const auto KEY = NAME + "\n" + std::to_string(SIZE) + "\n" + std::to_string(COLOR.r) + std::to_string(COLOR.g) + std::to_string(COLOR.b) + std::to_string(COLOR.a);
+            auto&      slot = contextLabelTextures[KEY];
+            if (!slot)
+                slot = g_pHyprRenderer->renderText(NAME, COLOR, SIZE, false, "", 0, 600);
+            texture = slot;
+            if (!texture || texture->m_size.x <= 0)
+                continue;
+            TEXT = texture->m_size;
+        }
+
         const auto   BOX  = getOverviewWorkspaceBox(monitor, renderScale, viewOffset->value(), workspaceOverviewOffset(idx, activeIdx, workspacePitch), layout);
-        const auto   TEXT = texture->m_size;
         const double EDGE = gridContextsAsColumns ? gridWorkAreaTop(monitor) * monitor->m_scale : 0.0;
-        const CBox   LABEL =
-            gridContextsAsColumns ?
-            CBox{BOX.middle().x - TEXT.x / 2.0, std::min((EDGE + BOX.y) / 2.0 - TEXT.y / 2.0, BOX.y - GAP - TEXT.y), TEXT.x, TEXT.y} :
-            CBox{std::min(BOX.x / 2.0 - TEXT.x / 2.0, BOX.x - GAP - TEXT.x), BOX.middle().y - TEXT.y / 2.0, TEXT.x, TEXT.y};
-        if (!overviewBoxIntersectsMonitor(LABEL, monitor))
+        CBox         LABEL, PENBOX, CONTENT;
+        if (!NAME.empty()) {
+            LABEL =
+                gridContextsAsColumns ?
+                CBox{BOX.middle().x - TEXT.x / 2.0, std::min((EDGE + BOX.y) / 2.0 - TEXT.y / 2.0, BOX.y - GAP - TEXT.y), TEXT.x, TEXT.y} :
+                CBox{std::min(BOX.x / 2.0 - TEXT.x / 2.0, BOX.x - GAP - TEXT.x), BOX.middle().y - TEXT.y / 2.0, TEXT.x, TEXT.y};
+            PENBOX  = CBox{LABEL.x + LABEL.w + ACTION_GAP, LABEL.middle().y - PENCIL / 2.0, PENCIL, PENCIL};
+            CONTENT = CBox{LABEL.x, std::min(LABEL.y, PENBOX.y), PENBOX.x + PENBOX.w - LABEL.x, std::max(LABEL.y + LABEL.h, PENBOX.y + PENBOX.h) - std::min(LABEL.y, PENBOX.y)};
+        } else {
+            // unnamed: pencil-only pill where the label would sit
+            const double CX = gridContextsAsColumns ? BOX.middle().x : std::min(BOX.x / 2.0, BOX.x - GAP - PENCIL / 2.0);
+            const double CY = gridContextsAsColumns ? std::min((EDGE + BOX.y) / 2.0, BOX.y - GAP - PENCIL / 2.0) : BOX.middle().y;
+            PENBOX          = CBox{CX - PENCIL / 2.0, CY - PENCIL / 2.0, PENCIL, PENCIL};
+            CONTENT         = PENBOX;
+            LABEL           = {};
+        }
+        if (!overviewBoxIntersectsMonitor(CONTENT, monitor))
             continue;
 
         const float LABELALPHA = ALPHA * (context == SELECTED ? 1.F : 0.55F);
-        auto        pillBox    = LABEL.copy().expand(PILLPADDING).round();
+        auto        pillBox    = CONTENT.copy().expand(PILLPADDING).round();
         pillBox.x -= PILLPADDING;
         pillBox.w += 2.0 * PILLPADDING;
-        // in the column of the shown scratchpad tray (columns layout: labels above the cards): no label peeking out
         if (!TRAYBAND.empty() && pillBox.x + pillBox.w > TRAYBAND.x)
             continue;
-        contextLabelHitboxes.emplace_back(pillBox, idx);
+
+        SContextLabelHit hit;
+        hit.name         = LABEL.empty() ? CBox{} : LABEL.copy().round();
+        hit.pencil       = CBox{PENBOX.x - PILLPADDING * 0.5, pillBox.y, PENBOX.w + PILLPADDING, pillBox.h}.round();
+        hit.workspaceIdx = idx;
+        hit.context      = context;
+        contextLabelHits.push_back(hit);
 
         if (BACKGROUND.a > 0.F) {
             CRectPassElement::SRectData pill;
@@ -6205,11 +6226,18 @@ void CScrollOverview::renderContextLabels(PHLMONITOR monitor, size_t activeIdx, 
             Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(pill));
         }
 
-        CTexPassElement::SRenderData data;
-        data.tex = texture;
-        data.box = LABEL.copy().round();
-        data.a   = LABELALPHA;
-        Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CTexPassElement>(std::move(data)));
+        if (texture && !hit.name.empty()) {
+            CTexPassElement::SRenderData data;
+            data.tex = texture;
+            data.box = hit.name;
+            data.a   = LABELALPHA;
+            Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CTexPassElement>(std::move(data)));
+        }
+
+        auto chrome = COLOR;
+        chrome.a    = 1.F;
+        const float PENSIZE = PENCIL * 0.92F;
+        GridIcons::drawUiIcon("pencil", CBox{PENBOX.middle().x - PENSIZE / 2.F, PENBOX.middle().y - PENSIZE / 2.F, PENSIZE, PENSIZE}, LABELALPHA, chrome);
     }
 }
 

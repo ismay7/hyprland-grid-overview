@@ -1,16 +1,12 @@
 ## Using Hyprpm (recommended)
 
-1. For stable releases of Hyprland, add the plugin repository:
+1. Add the plugin repository:
 
    ```bash
-   hyprpm add https://github.com/yayuuu/hyprland-scroll-overview.git
+   hyprpm add https://github.com/ismay7/hyprland-grid-overview
    ```
 
-   If you use a Git build of Hyprland, add the plugin from the `new-release` branch instead:
-
-   ```bash
-   hyprpm add https://github.com/yayuuu/hyprland-scroll-overview origin/new-release
-   ```
+   The repository may be private: cloning needs access (SSH key or token that Hyprland/`hyprpm` can use).
 
 2. Build and fetch dependencies:
 
@@ -32,21 +28,21 @@
    end)
    ```
 
-5. Configure and enjoy.
+5. Configure and enjoy. A complete starter module lives at [examples/gridoverview.lua](../../examples/gridoverview.lua) — save it as `~/.config/hypr/gridoverview.lua` and `require("gridoverview")` from `hyprland.lua`. Contexts (named rows, labels, wallpapers) are **opt-in** in that module (`useContexts`, `context_labels`, …); the free grid works without them.
 
 ## Building from source
 
 1. Clone the repository and enter its directory:
 
    ```bash
-   git clone https://github.com/yayuuu/hyprland-scroll-overview.git
-   cd hyprland-scroll-overview
+   git clone https://github.com/ismay7/hyprland-grid-overview.git
+   cd hyprland-grid-overview
    ```
 
-2. Build the plugin:
+2. Build the plugin (needs headers matching the running Hyprland):
 
    ```bash
-   make
+   make all
    ```
 
 3. Load the plugin into the running Hyprland instance:
@@ -55,9 +51,9 @@
    hyprctl plugin load "$(pwd)/gridoverview.so"
    ```
 
-4. To load the plugin automatically when Hyprland starts, add it to your Lua configuration using an absolute path:
+4. To load the plugin automatically when Hyprland starts, add it to your Lua configuration using an absolute path — or prefer `hyprpm` so updates stay consistent:
 
    ```lua
-   local pluginPath = "/absolute/path/to/hyprland-scroll-overview/gridoverview.so"
+   local pluginPath = "/absolute/path/to/hyprland-grid-overview/gridoverview.so"
    hl.plugin.load(pluginPath)
    ```
