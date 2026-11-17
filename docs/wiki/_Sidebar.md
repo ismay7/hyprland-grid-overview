@@ -9,5 +9,4 @@
   - [Scratchpad tray](Scratchpad-tray.md)
   - [Multi-monitor](Multi-monitor.md)
   - [Per-monitor configuration](Per-monitor-configuration.md)
-  - [ALT + Tab overview](ALT-Tab-overview.md)
   - [Wallpaper layers](Wallpaper-layers.md)
