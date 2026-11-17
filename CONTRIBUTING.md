@@ -12,6 +12,6 @@ If you find a bug, try to narrow down which Hyprland or plugin option exposes it
 
 ## Development notes
 
-Useful test coverage includes multi-monitor setups, high refresh rates, and the scratchpad tray together with the free grid. Gesture input help is welcome; a PR with a working implementation is more useful than a feature request alone.
+Useful test coverage includes multi-monitor setups, high refresh rates, and the scratchpad tray together with the free grid. Trackpad gestures are inherited and not dogfooded by the maintainers — hardware-tested fixes or confirmation that they still work are especially welcome.
 
 The in-session check is `python3 scripts/selftest.py` (needs write access to `/dev/uinput`).

@@ -117,6 +117,8 @@ Mouse wheel in the overview steps along the grid axes (`SHIFT` or the horizontal
 
 ## Gestures
 
+Trackpad swipe to open/close the overview is inherited from the upstream plugin (`hl.plugin.gridoverview.gesture`). It is **not dogfooded** by the current maintainers (no suitable gesture hardware in daily use). Reports and PRs from people who can test it are welcome.
+
 ```lua
 hl.plugin.gridoverview.gesture({ fingers = 3, direction = "vertical" })
 hl.plugin.gridoverview.gesture({ fingers = 4, direction = "vertical", mod = "SUPER", scale = 1.5 })
