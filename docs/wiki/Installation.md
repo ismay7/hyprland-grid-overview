@@ -1,4 +1,4 @@
-Config is **Lua only** (`hyprland.lua`). Classic `.conf` / Hyprlang binds are not documented here.
+Requires **Hyprland 0.57.2** or newer. Config is **Lua only** (`hyprland.lua`).
 
 ## Using Hyprpm (recommended)
 

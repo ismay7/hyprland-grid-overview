@@ -1,7 +1,7 @@
 # hyprland-grid-overview
 
-**See Hyprland, then shape it.** A workspace overview plugin for Hyprland (plugin name `gridoverview`) that shows
-your workspaces, windows and scratchpads as one grid you can grab with the mouse.
+**See Hyprland, then shape it.** A workspace overview plugin for Hyprland **0.57.2+** (plugin name `gridoverview`)
+that shows your workspaces, windows and scratchpads as one grid you can grab with the mouse.
 
 Hyprland can do a lot: as many workspaces as you like, scratchpads, floating windows, groups, pins. Most of it sits
 behind keybinds you have to know first. gridoverview puts those core features on screen instead: open the overview and
@@ -70,7 +70,8 @@ hyprpm update
 hyprpm enable gridoverview
 ```
 
-Lua only. Load on startup with `hyprpm reload` from `hyprland.start`, then **bind a toggle** — required; the plugin has no keybinds of its own:
+Requires Hyprland **0.57.2+**. Lua config only. Load on startup with `hyprpm reload` from `hyprland.start`, then
+**bind a toggle** — required; the plugin has no keybinds of its own:
 
 ```lua
 hl.bind("SUPER + D", function()  -- your main modifier + any key
