@@ -30,4 +30,10 @@ struct SRenderParams {
 
 void renderOverviewWindow(const SRenderParams& params);
 
+// Group tab strip above an overview window (title + indicator). Returns the member under point, else null.
+// expandCeilingY (>=0): grow hit upward to that Y (workspace card top), clamped by blockers below
+// that are above this window and overlap the tab column in X.
+PHLWINDOW groupTabAt(PHLMONITOR monitor, const PHLWINDOW& window, const CBox& windowBox, float renderScale, const Vector2D& point,
+                     float expandCeilingY = -1.F, const std::vector<CBox>* blockers = nullptr);
+
 }

@@ -592,3 +592,52 @@ bool CScrollOverview::reconcilePinnedFloatingWindows() {
     return false;
 }
 
+bool CScrollOverview::reconcileOverviewWindows() {
+    // group dissolve/create (togglegroup / moveintogroup) posts Socket2 only — no EventBus rebuild
+    if (!pMonitor)
+        return false;
+
+    std::unordered_set<std::string> listed;
+    listed.reserve(Desktop::windowState()->windows().size());
+
+    for (const auto& img : images) {
+        if (!img || !img->pWorkspace)
+            continue;
+
+        for (const auto& windowRef : img->windows) {
+            const auto STORED = windowRef.lock();
+            if (!STORED)
+                return true;
+
+            const auto WINDOW = getOverviewWindowToShow(STORED);
+            if (!WINDOW || WINDOW != STORED)
+                return true; // member became non-current, or group current changed without rebuild
+
+            listed.insert(overviewWindowKey(WINDOW));
+            if (!shouldShowOverviewWindow(WINDOW) || WINDOW->m_workspace != img->pWorkspace)
+                return true;
+        }
+    }
+
+    for (const auto& window : Desktop::windowState()->windows()) {
+        const auto WINDOW = getOverviewWindowToShow(window);
+        if (!shouldShowOverviewWindow(WINDOW) || !WINDOW->m_workspace)
+            continue;
+
+        bool tracked = false;
+        for (const auto& img : images) {
+            if (img && img->pWorkspace == WINDOW->m_workspace) {
+                tracked = true;
+                break;
+            }
+        }
+        if (!tracked)
+            continue;
+
+        if (!listed.contains(overviewWindowKey(WINDOW)))
+            return true; // e.g. sibling after Super+W dissolve — layout slot exists, tile missing
+    }
+
+    return false;
+}
+

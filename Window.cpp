@@ -740,6 +740,7 @@ static void renderOverviewGroupTabTitles(PHLMONITOR monitor, const PHLWINDOW& wi
         return;
 
     const auto PRENDERTITLES            = ScrollOverview::Config::getValue<bool>("group:groupbar:render_titles");
+    const auto PGRADIENTS               = ScrollOverview::Config::getValue<bool>("group:groupbar:gradients");
     const auto PTITLEFONTSIZE           = ScrollOverview::Config::getValue<int>("group:groupbar:font_size");
     const auto PHEIGHT                  = ScrollOverview::Config::getValue<int>("group:groupbar:height");
     const auto PINDICATORGAP            = ScrollOverview::Config::getValue<int>("group:groupbar:indicator_gap");
@@ -749,27 +750,38 @@ static void renderOverviewGroupTabTitles(PHLMONITOR monitor, const PHLWINDOW& wi
     const auto PINNERGAP                = ScrollOverview::Config::getValue<int>("group:groupbar:gaps_in");
     const auto PTEXTOFFSET              = ScrollOverview::Config::getValue<int>("group:groupbar:text_offset");
     const auto PTEXTPADDING             = ScrollOverview::Config::getValue<int>("group:groupbar:text_padding");
+    const auto PGRADIENTROUNDING        = ScrollOverview::Config::getValue<int>("group:groupbar:gradient_rounding");
+    const auto PGRADIENTROUNDINGPOWER   = ScrollOverview::Config::getValue<float>("group:groupbar:gradient_rounding_power");
     const auto PTEXTCOLORACTIVE         = ScrollOverview::Config::getValue<int>("group:groupbar:text_color");
     const auto PTEXTCOLORINACTIVE       = ScrollOverview::Config::getValue<int>("group:groupbar:text_color_inactive");
     const auto PTEXTCOLORLOCKEDACTIVE   = ScrollOverview::Config::getValue<int>("group:groupbar:text_color_locked_active");
     const auto PTEXTCOLORLOCKEDINACTIVE = ScrollOverview::Config::getValue<int>("group:groupbar:text_color_locked_inactive");
 
-    if (!PRENDERTITLES || PHEIGHT <= 0)
+    // titles and/or mint tab backgrounds (gradients); either is enough to keep the title strip
+    if ((!PRENDERTITLES && !PGRADIENTS) || PHEIGHT <= 0)
         return;
 
-    const bool  groupLocked  = window->grouping().group()->locked() || Desktop::windowState()->groupsLocked();
-    const auto  groupWindows = window->grouping().group()->windows();
+    const bool  groupLocked   = window->grouping().group()->locked() || Desktop::windowState()->groupsLocked();
+    const auto  groupWindows  = window->grouping().group()->windows();
     const auto  focusedWindow = Desktop::focusState()->window();
-    const float outerGap     = sc<float>(POUTERGAP) * metrics.pxScale;
-    const float innerGap     = sc<float>(PINNERGAP) * metrics.pxScale;
-    const float oneBarHeight = sc<float>(POUTERGAP + PINDICATORHEIGHT + PINDICATORGAP + PHEIGHT) * metrics.pxScale;
-    const float titleHeight  = sc<float>(PHEIGHT) * metrics.pxScale;
-    const float textPadding  = sc<float>(PTEXTPADDING) * metrics.pxScale;
-    const float textOffset   = sc<float>(PTEXTOFFSET) * metrics.pxScale;
-    const int   fontSizePx   = std::max(1, sc<int>(std::round(PTITLEFONTSIZE * metrics.pxScale)));
+    const float outerGap      = sc<float>(POUTERGAP) * metrics.pxScale;
+    const float innerGap      = sc<float>(PINNERGAP) * metrics.pxScale;
+    const float oneBarHeight  = sc<float>(POUTERGAP + PINDICATORHEIGHT + PINDICATORGAP + PHEIGHT) * metrics.pxScale;
+    const float titleHeight   = sc<float>(PHEIGHT) * metrics.pxScale;
+    const float textPadding   = sc<float>(PTEXTPADDING) * metrics.pxScale;
+    const float textOffset    = sc<float>(PTEXTOFFSET) * metrics.pxScale;
+    const int   fontSizePx    = std::max(1, sc<int>(std::round(PTITLEFONTSIZE * metrics.pxScale)));
+    const int   gradRounding  = sc<int>(std::round(PGRADIENTROUNDING * metrics.pxScale));
 
-    CBox        titleArea = windowBox.copy().expand(metrics.borderPxScaled);
+    CBox titleArea = windowBox.copy().expand(metrics.borderPxScaled);
     titleArea.y -= metrics.hyprbarHeightPxScaled;
+
+    auto* const GROUPCOLACTIVE         = sc<Config::CGradientValueData*>(ScrollOverview::Config::valueRef<Config::IComplexConfigValue>("group:groupbar:col.active").ptr());
+    auto* const GROUPCOLINACTIVE       = sc<Config::CGradientValueData*>(ScrollOverview::Config::valueRef<Config::IComplexConfigValue>("group:groupbar:col.inactive").ptr());
+    auto* const GROUPCOLACTIVELOCKED   = sc<Config::CGradientValueData*>(ScrollOverview::Config::valueRef<Config::IComplexConfigValue>("group:groupbar:col.locked_active").ptr());
+    auto* const GROUPCOLINACTIVELOCKED = sc<Config::CGradientValueData*>(ScrollOverview::Config::valueRef<Config::IComplexConfigValue>("group:groupbar:col.locked_inactive").ptr());
+    const auto* const COLACTIVE        = groupLocked ? GROUPCOLACTIVELOCKED : GROUPCOLACTIVE;
+    const auto* const COLINACTIVE      = groupLocked ? GROUPCOLINACTIVELOCKED : GROUPCOLINACTIVE;
 
     const CHyprColor COLORACTIVE         = CHyprColor(PTEXTCOLORACTIVE);
     const CHyprColor COLORINACTIVE       = PTEXTCOLORINACTIVE == -1 ? COLORACTIVE : CHyprColor(PTEXTCOLORINACTIVE);
@@ -806,8 +818,26 @@ static void renderOverviewGroupTabTitles(PHLMONITOR monitor, const PHLWINDOW& wi
         if (box.empty())
             continue;
 
-        CHyprColor textColor;
         const bool isCurrent = member == focusedWindow;
+
+        // same mint (or locked) fill as the desktop groupbar when gradients are on
+        if (PGRADIENTS && COLACTIVE && COLINACTIVE && !COLACTIVE->m_colors.empty() && !COLINACTIVE->m_colors.empty()) {
+            CHyprColor bg = isCurrent ? COLACTIVE->m_colors[0] : COLINACTIVE->m_colors[0];
+            bg.a *= alpha;
+            if (bg.a > 0.F) {
+                CRectPassElement::SRectData bgData;
+                bgData.box           = box;
+                bgData.color         = bg;
+                bgData.round         = gradRounding;
+                bgData.roundingPower = PGRADIENTROUNDINGPOWER;
+                Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).add(makeUnique<CRectPassElement>(bgData));
+            }
+        }
+
+        if (!PRENDERTITLES)
+            continue;
+
+        CHyprColor textColor;
         if (groupLocked)
             textColor = isCurrent ? COLORLOCKEDACTIVE : COLORLOCKEDINACTIVE;
         else
@@ -987,6 +1017,86 @@ void forceDecoRecalc(const PHLWINDOW& window) {
 
     g_pDecorationPositioner->forceRecalcFor(WINDOW);
     WINDOW->presentation().updateDecorations();
+}
+
+PHLWINDOW groupTabAt(PHLMONITOR monitor, const PHLWINDOW& window, const CBox& windowBox, float renderScale, const Vector2D& point, float expandCeilingY,
+                     const std::vector<CBox>* blockers) {
+    if (!monitor || !window || windowBox.empty() || !window->grouping().group() || window->grouping().group()->size() < 1)
+        return nullptr;
+
+    const auto PRENDERTITLES    = ScrollOverview::Config::getValue<bool>("group:groupbar:render_titles");
+    const auto PGRADIENTS       = ScrollOverview::Config::getValue<bool>("group:groupbar:gradients");
+    const auto PHEIGHT          = ScrollOverview::Config::getValue<int>("group:groupbar:height");
+    const auto PINDICATORGAP    = ScrollOverview::Config::getValue<int>("group:groupbar:indicator_gap");
+    const auto PINDICATORHEIGHT = ScrollOverview::Config::getValue<int>("group:groupbar:indicator_height");
+    const auto PSTACKED         = ScrollOverview::Config::getValue<bool>("group:groupbar:stacked");
+    const auto POUTERGAP        = ScrollOverview::Config::getValue<int>("group:groupbar:gaps_out");
+    const auto PINNERGAP        = ScrollOverview::Config::getValue<int>("group:groupbar:gaps_in");
+
+    const bool hasTitleStrip = (PRENDERTITLES || PGRADIENTS) && PHEIGHT > 0;
+    if (!hasTitleStrip && PINDICATORHEIGHT <= 0)
+        return nullptr;
+
+    const SOverviewWindowMetrics metrics      = getOverviewWindowMetrics(monitor, window, renderScale);
+    const auto                   groupWindows = window->grouping().group()->windows();
+    const float                  outerGap     = sc<float>(POUTERGAP) * metrics.pxScale;
+    const float                  innerGap     = sc<float>(PINNERGAP) * metrics.pxScale;
+    const float                  indicatorH   = sc<float>(std::max(0, PINDICATORHEIGHT)) * metrics.pxScale;
+    const float                  indicatorGap = hasTitleStrip ? sc<float>(PINDICATORGAP) * metrics.pxScale : 0.F;
+    const float                  titleHeight  = hasTitleStrip ? sc<float>(PHEIGHT) * metrics.pxScale : 0.F;
+    const float                  tabBodyH     = titleHeight + indicatorGap + indicatorH;
+    const float                  oneBarHeight = outerGap + tabBodyH;
+
+    CBox tabArea = windowBox.copy().expand(metrics.borderPxScaled);
+    tabArea.y -= metrics.hyprbarHeightPxScaled;
+
+    const auto columnCeiling = [&](float colX, float colW, float visualTop) {
+        if (expandCeilingY < 0.F)
+            return visualTop;
+
+        // grow upward (smaller Y) toward the card top; clamp down by windows above this column
+        float top = expandCeilingY;
+        if (blockers) {
+            for (const auto& box : *blockers) {
+                if (box.empty())
+                    continue;
+                const bool overlapX = box.x < colX + colW && box.x + box.width > colX;
+                if (!overlapX)
+                    continue;
+                if (box.y + box.height <= windowBox.y + 1.F)
+                    top = std::max(top, sc<float>(box.y + box.height));
+            }
+        }
+        return std::min(top, visualTop);
+    };
+
+    float xoff = 0.F;
+    float yoff = 0.F;
+
+    for (size_t i = 0; i < groupWindows.size(); ++i) {
+        const size_t windowIdx = PSTACKED ? groupWindows.size() - i - 1 : i;
+        const auto   member    = groupWindows[windowIdx].lock();
+        if (!member)
+            continue;
+
+        const float barWidth = PSTACKED ? tabArea.width : (tabArea.width - innerGap * (groupWindows.size() - 1)) / sc<float>(groupWindows.size());
+        const float colX     = PSTACKED ? tabArea.x : tabArea.x + xoff;
+        const float visualTop = PSTACKED ? tabArea.y - yoff - outerGap - tabBodyH : tabArea.y - outerGap - tabBodyH;
+        const float visualH   = tabBodyH;
+        const float hitTop    = columnCeiling(colX, barWidth, visualTop);
+        CBox        hit{colX, hitTop, barWidth, (visualTop + visualH) - hitTop};
+
+        if (PSTACKED)
+            yoff += oneBarHeight;
+        else
+            xoff += innerGap + barWidth;
+
+        hit.round();
+        if (!hit.empty() && hit.containsPoint(point))
+            return member;
+    }
+
+    return nullptr;
 }
 
 void renderOverviewWindow(const SRenderParams& params) {

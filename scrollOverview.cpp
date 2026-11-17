@@ -1512,6 +1512,17 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
 
             if (event.state == WL_POINTER_BUTTON_STATE_PRESSED) {
                 updateHoveredChromeWindow();
+                // group tab: switch active member, keep overview open
+                if (const auto TAB = groupTabAtOverviewPoint(lastMousePosLocal)) {
+                    if (const auto GROUP = TAB->grouping().group()) {
+                        GROUP->setCurrent(TAB);
+                        Desktop::focusState()->fullWindowFocus(TAB, Desktop::FOCUS_REASON_DESKTOP_STATE_CHANGE);
+                        OverviewWindow::forceDecoRecalc(TAB);
+                        damage();
+                    }
+                    groupTabPressed = true;
+                    return;
+                }
                 // window action chrome (float / maximize / fullscreen / pin / close)
                 if (const auto HIT = windowChromeActionAt(lastMousePosLocal)) {
                     applyWindowChromeAction(HIT->first, HIT->second);
@@ -1604,6 +1615,11 @@ CScrollOverview::CScrollOverview(PHLWORKSPACE startedOn_, bool swipe_, PHLMONITO
 
             if (windowChromePressed) {
                 windowChromePressed = false;
+                return;
+            }
+
+            if (groupTabPressed) {
+                groupTabPressed = false;
                 return;
             }
 
@@ -2882,6 +2898,48 @@ PHLWINDOW CScrollOverview::windowAtOverviewCursor(size_t* hoveredWorkspaceIdx) {
     return windowAtOverviewPoint(lastMousePosLocal, hoveredWorkspaceIdx);
 }
 
+PHLWINDOW CScrollOverview::groupTabAtOverviewPoint(const Vector2D& point) const {
+    const auto MONITOR = pMonitor.lock();
+    if (!MONITOR || closing || specialTrayBandAt(point))
+        return nullptr;
+
+    const size_t activeIdx      = activeWorkspaceIndex();
+    const auto   WORKSPACEPITCH = getWorkspaceRenderedPitch(MONITOR, scale->value(), layout);
+
+    for (size_t workspaceIdx = 0; workspaceIdx < images.size(); ++workspaceIdx) {
+        const auto& wimg   = images[workspaceIdx];
+        if (!wimg || !wimg->pWorkspace)
+            continue;
+
+        const auto offset = workspaceOverviewOffset(workspaceIdx, activeIdx, WORKSPACEPITCH);
+        // Card top (not work-area): tabs sit above the usable tile area, so ceiling must be the overview card
+        const auto cardTop = sc<float>(getOverviewWorkspaceBox(MONITOR, scale->value(), viewOffset->value(), offset, layout).y);
+
+        std::vector<CBox> blockers;
+        blockers.reserve(wimg->windows.size());
+        for (const auto& ref : wimg->windows) {
+            const auto other = getOverviewWindowToShow(ref.lock());
+            if (!shouldShowOverviewWindow(other))
+                continue;
+            blockers.emplace_back(getOverviewWindowBox(other, MONITOR, scale->value(), viewOffset->value(), offset, layout, true, false));
+        }
+
+        for (auto it = wimg->windows.rbegin(); it != wimg->windows.rend(); ++it) {
+            const auto window = getOverviewWindowToShow(it->lock());
+            if (!shouldShowOverviewWindow(window) || !window->grouping().group())
+                continue;
+
+            // same box as renderWorkspaceLive (no deco extents) — otherwise the groupbar
+            // reservation shifts the hit strip above the visible mint tabs
+            const auto windowBox = getOverviewWindowBox(window, MONITOR, scale->value(), viewOffset->value(), offset, layout, true, false);
+            if (const auto TAB = OverviewWindow::groupTabAt(MONITOR, window, windowBox, scale->value(), point, cardTop, &blockers))
+                return TAB;
+        }
+    }
+
+    return nullptr;
+}
+
 PHLWINDOW CScrollOverview::windowClosestToWorkspaceCenter(size_t workspaceIdx) const {
     const auto MONITOR = pMonitor.lock();
     if (!MONITOR || workspaceIdx >= images.size() || !images[workspaceIdx] || !images[workspaceIdx]->pWorkspace)
@@ -3026,6 +3084,32 @@ CDropIndicator::SDropAnchor CScrollOverview::dropAnchorAtOverviewCursorOnWorkspa
         return result;
     }
 
+    // Drop onto a group tab strip (up to overview card top) → join that group
+    {
+        const float cardTop = sc<float>(WORKSPACEBOX.y);
+        std::vector<CBox> blockers;
+        blockers.reserve(IMAGE->windows.size());
+        for (const auto& ref : IMAGE->windows) {
+            const auto other = getOverviewWindowToShow(ref.lock());
+            if (!shouldShowOverviewWindow(other) || other == ignoredWindow)
+                continue;
+            blockers.emplace_back(getOverviewWindowBox(other, MONITOR, scale->value(), viewOffset->value(), WORKSPACE_OFFSET, layout, true, false));
+        }
+
+        for (auto it = IMAGE->windows.rbegin(); it != IMAGE->windows.rend(); ++it) {
+            const auto WINDOW = getOverviewWindowToShow(it->lock());
+            if (!shouldShowOverviewWindow(WINDOW) || WINDOW == ignoredWindow || WINDOW->isFloating() || !WINDOW->grouping().group())
+                continue;
+
+            const auto [BOX, LOGICALBOX] = boxesForWindow(WINDOW);
+            const auto SURFACEBOX        = getOverviewWindowBox(WINDOW, MONITOR, scale->value(), viewOffset->value(), WORKSPACE_OFFSET, layout, true, false);
+            if (const auto TAB = OverviewWindow::groupTabAt(MONITOR, WINDOW, SURFACEBOX, scale->value(), lastMousePosLocal, cardTop, &blockers)) {
+                setAnchor(result, TAB, BOX, LOGICALBOX, "g");
+                return result;
+            }
+        }
+    }
+
     const auto ALGO = overviewScrollingAlgorithmForWorkspace(WORKSPACE);
     const bool PRIMARYHORIZONTAL = ALGO && ALGO->m_scrollingData && ALGO->m_scrollingData->controller && ALGO->m_scrollingData->controller->isPrimaryHorizontal();
     const auto pointsToOriginalStackSlot = [&](const PHLWINDOW& anchor, const std::string& direction) {
@@ -3085,10 +3169,14 @@ CDropIndicator::SDropAnchor CScrollOverview::dropAnchorAtOverviewCursorOnWorkspa
             setAnchor(result, ignoredWindow, DRAGCONTEXT->dragOriginalOverviewBox);
     };
 
-    // Non-scrolling layouts: the middle of a window swaps ("c"), the band along each edge inserts on that side
-    const auto tiledDirectionForBox = [&](const CBox& box) {
+    // Non-scrolling: centre swaps ("c"), edges insert. Groups: only a thin top band joins ("g");
+    // the rest of the card keeps normal tile insert/swap. Main join affordance is the tab strip above.
+    const auto tiledDirectionForBox = [&](const CBox& box, bool grouped) {
         const auto X = box.width > 0 ? (lastMousePosLocal.x - box.x) / box.width : 0.5;
         const auto Y = box.height > 0 ? (lastMousePosLocal.y - box.y) / box.height : 0.5;
+
+        if (grouped && Y < 0.22 && X > 0.15 && X < 0.85)
+            return std::string{"g"};
 
         if (X > 0.3 && X < 0.7 && Y > 0.3 && Y < 0.7)
             return std::string{"c"};
@@ -3099,6 +3187,13 @@ CDropIndicator::SDropAnchor CScrollOverview::dropAnchorAtOverviewCursorOnWorkspa
         if (NEAREST == 1.0 - X)
             return std::string{"r"};
         return NEAREST == Y ? std::string{"u"} : std::string{"d"};
+    };
+    const auto scrollingDirectionForBox = [&](const CBox& box, bool grouped) {
+        const auto X = box.width > 0 ? (lastMousePosLocal.x - box.x) / box.width : 0.5;
+        const auto Y = box.height > 0 ? (lastMousePosLocal.y - box.y) / box.height : 0.5;
+        if (grouped && Y < 0.22 && X > 0.15 && X < 0.85)
+            return std::string{"g"};
+        return directionForBox(box);
     };
 
     float bestDistanceSq = std::numeric_limits<float>::max();
@@ -3117,7 +3212,8 @@ CDropIndicator::SDropAnchor CScrollOverview::dropAnchorAtOverviewCursorOnWorkspa
         if (distanceSq >= bestDistanceSq)
             continue;
 
-        setAnchor(result, WINDOW, BOX, LOGICALBOX, ALGO ? directionForBox(BOX) : tiledDirectionForBox(BOX));
+        const bool GROUPED = !!WINDOW->grouping().group();
+        setAnchor(result, WINDOW, BOX, LOGICALBOX, ALGO ? scrollingDirectionForBox(BOX, GROUPED) : tiledDirectionForBox(BOX, GROUPED));
         bestDistanceSq = distanceSq;
     }
 
@@ -4378,6 +4474,45 @@ void CScrollOverview::endWindowDrag() {
     const bool DROPPINGONSCROLLINGCROSSAXIS =
         DROPSCROLLINGPRIMARYHORIZONTAL ? dropDirection == "u" || dropDirection == "d" : dropDirection == "l" || dropDirection == "r";
 
+    // Drop onto a group (tab strip or group-card centre): join that group, stay in overview
+    if (RETILEONEND && DROPANCHOR && dropDirection == "g" && DROPANCHOR->grouping().group()) {
+        const bool ignoreGroupLock = ScrollOverview::Config::getValue<int>("binds:ignore_group_lock") != 0;
+        const auto GROUP           = DROPANCHOR->grouping().group();
+        const bool GROUPSLOCKED    = Desktop::windowState()->groupsLocked();
+        const bool TARGETLOCKED    = GROUP->locked() || (WINDOW->grouping().group() && WINDOW->grouping().group()->locked());
+
+        if ((!ignoreGroupLock && (GROUPSLOCKED || TARGETLOCKED)) || !WINDOW->grouping().canBeGroupedInto(GROUP) || GROUP->denied()) {
+            dropDirection = "c"; // locked/denied: treat as tile swap instead of join
+        } else if (WINDOW->grouping().group() && WINDOW->grouping().group() == GROUP) {
+            GROUP->setCurrent(DROPANCHOR);
+            Desktop::focusState()->fullWindowFocus(WINDOW, Desktop::FOCUS_REASON_DESKTOP_STATE_CHANGE);
+            RESTOREVIEWPORTWORKSPACE();
+            rebuildPending = true;
+            damage();
+            return;
+        } else {
+            if (MOVEWORKSPACE) {
+                Desktop::globalWindowController()->moveWindowToWorkspace(WINDOW, DROPWORKSPACE);
+                RESTOREACTIVEWORKSPACE();
+            }
+
+            if (WINDOW->grouping().group())
+                WINDOW->grouping().group()->remove(WINDOW);
+
+            GROUP->setCurrent(DROPANCHOR); // insert after the hovered tab / current member
+            GROUP->add(WINDOW);
+            GROUP->setCurrent(WINDOW);
+            WINDOW->presentation().updateDecorations();
+            Desktop::focusState()->fullWindowFocus(WINDOW, Desktop::FOCUS_REASON_DESKTOP_STATE_CHANGE);
+
+            RESTOREACTIVEWORKSPACE();
+            RESTOREVIEWPORTWORKSPACE();
+            rebuildPending = true;
+            damage();
+            return;
+        }
+    }
+
     if (DROPSCROLLINGLAYOUT && DROPANCHOR && DROPPINGONSCROLLINGCROSSAXIS && Fullscreen::controller()->isFullscreen(DROPANCHOR)) {
         Fullscreen::controller()->setFullscreenMode(DROPANCHOR, Fullscreen::FSMODE_NONE);
         if (const auto ANCHORDATA = DROPSCROLLINGALGO->dataFor(DROPANCHOR->layoutTarget()); ANCHORDATA) {
@@ -5428,6 +5563,7 @@ void CScrollOverview::forceWindowVisible(PHLWINDOW window) {
         return;
 
     constexpr auto FULLSCREENALPHA = Desktop::View::WINDOW_ALPHA_FULLSCREEN;
+    constexpr auto LAYOUTALPHA     = Desktop::View::WINDOW_ALPHA_LAYOUT;
 
     // windows on hidden workspaces (and scratchpads) are suspended: many clients then stop drawing, and a window
     // retiled there (e.g. dropped onto an empty workspace) never gets a buffer of its new size
@@ -5436,22 +5572,27 @@ void CScrollOverview::forceWindowVisible(PHLWINDOW window) {
             window->setSuspended(false);
     };
 
+    // LAYOUT alpha: inactive group members are 0; after dissolve / when we draw a tile, warp to 1
+    // (Group::remove sets it, but animation / missed rebuild can leave a hole)
+    const auto warpVisible = [&] {
+        window->setHidden(false);
+        window->presentation().alpha(FULLSCREENALPHA)->setValueAndWarp(1.F);
+        window->presentation().alpha(LAYOUTALPHA)->setValueAndWarp(1.F);
+        unsuspend();
+    };
+
     for (auto& entry : forcedWindowVisibility) {
         if (entry.window == window) {
-            window->setHidden(false);
-            window->presentation().alpha(FULLSCREENALPHA)->setValueAndWarp(1.F);
-            unsuspend();
+            warpVisible();
             return;
         }
     }
 
-    auto& entry                  = forcedWindowVisibility.emplace_back();
-    entry.window                 = window;
-    entry.hidden                 = window->isHidden();
+    auto& entry  = forcedWindowVisibility.emplace_back();
+    entry.window = window;
+    entry.hidden = window->isHidden();
 
-    window->setHidden(false);
-    window->presentation().alpha(FULLSCREENALPHA)->setValueAndWarp(1.F);
-    unsuspend();
+    warpVisible();
 }
 
 void CScrollOverview::forceLayersAboveFullscreen() {
@@ -7137,6 +7278,8 @@ void CScrollOverview::onPreRender() {
 
     if (!rebuildPending)
         rebuildPending = reconcilePinnedFloatingWindows();
+    if (!rebuildPending)
+        rebuildPending = reconcileOverviewWindows();
 
     if (rebuildPending) {
         rebuildPending = false;

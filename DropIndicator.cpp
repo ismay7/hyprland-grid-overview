@@ -18,7 +18,15 @@ namespace {
 static constexpr float INDICATOR_BASE_SIZE_PX = 200.F;
 static constexpr float INDICATOR_ALPHA   = 0.3F;
 
-static CHyprColor indicatorColor() {
+static CHyprColor indicatorColor(const std::string& direction = {}) {
+    // join-group: mint like the group border (readable against the blue tile indicator)
+    if (direction == "g") {
+        auto* const GROUPBORDER = sc<Config::CGradientValueData*>(ScrollOverview::Config::valueRef<Config::IComplexConfigValue>("group:col.border_active").ptr());
+        if (GROUPBORDER && !GROUPBORDER->m_colors.empty())
+            return GROUPBORDER->m_colors[0].modifyA(0.45F);
+        return CHyprColor{170.F / 255.F, 220.F / 255.F, 175.F / 255.F, 0.45F};
+    }
+
     auto* const ACTIVEBORDER = sc<Config::CGradientValueData*>(ScrollOverview::Config::valueRef<Config::IComplexConfigValue>("general:col.active_border").ptr());
     if (!ACTIVEBORDER || ACTIVEBORDER->m_colors.empty())
         return Colors::WHITE.modifyA(INDICATOR_ALPHA);
@@ -82,11 +90,11 @@ static CBox indicatorBox(const CDropIndicator::SRenderParams& params) {
     if (!params.anchor.window)
         return params.workspaceUsableBox;
 
-    if (params.anchor.direction.empty())
+    if (params.anchor.direction.empty() || params.anchor.direction == "c" || params.anchor.direction == "g")
         return params.anchor.box;
 
     if (!scrollingAlgorithmForWorkspace(params.workspace)) {
-        // the half of the anchor the dropped window will take; the whole anchor for a swap ("c")
+        // half of the anchor for side insert
         auto box = params.anchor.box;
         if (isHorizontalSide(params.anchor.direction)) {
             box.width /= 2.F;
@@ -138,8 +146,8 @@ void CDropIndicator::renderDropIndicator(const SRenderParams& params) {
     if (!params.anchor.window && params.floating && params.workspaceFullyVisible)
         return;
 
-    if (params.anchor.window && !params.anchor.direction.empty() && params.anchor.direction != "c" && !isHorizontalSide(params.anchor.direction) &&
-        !isVerticalSide(params.anchor.direction))
+    if (params.anchor.window && !params.anchor.direction.empty() && params.anchor.direction != "c" && params.anchor.direction != "g" &&
+        !isHorizontalSide(params.anchor.direction) && !isVerticalSide(params.anchor.direction))
         return;
 
     const auto BOX = clipScrollingIndicatorBox(indicatorBox(params), params);
@@ -148,7 +156,7 @@ void CDropIndicator::renderDropIndicator(const SRenderParams& params) {
 
     CRectPassElement::SRectData data;
     data.box           = BOX;
-    data.color         = indicatorColor();
+    data.color         = indicatorColor(params.anchor.direction);
     data.round         = indicatorRounding(params);
     data.roundingPower = indicatorRoundingPower(params);
 

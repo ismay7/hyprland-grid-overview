@@ -157,7 +157,10 @@ class CScrollOverview : public IOverview {
     std::unordered_set<std::string>       pinMorphSourcePinned;
     // pin list drift (e.g. Super+Shift+T) → schedule rebuild without shotgun hooks
     bool                   reconcilePinnedFloatingWindows();
+    // group create/dissolve has no EventBus hook → detect overview window-set drift
+    bool                   reconcileOverviewWindows();
     bool                   windowChromePressed = false;
+    bool                   groupTabPressed     = false; // tab click: switch member, swallow release (stay in overview)
     PHLWINDOWREF           hoveredChromeWindow;
     std::unordered_map<std::string, Vector2D> rememberedFloatSizes; // window address → last overview float size
     void   renderContextLabels(PHLMONITOR monitor, size_t activeIdx, float workspacePitch, float renderScale);
@@ -329,6 +332,7 @@ class CScrollOverview : public IOverview {
     CBox       highlightBoxFor(size_t workspaceIdx, size_t activeIdx, float workspacePitch, float renderScale, PHLMONITOR monitor) const;
     float      workspaceOverviewAlpha(size_t workspaceIdx) const;
     PHLWINDOW windowAtOverviewPoint(const Vector2D& point, size_t* workspaceIdx = nullptr) const;
+    PHLWINDOW groupTabAtOverviewPoint(const Vector2D& point) const; // groupbar tab under point → member window
     PHLWINDOW windowAtOverviewCursor(size_t* workspaceIdx = nullptr);
     PHLWINDOW windowAtOverviewCursorOnWorkspace(size_t workspaceIdx, const PHLWINDOW& ignoredWindow = nullptr, CBox* windowBox = nullptr) const;
     CDropIndicator::SDropAnchor dropAnchorAtOverviewCursorOnWorkspace(size_t workspaceIdx, const PHLWINDOW& ignoredWindow = nullptr,
