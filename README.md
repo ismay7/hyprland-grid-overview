@@ -10,10 +10,7 @@ Nothing has to be configured first — free grid, groups, pins, scratchpad tray 
 if you want: looks, keys, animations, optional named rows. **Building up, never required.** The keyboard stays
 first-class: Hyprland's own keybinds keep working, and the overview's views and zoom have dispatchers to bind.
 
-<video src="assets/demo/gridoverview-demo.webm" controls muted loop playsinline width="100%">
-  <source src="assets/demo/gridoverview-demo.webm" type="video/webm" />
-  <source src="assets/demo/gridoverview-demo.mp4" type="video/mp4" />
-</video>
+https://github.com/user-attachments/assets/ba26646c-4223-4072-9be3-f75153c58a96
 
 ## Out of the box
 
