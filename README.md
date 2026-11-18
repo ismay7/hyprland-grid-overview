@@ -10,6 +10,11 @@ Nothing has to be configured first — free grid, groups, pins, scratchpad tray 
 if you want: looks, keys, animations, optional named rows. **Building up, never required.** The keyboard stays
 first-class: Hyprland's own keybinds keep working, and the overview's views and zoom have dispatchers to bind.
 
+<video src="assets/demo/gridoverview-demo.webm" controls muted loop playsinline width="100%">
+  <source src="assets/demo/gridoverview-demo.webm" type="video/webm" />
+  <source src="assets/demo/gridoverview-demo.mp4" type="video/mp4" />
+</video>
+
 ## Out of the box
 
 - **A free grid**: workspace `R*10+C` sits in row `R`, column `C` (11–19, 21–29, …). It grows as you need it:
